@@ -8,6 +8,15 @@ const { spawn } = require('node:child_process');
 const { test } = require('node:test');
 const path = require('node:path');
 
+const bridgePath = path.join(__dirname, '..', 'bridge', 'src', 'main.ts');
+
+function spawnBridge(env) {
+  return spawn('bun', [bridgePath], {
+    env,
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+}
+
 class LineReader {
   constructor(stream) {
     this.lines = [];
@@ -70,15 +79,11 @@ function close(server) {
 
 test('reconnects after Burp starts and handles a later tool call', async () => {
   const port = await getFreePort();
-  const bridgePath = path.join(__dirname, '..', 'mcp-bridge.js');
-  const bridge = spawn(process.execPath, [bridgePath], {
-    env: {
+  const bridge = spawnBridge({
       ...process.env,
       BURP_MCP_HOST: '127.0.0.1',
       BURP_MCP_PORT: String(port),
       BURP_MCP_TOKEN: 'test-token'
-    },
-    stdio: ['pipe', 'pipe', 'pipe']
   });
   const stdout = new LineReader(bridge.stdout);
   const stderr = new LineReader(bridge.stderr);
@@ -143,7 +148,6 @@ test('reconnects after Burp starts and handles a later tool call', async () => {
 
 test('advertises import contracts and forwards multiline scripts exactly', async () => {
   const port = await getFreePort();
-  const bridgePath = path.join(__dirname, '..', 'mcp-bridge.js');
   const requests = [];
   const toolNames = [
     'bambda_import',
@@ -168,14 +172,11 @@ test('advertises import contracts and forwards multiline scripts exactly', async
       response.end(JSON.stringify({ imported: requests.at(-1).tool }));
     });
   });
-  const bridge = spawn(process.execPath, [bridgePath], {
-    env: {
+  const bridge = spawnBridge({
       ...process.env,
       BURP_MCP_HOST: '127.0.0.1',
       BURP_MCP_PORT: String(port),
       BURP_MCP_TOKEN: 'test-token'
-    },
-    stdio: ['pipe', 'pipe', 'pipe']
   });
   const stdout = new LineReader(bridge.stdout);
 
@@ -326,7 +327,6 @@ test('advertises import contracts and forwards multiline scripts exactly', async
 
 test('returns backend error payloads as MCP tool errors', async () => {
   const port = await getFreePort();
-  const bridgePath = path.join(__dirname, '..', 'mcp-bridge.js');
   const server = http.createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/tools') {
       response.writeHead(200, { 'Content-Type': 'application/json' });
@@ -347,14 +347,11 @@ test('returns backend error payloads as MCP tool errors', async () => {
       response.end('Burp worker failed while importing');
     });
   });
-  const bridge = spawn(process.execPath, [bridgePath], {
-    env: {
+  const bridge = spawnBridge({
       ...process.env,
       BURP_MCP_HOST: '127.0.0.1',
       BURP_MCP_PORT: String(port),
       BURP_MCP_TOKEN: 'test-token'
-    },
-    stdio: ['pipe', 'pipe', 'pipe']
   });
   const stdout = new LineReader(bridge.stdout);
 

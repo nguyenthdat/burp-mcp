@@ -6,7 +6,6 @@ Burp MCP exposes Burp Suite operations through a local authenticated HTTP server
 
 - Burp Suite with the extension JAR loaded
 - Java 25 and Gradle 9+
-- Node.js 20+
 - Bun 1.3+
 
 ## Build
@@ -19,21 +18,28 @@ gradle jar
 
 The JAR is written to `build/libs/burp-mcp.jar`.
 
-Install bridge dependencies and build the Node-compatible bridge:
+Run the published bridge directly with Bun:
 
 ```sh
-bun install
-bun run build
+bunx @nguyenthdat/burpmcp
 ```
 
-`bridge/src/main.ts` is the TypeScript entry point. The build emits the compatibility artifact `mcp-bridge.js`, so existing MCP configurations continue to work:
+For MCP clients, use:
 
 ```json
 {
-  "command": "node",
-  "args": ["/absolute/path/to/burp-mcp/mcp-bridge.js"]
+  "command": "bunx",
+  "args": ["@nguyenthdat/burpmcp"]
 }
 ```
+
+The package exposes the `burpmcp` binary. If an environment requires the package and binary names separately, use:
+
+```sh
+bunx --package @nguyenthdat/burpmcp burpmcp
+```
+
+There is no generated or checked-in root JavaScript bridge. `bridge/src/main.ts` is published and executed natively by Bun.
 
 ## Configuration
 
