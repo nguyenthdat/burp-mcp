@@ -13,27 +13,27 @@ const releaseWorkflow = fs.readFileSync(
 const readme = fs.readFileSync(path.join(projectRoot, 'README.md'), 'utf8');
 const gradleBuild = fs.readFileSync(path.join(projectRoot, 'build.gradle.kts'), 'utf8');
 
-test('stages dual-use releases through an immutable reviewed commit', () => {
-  const stageJob = releaseWorkflow.slice(releaseWorkflow.indexOf('  stage-npm:'));
-  const stageStepNames = [...stageJob.matchAll(/^\s+- name: (.+)$/gm)].map((match) => match[1]);
+test('publishes releases directly through Trusted Publishing', () => {
+  const publishJob = releaseWorkflow.slice(releaseWorkflow.indexOf('  publish-npm:'));
+  const publishStepNames = [...publishJob.matchAll(/^\s+- name: (.+)$/gm)].map(
+    (match) => match[1],
+  );
 
-  assert.match(releaseWorkflow, /npm stage publish/);
+  assert.match(releaseWorkflow, /npm publish/);
   assert.match(
     releaseWorkflow,
-    /npm stage publish "\.\/\$\{TARBALLS\[0\]\}"/,
+    /npm publish "\.\/\$\{TARBALLS\[0\]\}"/,
     'npm must receive an explicit local tarball path instead of a GitHub shorthand',
   );
-  assert.doesNotMatch(releaseWorkflow, /^\s+npm publish\b/m);
+  assert.doesNotMatch(releaseWorkflow, /npm stage publish/);
   assert.doesNotMatch(releaseWorkflow, /NPM_TOKEN|NODE_AUTH_TOKEN|_authToken/);
   assert.match(releaseWorkflow, /ref: \$\{\{ github\.sha \}\}/);
   assert.match(releaseWorkflow, /persist-credentials: false/);
   assert.match(releaseWorkflow, /git merge-base --is-ancestor/);
   assert.match(releaseWorkflow, /permissions:\n\s+contents: read\n\s+id-token: write/);
-  assert.match(readme, /staged through Trusted Publishing with provenance/);
-  assert.match(readme, /2FA approval/);
-  assert.match(releaseWorkflow, /GITHUB_STEP_SUMMARY/);
-  assert.doesNotMatch(releaseWorkflow, /STAGE_ID/);
-  assert.equal(stageStepNames.at(-1), 'Stage npm package with provenance');
+  assert.match(readme, /published directly through npm Trusted Publishing/);
+  assert.doesNotMatch(readme, /2FA approval/);
+  assert.equal(publishStepNames.at(-1), 'Publish npm package with provenance');
 });
 
 test('derives the JAR version from package.json and verifies downloadable assets', () => {
@@ -44,6 +44,6 @@ test('derives the JAR version from package.json and verifies downloadable assets
   assert.match(releaseWorkflow, /--repo \"\$\{GITHUB_REPOSITORY\}\"/);
   assert.ok(
     releaseWorkflow.indexOf('Upload GitHub Release assets') <
-      releaseWorkflow.indexOf('Stage npm package with provenance'),
+      releaseWorkflow.indexOf('Publish npm package with provenance'),
   );
 });

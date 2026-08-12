@@ -105,8 +105,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${GITHUB_REF_NAME}" release-artifacts/* --clobber --repo "${GITHUB_REPOSITORY}"
 
-  stage-npm:
-    name: Stage npm package for 2FA approval
+  publish-npm:
+    name: Publish npm package
     needs:
       - build
       - release-assets
@@ -128,20 +128,11 @@ jobs:
           node-version: "24.15.0"
           registry-url: https://registry.npmjs.org/
           package-manager-cache: false
-      - name: Install staged-publishing-compatible npm CLI
+      - name: Install Trusted Publishing-compatible npm CLI
         run: npm install --global --ignore-scripts npm@12.0.2
-      - name: Record npm approval instructions
-        run: |
-          {
-            echo "## npm staged publishing"
-            echo
-            echo "The next step stages the package. Inspect it on npm's Staged Packages page, then approve it with 2FA."
-            echo
-            echo "CLI alternative: \`npm stage list @nguyenthdat/burpmcp\`, then \`npm stage approve <stage-id>\`."
-          } >> "${GITHUB_STEP_SUMMARY}"
-      - name: Stage npm package with provenance
+      - name: Publish npm package with provenance
         run: |
           shopt -s nullglob
           TARBALLS=(release-artifacts/*.tgz)
           test "${#TARBALLS[@]}" -eq 1
-          npm stage publish "./${TARBALLS[0]}" --access public --provenance --json
+          npm publish "./${TARBALLS[0]}" --access public --provenance
