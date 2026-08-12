@@ -364,9 +364,9 @@ Cargo.lock
 *.pdb
 
 # End of https://www.toptal.com/developers/gitignore/api/rust,node,python,kotlin,java
-.cloakbrowser-artifacts/
-.kotlin/sessions/
+.cloakbrowser-artifacts
+.kotlin
 .omo
 .DS_Store
-.gradle/
-.codegraph/
+.gradle
+.codegraph
