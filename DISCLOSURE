@@ -1,0 +1,16 @@
+# Dual-use disclosure
+
+Package: @nguyenthdat/burpmcp
+Content policy class: dual-use (https://docs.npmjs.com/policies/dual-use)
+
+## Security-sensitive capabilities
+
+Burp MCP is an integration for authorized application security testing. It exposes user-invoked Burp Suite capabilities through a local authenticated HTTP service and an MCP stdio bridge. Depending on the selected tool, it can inspect captured HTTP traffic, replay or modify requests, run fuzzing and injection probes, interact with Burp Scanner and Collaborator, manipulate WebSocket traffic, and configure Burp project behavior. These capabilities can resemble offensive security or malware behavior to automated scanners.
+
+## Network and local access
+
+The npm package connects only to the Burp MCP extension endpoint configured by the user, defaulting to `127.0.0.1:9876`. It authenticates with `BURP_MCP_TOKEN` or the local `~/.burp-mcp-token` file. Requests sent onward by Burp are explicitly initiated by the user or the user's MCP client. The bridge does not collect telemetry and does not send package data to a maintainer-controlled service.
+
+## Intended legitimate use
+
+The package is intended for defensive security research, penetration testing, vulnerability validation, and automation against systems for which the user has authorization. It must not be used to access or test systems without permission. The source is public at https://github.com/nguyenthdat/burp-mcp and issues are tracked at https://github.com/nguyenthdat/burp-mcp/issues.
