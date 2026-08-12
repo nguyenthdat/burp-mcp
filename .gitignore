@@ -372,4 +372,4 @@ Cargo.lock
 .codegraph
 
 # Local OpenCode configuration
-.opencode/opencode.jsonc
+# .opencode/opencode.jsonc
