@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "mcps": {},
+  "plugins": {},
+  "skills": {
+    "custom:rust-coding": {
+      "source": "custom",
+      "sourcePath": "rust-coding",
+      "name": "rust-coding",
+      "digest": "0370f85d71d7b4aa1854225cf77bf22657f183af5367d07fd682d6a502b1a8de"
+    },
+    "custom:java-coding": {
+      "source": "custom",
+      "sourcePath": "java-coding",
+      "name": "java-coding",
+      "digest": "5dc719a530e41420a8cb499e683c0ac40329eb2d2d452f45424929f9a1297b7a"
+    },
+    "custom:uniffi": {
+      "source": "custom",
+      "sourcePath": "uniffi",
+      "name": "uniffi",
+      "digest": "93383dbe2c80d80bf224e430de44236beb7300c02a810f68872722d0d0206d80"
+    },
+    "custom:typescript-coding": {
+      "source": "custom",
+      "sourcePath": "typescript-coding",
+      "name": "typescript-coding",
+      "digest": "69a49dc45760a4230823f31d7b705d4e26d8de960ca98f03a1d31e9a15d5e686"
+    },
+    "custom:javascript-coding": {
+      "source": "custom",
+      "sourcePath": "javascript-coding",
+      "name": "javascript-coding",
+      "digest": "09b05e48eea6c42b73784f92959fbc58f120965d253b2545be9c69c8b0beab9c"
+    },
+    "custom:design-patterns": {
+      "source": "custom",
+      "sourcePath": "design-patterns",
+      "name": "design-patterns",
+      "digest": "c9c57296a0ba4e461e2908c5b4ded329b52feef2696301e31df5487687c890f6"
+    }
+  },
+  "rules": {},
+  "agents": {}
+}

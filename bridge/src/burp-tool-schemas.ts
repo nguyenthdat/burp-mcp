@@ -1,0 +1,262 @@
+import type { JsonObject } from "./types"
+
+const REQUIRED: Readonly<Record<string, readonly string[]>> = {
+  bambda_import: ["script"],
+  bcheck_import: ["script", "enabled"],
+  send_to_repeater: ["request"],
+  scan_active: ["host", "request"],
+  highlight: ["index"],
+  annotate: ["index", "note"],
+}
+
+const SCHEMAS: Readonly<Record<string, JsonObject>> = {
+  proxy_history: {
+    limit: { type: "number", description: "Max items (default 100)" },
+    offset: { type: "number" },
+    url_filter: { type: "string" },
+    method_filter: { type: "string" },
+    status_filter: { type: "number" },
+  },
+  proxy_detail: { index: { type: "number", description: "History item index" } },
+  proxy_websocket: { limit: { type: "number" } },
+  proxy_history_filtered: {
+    has_notes: { type: "string" },
+    color: { type: "string" },
+    limit: { type: "number" },
+  },
+  send_request: {
+    method: { type: "string" },
+    url: { type: "string", description: "Full URL" },
+    body: { type: "string" },
+    headers: { type: "object" },
+  },
+  repeater_send: {
+    request: { type: "string", description: "Raw HTTP request" },
+    host: { type: "string" },
+    port: { type: "number" },
+    https: { type: "boolean" },
+  },
+  repeater_modify_send: {
+    request: { type: "string" },
+    host: { type: "string" },
+    port: { type: "number" },
+    https: { type: "boolean" },
+    replace_header: { type: "object" },
+    add_header: { type: "object" },
+    replace_body: { type: "string" },
+  },
+  send_to_repeater: {
+    request: {
+      type: "string",
+      description: "Raw HTTP request displayed in Repeater without sending it",
+    },
+    tab_name: {
+      type: "string",
+      description: "Optional Repeater tab caption, not a tag",
+      default: "MCP",
+    },
+  },
+  send_to_intruder: { request: { type: "string" } },
+  intruder_attack: {
+    url_template: { type: "string", description: "URL with @@ placeholder" },
+    from: { type: "number" },
+    to: { type: "number" },
+    pad_digits: { type: "number" },
+    method: { type: "string" },
+    headers: { type: "object" },
+    success_length_not: { type: "number" },
+    success_contains: { type: "string" },
+  },
+  intruder_attack_async: {
+    url_template: { type: "string" },
+    from: { type: "number" },
+    to: { type: "number" },
+    pad_digits: { type: "number" },
+    method: { type: "string" },
+    headers: { type: "object" },
+    success_length_not: { type: "number" },
+    threads: { type: "number" },
+  },
+  intruder_attack_wordlist: {
+    url_template: { type: "string" },
+    wordlist: { type: "array", items: { type: "string" } },
+    method: { type: "string" },
+    headers: { type: "object" },
+    success_length_not: { type: "number" },
+    body_template: { type: "string" },
+  },
+  intruder_pitchfork: {
+    url_template: { type: "string" },
+    placeholders: { type: "object" },
+    method: { type: "string" },
+    headers: { type: "object" },
+    success_length_not: { type: "number" },
+  },
+  intruder_cluster_bomb: {
+    url_template: { type: "string" },
+    placeholders: { type: "object" },
+    method: { type: "string" },
+    headers: { type: "object" },
+    success_length_not: { type: "number" },
+    max_requests: { type: "number" },
+  },
+  intruder_battering_ram: {
+    url_template: { type: "string" },
+    wordlist: { type: "array", items: { type: "string" } },
+    placeholder: { type: "string" },
+    method: { type: "string" },
+    headers: { type: "object" },
+    success_length_not: { type: "number" },
+  },
+  intruder_with_options: {
+    url_template: { type: "string" },
+    from: { type: "number" },
+    to: { type: "number" },
+    pad_digits: { type: "number" },
+    method: { type: "string" },
+    headers: { type: "object" },
+    success_length_not: { type: "number" },
+    throttle_ms: { type: "number" },
+    payload_prefix: { type: "string" },
+    payload_suffix: { type: "string" },
+    payload_encoding: { type: "string" },
+    grep_extract: { type: "string" },
+    record_time: { type: "boolean" },
+  },
+  sitemap: { url_prefix: { type: "string" }, limit: { type: "number" } },
+  target_info: { url: { type: "string" } },
+  intercept_toggle: { enable: { type: "boolean" } },
+  encode: {
+    input: { type: "string" },
+    type: { type: "string", description: "base64, url, or hex" },
+  },
+  decode: { input: { type: "string" }, type: { type: "string", description: "base64 or url" } },
+  convert_request: { request: { type: "string" }, convert_to: { type: "string" } },
+  export_request: {
+    request: { type: "string" },
+    host: { type: "string" },
+    format: { type: "string", description: "curl or python" },
+    https: { type: "boolean" },
+  },
+  generate_csrf_poc: {
+    request: { type: "string" },
+    host: { type: "string" },
+    https: { type: "boolean" },
+  },
+  extract_from_response: { index: { type: "number" }, regex: { type: "string" } },
+  payload_process: {
+    input: { type: "string" },
+    operation: {
+      type: "string",
+      description:
+        "base64_encode/decode, url_encode/decode, md5, sha1, sha256, hex_encode, lowercase, uppercase, reverse, length",
+    },
+  },
+  scan_active: {
+    request: {
+      type: "string",
+      description:
+        "Raw HTTP request that seeds a standard active audit and does not select a BCheck",
+    },
+    host: { type: "string" },
+    port: { type: "number" },
+    https: { type: "boolean" },
+  },
+  scan_results: { limit: { type: "number" } },
+  scan_issue_detail: { index: { type: "number" } },
+  crawl: { url: { type: "string" } },
+  get_scope: { url: { type: "string" } },
+  add_to_scope: { url: { type: "string" } },
+  remove_from_scope: { url: { type: "string" } },
+  collaborator_generate: { count: { type: "number" } },
+  search_history: {
+    regex: { type: "string" },
+    search_in: { type: "string", description: "url, request, or response" },
+    limit: { type: "number" },
+  },
+  highlight: {
+    index: { type: "number", description: "Zero-based current Proxy HTTP history index" },
+    color: { type: "string" },
+  },
+  annotate: {
+    index: { type: "number", description: "Zero-based current Proxy HTTP history index" },
+    note: { type: "string" },
+  },
+  compare: { index1: { type: "number" }, index2: { type: "number" } },
+  import_config: { config: { type: "string" } },
+  set_upstream_proxy: {
+    proxy_host: { type: "string" },
+    proxy_port: { type: "number" },
+    type: { type: "string" },
+  },
+  set_dns_override: { hostname: { type: "string" }, ip: { type: "string" } },
+  set_http2: { enable: { type: "boolean" } },
+  cookie_jar: { limit: { type: "number" }, domain: { type: "string" } },
+  token_analysis: { tokens: { type: "array", items: { type: "string" } } },
+  sequencer: { tokens: { type: "array", items: { type: "string" } } },
+  add_issue: {
+    name: { type: "string" },
+    url: { type: "string" },
+    detail: { type: "string" },
+    severity: { type: "string" },
+    confidence: { type: "string" },
+  },
+  register_http_handler: {
+    header_name: { type: "string" },
+    header_value: { type: "string" },
+    match: { type: "string" },
+    replace: { type: "string" },
+  },
+  register_proxy_rule: { url_contains: { type: "string" } },
+  log: { message: { type: "string" }, level: { type: "string" } },
+  audit_log: { limit: { type: "number" } },
+  privacy_mode: { mode: { type: "string" } },
+  scope_gate: { action: { type: "string" } },
+  inline_fuzzer: {
+    template: { type: "string" },
+    host: { type: "string" },
+    wordlist: { type: "array" },
+  },
+  race_condition: {
+    request: { type: "string" },
+    host: { type: "string" },
+    count: { type: "number" },
+  },
+  access_control_sweep: {
+    request: { type: "string" },
+    host: { type: "string" },
+    auth_headers: { type: "string" },
+  },
+  injection_probe: { url: { type: "string" }, param: { type: "string" }, type: { type: "string" } },
+  jwt_attack: { token: { type: "string" }, attack: { type: "string" } },
+  jwt_decode: { token: { type: "string" } },
+  session_remove_rule: {},
+  session_list_rules: {},
+  session_create_rule: { find: { type: "string" }, replace: { type: "string" } },
+  passive_intel: { limit: { type: "number" } },
+  websocket_list: {},
+  websocket_close: { id: { type: "string" } },
+  websocket_send_binary: { id: { type: "string" }, data: { type: "string" } },
+  websocket_send_text: { id: { type: "string" }, text: { type: "string" } },
+  websocket_create: { host: { type: "string" }, port: { type: "number" } },
+  send_request_parallel: { requests: { type: "array" } },
+  cookie_jar_set: { url: { type: "string" }, name: { type: "string" }, value: { type: "string" } },
+  bambda_import: {
+    script: {
+      type: "string",
+      description: "Complete Bambda script to import only; it is not executed",
+    },
+  },
+  bcheck_import: {
+    script: { type: "string", description: "Complete BCheck script to import only; it is not run" },
+    enabled: { type: "boolean", description: "Requested BCheck state after a successful import" },
+  },
+}
+
+export function getBurpToolInputSchema(name: string): JsonObject {
+  const properties = SCHEMAS[name] ?? {}
+  const required = REQUIRED[name]
+  return required === undefined
+    ? { type: "object", properties }
+    : { type: "object", properties, required }
+}
