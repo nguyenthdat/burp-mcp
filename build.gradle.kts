@@ -1,3 +1,4 @@
+import groovy.json.JsonSlurper
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -5,7 +6,8 @@ plugins {
 }
 
 group = "io.github.nguyenthdat.burpmcp"
-version = "1.0.0"
+val packageMetadata = JsonSlurper().parse(file("package.json")) as Map<*, *>
+version = requireNotNull(packageMetadata["version"]) { "package.json must define version" }.toString()
 
 repositories {
     mavenCentral()
