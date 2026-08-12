@@ -370,3 +370,6 @@ Cargo.lock
 .DS_Store
 .gradle
 .codegraph
+
+# Local OpenCode configuration
+.opencode/opencode.jsonc
