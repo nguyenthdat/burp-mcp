@@ -40,7 +40,6 @@ import com.google.gson.JsonParser
 import fi.iki.elonen.NanoHTTPD
 import java.io.IOException
 import java.net.URI
-import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.FileSystems
@@ -54,7 +53,6 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.security.SecureRandom
 import java.time.ZonedDateTime
 import java.util.Base64
-import java.util.Collections
 import java.util.EnumSet
 import java.util.HexFormat
 import java.util.Locale
@@ -76,6 +74,7 @@ class McpHttpServer(
     port: Int,
 ) : NanoHTTPD("127.0.0.1", port) {
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
+    private val compactGson = Gson()
     private val authToken: String = resolveAuthToken()
     private var collaborator: CollaboratorClient? = null
 
@@ -319,19 +318,18 @@ class McpHttpServer(
         val filterUrl: String? = if (params.has("url_filter")) params.get("url_filter").asString else null
         val filterMethod: String? = if (params.has("method_filter")) params.get("method_filter").asString else null
         val filterStatus: Int = if (params.has("status_filter")) params.get("status_filter").asInt else 0
-        var filtered: MutableList<ProxyHttpRequestResponse> = ArrayList(history)
-        if (filterUrl != null) filtered = filtered.filter { it.finalRequest().url().contains(filterUrl) }.toMutableList()
-        if (filterMethod !=
-            null
-        ) {
-            filtered = filtered.filter { it.finalRequest().method().equals(filterMethod, ignoreCase = true) }.toMutableList()
-        }
-        if (filterStatus > 0) filtered = filtered.filter { it.response()?.statusCode()?.toInt() == filterStatus }.toMutableList()
-        Collections.reverse(filtered)
-        val end: Int = min(offset + limit, filtered.size)
+        val filteredIndices: List<Int> =
+            history.indices.reversed().filter { index ->
+                val entry = history[index]
+                (filterUrl == null || entry.finalRequest().url().contains(filterUrl)) &&
+                    (filterMethod == null || entry.finalRequest().method().equals(filterMethod, ignoreCase = true)) &&
+                    (filterStatus <= 0 || entry.response()?.statusCode()?.toInt() == filterStatus)
+            }
+        val end: Int = min(offset + limit, filteredIndices.size)
         val items = JsonArray()
-        for (index in offset until end) {
-            val entry: ProxyHttpRequestResponse = filtered[index]
+        for (position in offset until end) {
+            val index: Int = filteredIndices[position]
+            val entry: ProxyHttpRequestResponse = history[index]
             val response: HttpResponse? = entry.response()
             items.add(
                 JsonObject().apply {
@@ -343,7 +341,7 @@ class McpHttpServer(
                 },
             )
         }
-        result.addProperty("total", filtered.size)
+        result.addProperty("total", filteredIndices.size)
         result.add("items", items)
         return result
     }
@@ -390,14 +388,14 @@ class McpHttpServer(
                 rawRequest
                     .append(
                         "Content-Length: ",
-                    ).append(body.length)
+                    ).append(utf8Length(body))
                     .append("\r\n\r\n")
                     .append(body)
             } else {
                 rawRequest.append("\r\n")
             }
             val service: HttpService = HttpService.httpService(host, port, isHttps)
-            val response: HttpResponse = api.http().sendRequest(HttpRequest.httpRequest(service, rawRequest.toString())).response()
+            val response: HttpResponse = api.http().sendRequest(httpRequestUtf8(service, rawRequest.toString())).response()
             result.addProperty("status", response.statusCode())
             result.addProperty("length", response.body().length())
             var responseBody: String = response.bodyToString()
@@ -441,11 +439,11 @@ class McpHttpServer(
 
     private fun buildRequestWithService(rawRequest: String): HttpRequest {
         val matcher = Pattern.compile("(?im)^Host:\\s*([^:\r\n]+)(?::(\\d+))?\\s*$").matcher(rawRequest)
-        if (!matcher.find()) return HttpRequest.httpRequest(rawRequest)
+        if (!matcher.find()) return httpRequestUtf8(rawRequest)
         val host: String = matcher.group(1).trim()
         val isHttps: Boolean = rawRequest.contains("https://") || rawRequest.contains(":443")
         val port: Int = matcher.group(2)?.toInt() ?: if (isHttps) 443 else 80
-        return HttpRequest.httpRequest(HttpService.httpService(host, port, isHttps), rawRequest)
+        return httpRequestUtf8(HttpService.httpService(host, port, isHttps), rawRequest)
     }
 
     private fun intruderAttack(params: JsonObject): JsonObject = runSequentialAttack(params, false)
@@ -522,7 +520,7 @@ class McpHttpServer(
                         rawRequest
                             .append(
                                 "Content-Length: ",
-                            ).append(body.length)
+                            ).append(utf8Length(body))
                             .append("\r\n\r\n")
                             .append(body)
                     } else {
@@ -532,7 +530,7 @@ class McpHttpServer(
                         api
                             .http()
                             .sendRequest(
-                                HttpRequest.httpRequest(
+                                httpRequestUtf8(
                                     HttpService.httpService(
                                         host,
                                         port,
@@ -637,7 +635,7 @@ class McpHttpServer(
                                     rawRequest
                                         .append(
                                             "Content-Length: ",
-                                        ).append(body.length)
+                                        ).append(utf8Length(body))
                                         .append("\r\n\r\n")
                                         .append(body)
                                 } else {
@@ -647,7 +645,7 @@ class McpHttpServer(
                                     api
                                         .http()
                                         .sendRequest(
-                                            HttpRequest.httpRequest(
+                                            httpRequestUtf8(
                                                 HttpService.httpService(
                                                     host,
                                                     port,
@@ -749,7 +747,7 @@ class McpHttpServer(
         val input: String = params.get("input").asString
         when (if (params.has("type")) params.get("type").asString else "base64") {
             "base64" -> {
-                result.addProperty("output", Base64.getEncoder().encodeToString(input.toByteArray(Charset.defaultCharset())))
+                result.addProperty("output", Base64.getEncoder().encodeToString(input.toByteArray(StandardCharsets.UTF_8)))
             }
 
             "url" -> {
@@ -762,7 +760,7 @@ class McpHttpServer(
 
             "hex" -> {
                 val hex = StringBuilder()
-                for (byte in input.toByteArray(Charset.defaultCharset())) hex.append(String.format("%02x", byte))
+                for (byte in input.toByteArray(StandardCharsets.UTF_8)) hex.append(String.format("%02x", byte))
                 result.addProperty("output", hex.toString())
             }
 
@@ -778,7 +776,7 @@ class McpHttpServer(
         val input: String = params.get("input").asString
         when (if (params.has("type")) params.get("type").asString else "base64") {
             "base64" -> {
-                result.addProperty("output", String(Base64.getDecoder().decode(input), Charset.defaultCharset()))
+                result.addProperty("output", String(Base64.getDecoder().decode(input), StandardCharsets.UTF_8))
             }
 
             "url" -> {
@@ -1163,6 +1161,7 @@ class McpHttpServer(
                         addProperty("value", cookie.value())
                         addProperty("domain", cookie.domain())
                         addProperty("path", cookie.path())
+                        addProperty("expiration", cookie.expiration().map(ZonedDateTime::toString).orElse(""))
                     },
                 )
                 count++
@@ -1248,7 +1247,7 @@ class McpHttpServer(
                 api
                     .http()
                     .sendRequest(
-                        HttpRequest.httpRequest(HttpService.httpService(host, port, isHttps), params.get("request").asString),
+                        httpRequestUtf8(HttpService.httpService(host, port, isHttps), params.get("request").asString),
                     ).response()
             result.addProperty("status", response.statusCode())
             result.addProperty("length", response.body().length())
@@ -1320,7 +1319,7 @@ class McpHttpServer(
                         rawRequest
                             .append(
                                 "Content-Length: ",
-                            ).append(body.length)
+                            ).append(utf8Length(body))
                             .append("\r\n\r\n")
                             .append(body)
                     } else {
@@ -1330,7 +1329,7 @@ class McpHttpServer(
                         api
                             .http()
                             .sendRequest(
-                                HttpRequest.httpRequest(
+                                httpRequestUtf8(
                                     HttpService.httpService(
                                         host,
                                         port,
@@ -1422,12 +1421,48 @@ class McpHttpServer(
         val result = JsonObject()
         try {
             val request: String = params.get("request").asString
-            val host: String = if (params.has("host")) params.get("host").asString else "example.com"
             val https: Boolean = if (params.has("https")) params.get("https").asBoolean else true
-            val lines: kotlin.Array<String> = request.split("\r\n").toTypedArray()
-            val parts: kotlin.Array<String> = lines[0].split(" ").toTypedArray()
-            val url: String = (if (https) "https://" else "http://") + host + if (parts.size > 1) parts[1] else "/"
-            result.addProperty("curl", "curl -X ${parts[0]} '$url'")
+            val separatorIndex: Int = request.indexOf("\r\n\r\n")
+            val head: String = if (separatorIndex < 0) request else request.substring(0, separatorIndex)
+            val body: String = if (separatorIndex < 0) "" else request.substring(separatorIndex + 4)
+            val lines: List<String> = head.split("\r\n")
+            val parts: List<String> = lines.first().split(" ")
+            val headers: Map<String, String> =
+                lines
+                    .drop(1)
+                    .mapNotNull { line ->
+                        val delimiter = line.indexOf(":")
+                        if (delimiter <= 0) null else line.substring(0, delimiter) to line.substring(delimiter + 1).trim()
+                    }.toMap()
+            val host: String =
+                params.get("host")?.asString ?: headers.entries.firstOrNull { it.key.equals("Host", true) }?.value ?: "example.com"
+            val method: String = parts.firstOrNull() ?: "GET"
+            val path: String = parts.getOrNull(1) ?: "/"
+            val url: String = (if (https) "https://" else "http://") + host + path
+            val exportedHeaders: Map<String, String> = headers.filterKeys { !it.equals("Host", true) && !it.equals("Content-Length", true) }
+            when (if (params.has("format")) params.get("format").asString.lowercase(Locale.ROOT) else "curl") {
+                "curl" -> {
+                    val command = StringBuilder("curl -X ${shellQuote(method)} ${shellQuote(url)}")
+                    exportedHeaders.forEach { (name, value) -> command.append(" -H ").append(shellQuote("$name: $value")) }
+                    if (body.isNotEmpty()) command.append(" --data-raw ").append(shellQuote(body))
+                    result.addProperty("curl", command.toString())
+                }
+
+                "python" -> {
+                    val code =
+                        StringBuilder(
+                            "import requests\n\nresponse = requests.request(${compactGson.toJson(method)}, ${compactGson.toJson(url)}",
+                        )
+                    if (exportedHeaders.isNotEmpty()) code.append(", headers=").append(compactGson.toJson(exportedHeaders))
+                    if (body.isNotEmpty()) code.append(", data=").append(compactGson.toJson(body))
+                    code.append(")")
+                    result.addProperty("python", code.toString())
+                }
+
+                else -> {
+                    result.addProperty("error", "Unsupported format. Expected curl or python.")
+                }
+            }
         } catch (exception: Exception) {
             result.addProperty("error", exception.message)
         }
@@ -1459,7 +1494,7 @@ class McpHttpServer(
             val host: String = params.get("host").asString
             val port: Int = if (params.has("port")) params.get("port").asInt else 443
             val isHttps: Boolean = if (params.has("https")) params.get("https").asBoolean else true
-            val request: HttpRequest = HttpRequest.httpRequest(HttpService.httpService(host, port, isHttps), params.get("request").asString)
+            val request: HttpRequest = httpRequestUtf8(HttpService.httpService(host, port, isHttps), params.get("request").asString)
             api.scope().includeInScope(request.url())
             val audit: Audit =
                 api.scanner().startAudit(
@@ -1532,6 +1567,7 @@ class McpHttpServer(
                 }
                 index++
             }
+            if (!result.has("name")) result.addProperty("error", "Index out of range")
         } catch (exception: Exception) {
             result.addProperty("error", exception.message)
         }
@@ -1638,14 +1674,13 @@ class McpHttpServer(
                 rawRequest = rawRequest.substring(0, insertPosition) + headers + rawRequest.substring(insertPosition)
             }
             if (params.has("replace_body")) {
-                val bodyStart: Int = rawRequest.indexOf("\r\n\r\n")
-                if (bodyStart > 0) rawRequest = rawRequest.substring(0, bodyStart + 4) + params.get("replace_body").asString
+                rawRequest = replaceRequestBody(rawRequest, params.get("replace_body").asString)
             }
             val response: HttpResponse =
                 api
                     .http()
                     .sendRequest(
-                        HttpRequest.httpRequest(HttpService.httpService(host, port, isHttps), rawRequest),
+                        httpRequestUtf8(HttpService.httpService(host, port, isHttps), rawRequest),
                     ).response()
             result.addProperty("status", response.statusCode())
             result.addProperty("length", response.body().length())
@@ -1719,7 +1754,7 @@ class McpHttpServer(
                         rawRequest
                             .append(
                                 "Content-Length: ",
-                            ).append(body.length)
+                            ).append(utf8Length(body))
                             .append("\r\n\r\n")
                             .append(body)
                     } else {
@@ -1729,7 +1764,7 @@ class McpHttpServer(
                         api
                             .http()
                             .sendRequest(
-                                HttpRequest.httpRequest(
+                                httpRequestUtf8(
                                     HttpService.httpService(
                                         host,
                                         port,
@@ -1823,7 +1858,7 @@ class McpHttpServer(
                         rawRequest
                             .append(
                                 "Content-Length: ",
-                            ).append(body.length)
+                            ).append(utf8Length(body))
                             .append("\r\n\r\n")
                             .append(body)
                     } else {
@@ -1833,7 +1868,7 @@ class McpHttpServer(
                         api
                             .http()
                             .sendRequest(
-                                HttpRequest.httpRequest(
+                                httpRequestUtf8(
                                     HttpService.httpService(
                                         host,
                                         port,
@@ -1890,7 +1925,7 @@ class McpHttpServer(
                 val rawPayload: String = if (padDigits > 0) String.format("%0" + padDigits + "d", index) else index.toString()
                 var payload: String = payloadPrefix + rawPayload + payloadSuffix
                 if (payloadEncoding == "base64") {
-                    payload = Base64.getEncoder().encodeToString(payload.toByteArray(Charset.defaultCharset()))
+                    payload = Base64.getEncoder().encodeToString(payload.toByteArray(StandardCharsets.UTF_8))
                 } else if (payloadEncoding == "url") {
                     try {
                         payload = java.net.URLEncoder.encode(payload, "UTF-8")
@@ -1904,7 +1939,7 @@ class McpHttpServer(
                             HexFormat.of().formatHex(
                                 java.security.MessageDigest
                                     .getInstance("MD5")
-                                    .digest(payload.toByteArray(Charset.defaultCharset())),
+                                    .digest(payload.toByteArray(StandardCharsets.UTF_8)),
                             )
                     } catch (
                         _: Exception,
@@ -1949,7 +1984,7 @@ class McpHttpServer(
                         api
                             .http()
                             .sendRequest(
-                                HttpRequest.httpRequest(
+                                httpRequestUtf8(
                                     HttpService.httpService(
                                         host,
                                         port,
@@ -1999,11 +2034,24 @@ class McpHttpServer(
                 return result
             }
             val body: String = history[index].response()?.bodyToString() ?: ""
+            val limit: Int = if (params.has("limit")) params.get("limit").asInt else 100
+            if (limit !in 1..500) {
+                result.addProperty("error", "limit must be between 1 and 500")
+                return result
+            }
             val matcher = Pattern.compile(params.get("regex").asString).matcher(body)
             val matches = JsonArray()
-            while (matcher.find()) matches.add(matcher.group())
+            var truncated = false
+            while (matcher.find()) {
+                if (matches.size() >= limit) {
+                    truncated = true
+                    break
+                }
+                matches.add(matcher.group())
+            }
             result.addProperty("total_matches", matches.size())
             result.add("matches", matches)
+            result.addProperty("truncated", truncated)
         } catch (exception: Exception) {
             result.addProperty("error", exception.message)
         }
@@ -2095,11 +2143,11 @@ class McpHttpServer(
             val output: String =
                 when (operation) {
                     "base64_encode" -> {
-                        Base64.getEncoder().encodeToString(input.toByteArray(Charset.defaultCharset()))
+                        Base64.getEncoder().encodeToString(input.toByteArray(StandardCharsets.UTF_8))
                     }
 
                     "base64_decode" -> {
-                        String(Base64.getDecoder().decode(input), Charset.defaultCharset())
+                        String(Base64.getDecoder().decode(input), StandardCharsets.UTF_8)
                     }
 
                     "url_encode" -> {
@@ -2114,7 +2162,7 @@ class McpHttpServer(
                         HexFormat.of().formatHex(
                             java.security.MessageDigest
                                 .getInstance("MD5")
-                                .digest(input.toByteArray(Charset.defaultCharset())),
+                                .digest(input.toByteArray(StandardCharsets.UTF_8)),
                         )
                     }
 
@@ -2122,7 +2170,7 @@ class McpHttpServer(
                         HexFormat.of().formatHex(
                             java.security.MessageDigest
                                 .getInstance("SHA-1")
-                                .digest(input.toByteArray(Charset.defaultCharset())),
+                                .digest(input.toByteArray(StandardCharsets.UTF_8)),
                         )
                     }
 
@@ -2130,7 +2178,7 @@ class McpHttpServer(
                         HexFormat.of().formatHex(
                             java.security.MessageDigest
                                 .getInstance("SHA-256")
-                                .digest(input.toByteArray(Charset.defaultCharset())),
+                                .digest(input.toByteArray(StandardCharsets.UTF_8)),
                         )
                     }
 
@@ -2138,7 +2186,7 @@ class McpHttpServer(
                         StringBuilder()
                             .apply {
                                 for (byte in input.toByteArray(
-                                    Charset.defaultCharset(),
+                                    StandardCharsets.UTF_8,
                                 )) {
                                     append(String.format("%02x", byte))
                                 }
@@ -2279,6 +2327,7 @@ class McpHttpServer(
         val result = JsonObject()
         try {
             val hasNotes: String? = if (params.has("has_notes")) params.get("has_notes").asString else null
+            val color: String? = if (params.has("color")) params.get("color").asString else null
             val limit: Int = if (params.has("limit")) params.get("limit").asInt else 50
             val history: List<ProxyHttpRequestResponse> = api.proxy().history()
             val items = JsonArray()
@@ -2290,6 +2339,14 @@ class McpHttpServer(
                 if (hasNotes != null && hasNotes == "true") {
                     val notes: String? = entry.annotations().notes()
                     matches = notes != null && notes.isNotEmpty()
+                }
+                if (color != null && color.isNotEmpty()) {
+                    matches = matches &&
+                        entry
+                            .annotations()
+                            .highlightColor()
+                            .name
+                            .equals(color, ignoreCase = true)
                 }
                 if (matches) {
                     items.add(
@@ -2352,7 +2409,7 @@ class McpHttpServer(
                                 }
                                 if (httpHandlerMatch.isNotEmpty()) {
                                     modified =
-                                        HttpRequest.httpRequest(
+                                        httpRequestUtf8(
                                             modified.httpService(),
                                             modified.toString().replace(httpHandlerMatch, httpHandlerReplace),
                                         )
@@ -2509,9 +2566,11 @@ class McpHttpServer(
                 body.isNotEmpty()
             ) {
                 request =
-                    "$method $pathQuery HTTP/1.1\r\nHost: ${target.host}\r\nContent-Length: ${body.length}\r\nConnection: close\r\n\r\n$body"
+                    "$method $pathQuery HTTP/1.1\r\nHost: ${target.host}\r\nContent-Length: ${utf8Length(
+                        body,
+                    )}\r\nConnection: close\r\n\r\n$body"
             }
-            api.http().sendRequest(HttpRequest.httpRequest(service, request))
+            api.http().sendRequest(httpRequestUtf8(service, request))
         } catch (_: Exception) {
             null
         }
@@ -2519,11 +2578,12 @@ class McpHttpServer(
     private fun cookieJarSet(params: JsonObject): JsonObject {
         val result = JsonObject()
         try {
+            val domain: String = URI(params.get("url").asString).host
             api.http().cookieJar().setCookie(
-                params.get("url").asString,
                 params.get("name").asString,
                 params.get("value").asString,
                 "/",
+                domain,
                 ZonedDateTime.now().plusDays(30),
             )
             result.addProperty("success", true)
@@ -2609,7 +2669,7 @@ class McpHttpServer(
                 result.addProperty("error", "WS not found")
                 return result
             }
-            webSocket.sendBinaryMessage(ByteArray.byteArray(*params.get("data").asString.toByteArray(Charset.defaultCharset())))
+            webSocket.sendBinaryMessage(ByteArray.byteArray(*params.get("data").asString.toByteArray(StandardCharsets.UTF_8)))
             result.addProperty("success", true)
         } catch (exception: Exception) {
             result.addProperty("error", exception.message)
@@ -2721,7 +2781,7 @@ class McpHttpServer(
                         override fun performAction(actionData: SessionHandlingActionData): ActionResult {
                             val request: String = pattern.matcher(actionData.request().toString()).replaceAll(replacement)
                             return try {
-                                ActionResult.actionResult(HttpRequest.httpRequest(request))
+                                ActionResult.actionResult(httpRequestUtf8(actionData.request().httpService(), request))
                             } catch (
                                 _: Exception,
                             ) {
@@ -2760,11 +2820,11 @@ class McpHttpServer(
             }
             result.add(
                 "header",
-                JsonParser.parseString(String(Base64.getUrlDecoder().decode(parts[0]), Charset.defaultCharset())),
+                JsonParser.parseString(String(Base64.getUrlDecoder().decode(parts[0]), StandardCharsets.UTF_8)),
             )
             result.add(
                 "payload",
-                JsonParser.parseString(String(Base64.getUrlDecoder().decode(parts[1]), Charset.defaultCharset())),
+                JsonParser.parseString(String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8)),
             )
         } catch (exception: Exception) {
             result.addProperty("error", exception.message)
@@ -2780,12 +2840,12 @@ class McpHttpServer(
                 val header: JsonObject =
                     JsonParser
                         .parseString(
-                            String(Base64.getUrlDecoder().decode(parts[0]), Charset.defaultCharset()),
+                            String(Base64.getUrlDecoder().decode(parts[0]), StandardCharsets.UTF_8),
                         ).asJsonObject
                 header.addProperty("alg", "none")
                 result.addProperty(
                     "forged",
-                    Base64.getUrlEncoder().withoutPadding().encodeToString(header.toString().toByteArray(Charset.defaultCharset())) + "." +
+                    Base64.getUrlEncoder().withoutPadding().encodeToString(header.toString().toByteArray(StandardCharsets.UTF_8)) + "." +
                         parts[1] +
                         ".",
                 )
@@ -2827,7 +2887,7 @@ class McpHttpServer(
                         https,
                     )
                 val request: HttpRequest =
-                    HttpRequest.httpRequest(
+                    httpRequestUtf8(
                         service,
                         "GET " + (if (target.query != null) target.path + "?" + target.query else target.path) + " HTTP/1.1\r\nHost: " +
                             target.host +
@@ -2876,7 +2936,7 @@ class McpHttpServer(
                         Regex("(?i)Authorization: .*\r\n"),
                         if (authorization.isEmpty()) "" else "Authorization: $authorization\r\n",
                     )
-                val requestResponse: HttpRequestResponse = api.http().sendRequest(HttpRequest.httpRequest(service, modified))
+                val requestResponse: HttpRequestResponse = api.http().sendRequest(httpRequestUtf8(service, modified))
                 val response: HttpResponse? = requestResponse.response()
                 items.add(
                     JsonObject().apply {
@@ -2902,7 +2962,7 @@ class McpHttpServer(
                     if (params.has("port")) params.get("port").asInt else 443,
                     if (params.has("https")) params.get("https").asBoolean else true,
                 )
-            val request: HttpRequest = HttpRequest.httpRequest(service, params.get("request").asString)
+            val request: HttpRequest = httpRequestUtf8(service, params.get("request").asString)
             val count: Int = if (params.has("count")) params.get("count").asInt else 10
             val futures: MutableList<Future<HttpRequestResponse>> = ArrayList()
             for (index in 0 until count) futures.add(threadPool.submit<HttpRequestResponse> { api.http().sendRequest(request) })
@@ -2949,7 +3009,7 @@ class McpHttpServer(
                 val payload: String = wordlist[index].asString
                 futures.add(
                     threadPool.submit<HttpRequestResponse> {
-                        api.http().sendRequest(HttpRequest.httpRequest(service, template.replace(marker, payload)))
+                        api.http().sendRequest(httpRequestUtf8(service, template.replace(marker, payload)))
                     },
                 )
             }

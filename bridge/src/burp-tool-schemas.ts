@@ -3,10 +3,56 @@ import type { JsonObject } from "./types"
 const REQUIRED: Readonly<Record<string, readonly string[]>> = {
   bambda_import: ["script"],
   bcheck_import: ["script", "enabled"],
+  proxy_detail: ["index"],
+  send_request: ["url"],
+  repeater_send: ["request", "host"],
+  repeater_modify_send: ["request", "host"],
   send_to_repeater: ["request"],
+  send_to_intruder: ["request"],
+  intruder_attack: ["url_template"],
+  intruder_attack_async: ["url_template"],
+  intruder_attack_wordlist: ["url_template", "wordlist"],
+  intruder_pitchfork: ["url_template", "placeholders"],
+  intruder_cluster_bomb: ["url_template", "placeholders"],
+  intruder_battering_ram: ["url_template", "wordlist"],
+  intruder_with_options: ["url_template"],
+  encode: ["input"],
+  decode: ["input"],
+  convert_request: ["request"],
+  export_request: ["request"],
+  generate_csrf_poc: ["request"],
+  extract_from_response: ["index", "regex"],
+  payload_process: ["input", "operation"],
+  scan: ["url"],
   scan_active: ["host", "request"],
+  scan_issue_detail: ["index"],
+  crawl: ["url"],
+  add_to_scope: ["url"],
+  remove_from_scope: ["url"],
+  injection_probe: ["url", "param"],
+  jwt_attack: ["token"],
   highlight: ["index"],
   annotate: ["index", "note"],
+  compare: ["index1", "index2"],
+  import_config: ["config"],
+  set_upstream_proxy: ["proxy_host", "proxy_port"],
+  set_dns_override: ["hostname", "ip"],
+  token_analysis: ["tokens"],
+  sequencer: ["tokens"],
+  add_issue: ["name", "url"],
+  register_proxy_rule: ["url_contains"],
+  log: ["message"],
+  inline_fuzzer: ["template", "host", "wordlist"],
+  race_condition: ["request", "host"],
+  access_control_sweep: ["request", "host", "auth_headers"],
+  websocket_create: ["host"],
+  websocket_send_text: ["id", "text"],
+  websocket_send_binary: ["id", "data"],
+  websocket_close: ["id"],
+  session_create_rule: ["find", "replace"],
+  jwt_decode: ["token"],
+  send_request_parallel: ["requests"],
+  cookie_jar_set: ["url", "name", "value"],
 }
 
 const SCHEMAS: Readonly<Record<string, JsonObject>> = {
@@ -59,6 +105,7 @@ const SCHEMAS: Readonly<Record<string, JsonObject>> = {
   send_to_intruder: { request: { type: "string" } },
   intruder_attack: {
     url_template: { type: "string", description: "URL with @@ placeholder" },
+    placeholder: { type: "string" },
     from: { type: "number" },
     to: { type: "number" },
     pad_digits: { type: "number" },
@@ -66,9 +113,11 @@ const SCHEMAS: Readonly<Record<string, JsonObject>> = {
     headers: { type: "object" },
     success_length_not: { type: "number" },
     success_contains: { type: "string" },
+    body_template: { type: "string" },
   },
   intruder_attack_async: {
     url_template: { type: "string" },
+    placeholder: { type: "string" },
     from: { type: "number" },
     to: { type: "number" },
     pad_digits: { type: "number" },
@@ -76,6 +125,7 @@ const SCHEMAS: Readonly<Record<string, JsonObject>> = {
     headers: { type: "object" },
     success_length_not: { type: "number" },
     threads: { type: "number" },
+    body_template: { type: "string" },
   },
   intruder_attack_wordlist: {
     url_template: { type: "string" },
@@ -91,6 +141,7 @@ const SCHEMAS: Readonly<Record<string, JsonObject>> = {
     method: { type: "string" },
     headers: { type: "object" },
     success_length_not: { type: "number" },
+    body_template: { type: "string" },
   },
   intruder_cluster_bomb: {
     url_template: { type: "string" },
@@ -99,6 +150,7 @@ const SCHEMAS: Readonly<Record<string, JsonObject>> = {
     headers: { type: "object" },
     success_length_not: { type: "number" },
     max_requests: { type: "number" },
+    body_template: { type: "string" },
   },
   intruder_battering_ram: {
     url_template: { type: "string" },
@@ -107,6 +159,7 @@ const SCHEMAS: Readonly<Record<string, JsonObject>> = {
     method: { type: "string" },
     headers: { type: "object" },
     success_length_not: { type: "number" },
+    body_template: { type: "string" },
   },
   intruder_with_options: {
     url_template: { type: "string" },
@@ -138,12 +191,20 @@ const SCHEMAS: Readonly<Record<string, JsonObject>> = {
     format: { type: "string", description: "curl or python" },
     https: { type: "boolean" },
   },
+  scan: {
+    url: { type: "string", description: "Target URL" },
+    mode: { type: "string", description: "active or passive", default: "active" },
+  },
   generate_csrf_poc: {
     request: { type: "string" },
     host: { type: "string" },
     https: { type: "boolean" },
   },
-  extract_from_response: { index: { type: "number" }, regex: { type: "string" } },
+  extract_from_response: {
+    index: { type: "number" },
+    regex: { type: "string" },
+    limit: { type: "number", description: "Maximum matches returned (default 100, max 500)" },
+  },
   payload_process: {
     input: { type: "string" },
     operation: {
@@ -198,6 +259,7 @@ const SCHEMAS: Readonly<Record<string, JsonObject>> = {
     name: { type: "string" },
     url: { type: "string" },
     detail: { type: "string" },
+    remediation: { type: "string" },
     severity: { type: "string" },
     confidence: { type: "string" },
   },
@@ -207,7 +269,7 @@ const SCHEMAS: Readonly<Record<string, JsonObject>> = {
     match: { type: "string" },
     replace: { type: "string" },
   },
-  register_proxy_rule: { url_contains: { type: "string" } },
+  register_proxy_rule: { url_contains: { type: "string" }, intercept: { type: "boolean" } },
   log: { message: { type: "string" }, level: { type: "string" } },
   audit_log: { limit: { type: "number" } },
   privacy_mode: { mode: { type: "string" } },
@@ -215,16 +277,23 @@ const SCHEMAS: Readonly<Record<string, JsonObject>> = {
   inline_fuzzer: {
     template: { type: "string" },
     host: { type: "string" },
-    wordlist: { type: "array" },
+    port: { type: "number" },
+    https: { type: "boolean" },
+    marker: { type: "string" },
+    wordlist: { type: "array", items: { type: "string" } },
   },
   race_condition: {
     request: { type: "string" },
     host: { type: "string" },
+    port: { type: "number" },
+    https: { type: "boolean" },
     count: { type: "number" },
   },
   access_control_sweep: {
     request: { type: "string" },
     host: { type: "string" },
+    port: { type: "number" },
+    https: { type: "boolean" },
     auth_headers: { type: "string" },
   },
   injection_probe: { url: { type: "string" }, param: { type: "string" }, type: { type: "string" } },
@@ -238,8 +307,26 @@ const SCHEMAS: Readonly<Record<string, JsonObject>> = {
   websocket_close: { id: { type: "string" } },
   websocket_send_binary: { id: { type: "string" }, data: { type: "string" } },
   websocket_send_text: { id: { type: "string" }, text: { type: "string" } },
-  websocket_create: { host: { type: "string" }, port: { type: "number" } },
-  send_request_parallel: { requests: { type: "array" } },
+  websocket_create: {
+    host: { type: "string" },
+    port: { type: "number" },
+    https: { type: "boolean" },
+    path: { type: "string" },
+  },
+  send_request_parallel: {
+    requests: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          method: { type: "string" },
+          url: { type: "string" },
+          body: { type: "string" },
+        },
+        required: ["method", "url"],
+      },
+    },
+  },
   cookie_jar_set: { url: { type: "string" }, name: { type: "string" }, value: { type: "string" } },
   bambda_import: {
     script: {
@@ -255,6 +342,13 @@ const SCHEMAS: Readonly<Record<string, JsonObject>> = {
 
 export function getBurpToolInputSchema(name: string): JsonObject {
   const properties = SCHEMAS[name] ?? {}
+  if (name === "register_http_handler") {
+    return {
+      type: "object",
+      properties,
+      anyOf: [{ required: ["header_name", "header_value"] }, { required: ["match", "replace"] }],
+    }
+  }
   const required = REQUIRED[name]
   return required === undefined
     ? { type: "object", properties }

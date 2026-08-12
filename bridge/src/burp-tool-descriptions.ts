@@ -23,7 +23,7 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = {
   encode: "Encode a string (base64, url, hex)",
   decode: "Decode a string (base64, url)",
   convert_request: "Convert HTTP request method (e.g. GET to POST)",
-  export_request: "Export a request as curl command",
+  export_request: "Export a request as curl or Python requests code",
   generate_csrf_poc: "Generate a CSRF proof-of-concept HTML page",
   extract_from_response: "Extract data from a response using regex",
   payload_process: "Process a payload (hash, encode, reverse, etc.)",
@@ -49,7 +49,8 @@ const DESCRIPTIONS: Readonly<Record<string, string>> = {
   set_upstream_proxy: "Set upstream proxy (SOCKS/HTTP) for all Burp traffic",
   set_dns_override: "Override DNS resolution for a hostname",
   set_http2: "Enable or disable HTTP/2",
-  cookie_jar: "View cookies in Burp cookie jar (with optional domain filter)",
+  cookie_jar:
+    "List cookies in Burp cookie jar with name, value, domain, path, and expiration (optional domain filter)",
   token_analysis: "Analyze token entropy and randomness",
   sequencer: "Analyze a batch of tokens for randomness quality",
   save_project: "Save the current Burp project",

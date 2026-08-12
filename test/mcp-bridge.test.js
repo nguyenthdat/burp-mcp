@@ -89,6 +89,7 @@ test('reconnects after Burp starts and handles a later tool call', async () => {
   const stderr = new LineReader(bridge.stderr);
   let server;
   const requests = [];
+  let contentType;
 
   try {
     const warning = await stderr.next();
@@ -104,6 +105,7 @@ test('reconnects after Burp starts and handles a later tool call', async () => {
       let body = '';
       request.on('data', chunk => { body += chunk; });
       request.on('end', () => {
+        contentType = request.headers['content-type'];
         requests.push(JSON.parse(body));
         response.writeHead(200, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: true }));
@@ -134,6 +136,7 @@ test('reconnects after Burp starts and handles a later tool call', async () => {
     assert.equal(callResponse.id, 2);
     assert.equal('isError' in callResponse.result, false);
     assert.deepEqual(requests[0], { tool: 'proxy_history', params: { limit: 1 } });
+    assert.equal(contentType, 'application/json; charset=utf-8');
     assert.match(callResponse.result.content[0].text, /"ok": true/);
   } finally {
     const childClosed = bridge.exitCode === null && bridge.signalCode === null
