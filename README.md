@@ -123,7 +123,7 @@ The extension JAR is written to `build/libs/burp-mcp.jar`.
 
 ## Releases
 
-Published GitHub Releases build both the extension JAR and npm tarball from the same stable version. The npm package is staged through Trusted Publishing with provenance and becomes public only after maintainer inspection and 2FA approval.
+Published GitHub Releases build both the extension JAR and npm tarball from the same stable version. The npm package is published directly through npm Trusted Publishing with GitHub Actions OIDC and provenance, without a long-lived npm token.
 
 ## License
 
