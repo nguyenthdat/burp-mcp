@@ -18,6 +18,11 @@ test('stages dual-use releases through an immutable reviewed commit', () => {
   const stageStepNames = [...stageJob.matchAll(/^\s+- name: (.+)$/gm)].map((match) => match[1]);
 
   assert.match(releaseWorkflow, /npm stage publish/);
+  assert.match(
+    releaseWorkflow,
+    /npm stage publish "\.\/\$\{TARBALLS\[0\]\}"/,
+    'npm must receive an explicit local tarball path instead of a GitHub shorthand',
+  );
   assert.doesNotMatch(releaseWorkflow, /^\s+npm publish\b/m);
   assert.doesNotMatch(releaseWorkflow, /NPM_TOKEN|NODE_AUTH_TOKEN|_authToken/);
   assert.match(releaseWorkflow, /ref: \$\{\{ github\.sha \}\}/);

@@ -144,4 +144,4 @@ jobs:
           shopt -s nullglob
           TARBALLS=(release-artifacts/*.tgz)
           test "${#TARBALLS[@]}" -eq 1
-          npm stage publish "${TARBALLS[0]}" --access public --provenance --json
+          npm stage publish "./${TARBALLS[0]}" --access public --provenance --json
