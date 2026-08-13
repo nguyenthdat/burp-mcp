@@ -77,6 +77,54 @@ function close(server) {
   return new Promise(resolve => server.close(() => resolve()));
 }
 
+test('runs CyberChef transforms when Burp is unavailable', async () => {
+  const port = await getFreePort();
+  const bridge = spawnBridge({
+    ...process.env,
+    BURP_MCP_HOST: '127.0.0.1',
+    BURP_MCP_PORT: String(port),
+    BURP_MCP_TOKEN: 'test-token'
+  });
+  const stdout = new LineReader(bridge.stdout);
+  const stderr = new LineReader(bridge.stderr);
+
+  try {
+    assert.match(await stderr.next(), /Cannot connect to Burp/);
+
+    bridge.stdin.write(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/list',
+      params: {}
+    }) + '\n');
+    const listResponse = JSON.parse(await stdout.next());
+    const toolNames = listResponse.result.tools.map(tool => tool.name);
+    assert.equal(toolNames.includes('cyberchef_bake'), true);
+    assert.equal(toolNames.includes('cyberchef_to_base64'), true);
+    assert.equal(toolNames.includes('cyberchef_transform_http_request'), true);
+
+    bridge.stdin.write(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/call',
+      params: {
+        name: 'cyberchef_to_base64',
+        arguments: { input: 'hello', arguments: {} }
+      }
+    }) + '\n');
+    const callResponse = JSON.parse(await stdout.next());
+    assert.equal('isError' in callResponse.result, false);
+    assert.match(callResponse.result.content[0].text, /aGVsbG8=/);
+  } finally {
+    const childClosed = bridge.exitCode === null && bridge.signalCode === null
+      ? once(bridge, 'close')
+      : Promise.resolve();
+    bridge.stdin.end();
+    bridge.kill();
+    await childClosed.catch(() => {});
+  }
+});
+
 test('reconnects after Burp starts and handles a later tool call', async () => {
   const port = await getFreePort();
   const bridge = spawnBridge({

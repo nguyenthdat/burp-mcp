@@ -10,6 +10,6 @@
       "environment": { "ANONYMIZED_TELEMETRY": "false" },
     },
     "javadoc": { "type": "local", "command": ["bunx", "-y", "javadoc-mcp"], "enabled": true },
-    "burpmcp": { "type": "local", "command": ["bun", "bridge/src/main.ts"], "enabled": true },
+    "burpmcp": { "type": "local", "command": ["bun", "bridge/src/main.ts"], "enabled": false },
   },
 }

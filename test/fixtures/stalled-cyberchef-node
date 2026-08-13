@@ -1,0 +1,7 @@
+#!/bin/sh
+COUNT_FILE="$(dirname "$0")/.stalled-cyberchef-count"
+if [ -f "$COUNT_FILE" ]; then
+  exec node "$(dirname "$0")/stalled-cyberchef-worker.mjs" --replacement
+fi
+: > "$COUNT_FILE"
+exec node "$(dirname "$0")/stalled-cyberchef-worker.mjs"

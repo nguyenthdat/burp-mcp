@@ -4,7 +4,7 @@
 [![npm](https://img.shields.io/npm/v/%40nguyenthdat%2Fburpmcp)](https://www.npmjs.com/package/@nguyenthdat/burpmcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Burp MCP connects AI agents and MCP-compatible clients to Burp Suite. It combines a Kotlin extension built on the Montoya API with a Bun-native stdio bridge and exposes more than 80 tools for authorized application-security testing.
+Burp MCP connects AI agents and MCP-compatible clients to Burp Suite and CyberChef. It combines a Kotlin extension built on the Montoya API with a Bun-native stdio bridge, exposes more than 80 Burp tools for authorized application-security testing, and adds local CyberChef transformations.
 
 ## Capabilities
 
@@ -17,6 +17,8 @@ Burp MCP connects AI agents and MCP-compatible clients to Burp Suite. It combine
 - Encode, decode, transform, export, and analyze payloads, requests, JWTs, and tokens.
 - Import Bambdas and BChecks without executing them automatically.
 - Apply HTTP handlers, proxy rules, session rules, DNS overrides, upstream proxies, and HTTP/2 settings.
+- Run CyberChef recipes, individual operations, batch transformations, and Magic detection.
+- Transform arbitrary text, JSON, binary data, and raw HTTP request or response bodies and headers.
 
 Some capabilities require Burp Suite Professional or a Burp feature that is available only in specific editions.
 
@@ -27,15 +29,11 @@ MCP client
     │ stdio
     ▼
 @nguyenthdat/burpmcp (Bun bridge)
-    │ authenticated HTTP on 127.0.0.1:9876
-    ▼
-Burp MCP extension (Kotlin + Montoya API)
-    │
-    ▼
-Burp Suite
+    ├── authenticated HTTP on 127.0.0.1:9876 ──► Burp MCP extension ──► Burp Suite
+    └── local Node worker ──► CyberChef operations
 ```
 
-The bridge discovers tools from the running extension, publishes them under the `burp_` namespace, and forwards tool calls without exposing Burp directly to the MCP client process.
+The bridge discovers tools from the running extension, publishes them under the `burp_` namespace, and forwards tool calls without exposing Burp directly to the MCP client process. It also publishes local CyberChef tools under `cyberchef_`; these remain usable when Burp is stopped.
 
 ## Requirements
 
@@ -43,6 +41,11 @@ The bridge discovers tools from the running extension, publishes them under the 
 - Java 25 for building the extension.
 - Gradle 9.1 or newer.
 - Bun 1.3 or newer for the MCP bridge.
+- Node.js 18.19 or newer (or Node.js 20.6+) for the local CyberChef worker.
+
+CyberChef exposes `cyberchef_bake`, operation discovery, batch and Magic workflows, HTTP request/response transforms, and one generated MCP tool for every supported non-flow-control CyberChef Node operation. Binary inputs and outputs use tagged base64 values so arbitrary bytes remain lossless.
+
+Browser-only, flow-control, and network-capable CyberChef operations are intentionally not executable in the bridge. `cyberchef_search_operations` still reports them with `supported: false`. Requests are limited to 10 MiB and 30 seconds; body transforms reject ambiguous `Transfer-Encoding` or conflicting `Content-Length` framing.
 
 ## Install
 
@@ -100,6 +103,7 @@ Burp MCP is dual-use security software intended only for systems you own or are 
 - Every extension request requires the generated or configured bearer token.
 - The bridge reads the token from the environment or `~/.burp-mcp-token`.
 - The npm package contains no telemetry and does not connect to a maintainer-operated service.
+- Local CyberChef execution blocks operations that can initiate HTTP or DNS traffic.
 - High-impact tools retain the capabilities and side effects of the underlying Burp APIs.
 
 See [DISCLOSURE](DISCLOSURE) for the npm dual-use content declaration.
