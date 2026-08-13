@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { transformHttpMessage } from "./cyberchef-http"
+import { summarizeMagicResult } from "./cyberchef-magic"
 import { CyberChefRuntime, CyberChefRuntimeError, expectRuntimeObject } from "./cyberchef-runtime"
 import { CYBERCHEF_WORKFLOW_DESCRIPTIONS, CYBERCHEF_WORKFLOW_SCHEMAS } from "./cyberchef-schemas"
 import {
@@ -65,6 +66,7 @@ const MagicInputSchema = z
     intensiveMode: z.boolean().default(false),
     extensiveLanguageSupport: z.boolean().default(false),
     crib: z.string().default(""),
+    fullDetails: z.boolean().default(false),
   })
   .strict()
 const OperationInputSchema = z
@@ -124,7 +126,7 @@ export class CyberChefProvider implements ToolProvider {
         case "batch_bake":
           return await this.batchBake(arguments_)
         case "magic":
-          return await this.runtime.request("magic", MagicInputSchema.parse(arguments_))
+          return await this.magic(arguments_)
         case "transform_http_request":
           return await transformHttpMessage(arguments_, "request", (input, recipe) =>
             this.bakeObject(input, recipe),
@@ -177,6 +179,12 @@ export class CyberChefProvider implements ToolProvider {
   private async batchBake(arguments_: JsonValue): Promise<JsonValue> {
     const input = BatchInputSchema.parse(arguments_)
     return this.runtime.request("batch", { inputs: input.inputs, recipe: input.recipe })
+  }
+
+  private async magic(arguments_: JsonValue): Promise<JsonValue> {
+    const { fullDetails, ...input } = MagicInputSchema.parse(arguments_)
+    const result = await this.runtime.request("magic", input)
+    return fullDetails ? result : summarizeMagicResult(result)
   }
 
   private async callOperation(localName: string, arguments_: JsonValue): Promise<JsonValue> {

@@ -6,6 +6,7 @@ const require = createRequire(import.meta.url)
 const cyberchefRoot = dirname(require.resolve("cyberchef-node/package.json"))
 const Dish = require(join(cyberchefRoot, "src/core/Dish.js"))
 const NodeDish = require(join(cyberchefRoot, "src/node/NodeDish.js"))
+const { Utils } = require(join(cyberchefRoot, "src/core/Utils.js"))
 globalThis.File = require(join(cyberchefRoot, "src/node/File.js"))
 
 export async function bake(input, recipe) {
@@ -74,8 +75,20 @@ async function runLoadedOperation(descriptor, input, args) {
   const Operation = require(join(cyberchefRoot, `src/core/operations/${descriptor.file}`))
   const operation = new Operation()
   const transformedArgs = transformArgs(operation.args, args)
+  if (
+    descriptor.name === "From Base64" &&
+    transformedArgs[2] !== undefined &&
+    typeof transformedArgs[2] !== "boolean"
+  ) {
+    throw new TypeError("Strict mode must be boolean")
+  }
   const dish = input instanceof NodeDish ? input : new NodeDish(input)
   const transformedInput = dish.get(operation.inputType)
+  if (descriptor.name === "From Base64" && transformedArgs[2] === true) {
+    const alphabet = Utils.expandAlphRange(transformedArgs[0] || "A-Za-z0-9+/=").join("")
+    const hasInvalidCharacter = [...transformedInput].some((character) => !alphabet.includes(character))
+    if (hasInvalidCharacter) throw new TypeError("Base64 input contains non-alphabet char(s)")
+  }
   const result = await Promise.resolve(operation.run(transformedInput, transformedArgs))
   return new NodeDish({ value: result, type: operation.outputType })
 }

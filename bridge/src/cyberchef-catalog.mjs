@@ -32,20 +32,57 @@ export function listOperations() {
 }
 
 export function searchOperations(query, limit) {
-  const sanitizedQuery = sanitize(query)
-  const matches = Object.entries(operationConfig)
-    .filter(
-      ([name, operation]) =>
-        sanitize(name).includes(sanitizedQuery) ||
-        sanitize(operation.description ?? "").includes(sanitizedQuery),
-    )
-    .sort(([leftName], [rightName]) => {
-      const leftMatches = sanitize(leftName).includes(sanitizedQuery) ? 1 : 0
-      const rightMatches = sanitize(rightName).includes(sanitizedQuery) ? 1 : 0
-      return rightMatches - leftMatches
+  const queryTokens = [...new Set(tokenize(query))]
+  const queryPhrase = sanitize(query)
+  const operationEntries = Object.entries(operationConfig)
+  const nameTokenFrequencies = new Map(
+    queryTokens.map((queryToken) => [
+      queryToken,
+      operationEntries.filter(([name]) => tokenize(name).includes(queryToken)).length,
+    ]),
+  )
+  const matches = operationEntries
+    .map(([name, operation]) => {
+      const nameTokens = tokenize(name)
+      const descriptionTokens = tokenize(operation.description ?? "")
+      let coverage = 0
+      let nameScore = 0
+      let totalScore = 0
+      for (const queryToken of queryTokens) {
+        const exactName = nameTokens.includes(queryToken)
+        const prefixName = nameTokens.some((token) => token.startsWith(queryToken))
+        const exactDescription = descriptionTokens.includes(queryToken)
+        const prefixDescription = descriptionTokens.some((token) => token.startsWith(queryToken))
+        const rarity = operationEntries.length / (nameTokenFrequencies.get(queryToken) || 1)
+        let score = 0
+        if (exactName) score = 8 + rarity
+        else if (prefixName) score = 6 + rarity / 2
+        else if (exactDescription) score = 3
+        else if (prefixDescription) score = 2
+        if (score > 0) coverage += 1
+        if (exactName || prefixName) nameScore += score
+        totalScore += score
+      }
+      return {
+        name,
+        operation,
+        coverage,
+        nameScore,
+        totalScore,
+        phraseMatchesName: sanitize(name).includes(queryPhrase),
+      }
     })
+    .filter(({ coverage }) => coverage > 0)
+    .sort(
+      (left, right) =>
+        Number(right.phraseMatchesName) - Number(left.phraseMatchesName) ||
+        right.coverage - left.coverage ||
+        right.nameScore - left.nameScore ||
+        right.totalScore - left.totalScore ||
+        left.name.localeCompare(right.name),
+    )
   return {
-    matches: matches.slice(0, limit).map(([name, operation]) => ({
+    matches: matches.slice(0, limit).map(({ name, operation }) => ({
       name,
       toolName: toToolName(name),
       description: stripHtml(operation.description ?? ""),
@@ -126,6 +163,16 @@ function stripHtml(value) {
 
 function sanitize(value) {
   return value.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]/g, "")
+}
+
+function tokenize(value) {
+  return (
+    value
+      .normalize("NFKD")
+      .replace(/\p{M}/gu, "")
+      .toLowerCase()
+      .match(/[a-z0-9]+/g) ?? []
+  )
 }
 
 function isSupported(name, operation) {

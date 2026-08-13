@@ -97,6 +97,12 @@ export const CYBERCHEF_WORKFLOW_SCHEMAS = {
       intensiveMode: { type: "boolean", default: false },
       extensiveLanguageSupport: { type: "boolean", default: false },
       crib: { type: "string", default: "" },
+      fullDetails: {
+        type: "boolean",
+        default: false,
+        description:
+          "Return the complete unbounded Magic analysis instead of a context-safe summary",
+      },
     },
     required: ["input"],
     additionalProperties: false,
@@ -112,7 +118,7 @@ export const CYBERCHEF_WORKFLOW_DESCRIPTIONS = {
   batch_bake: "Run one CyberChef recipe over multiple independent inputs.",
   magic: "Use CyberChef Magic to detect likely encodings and useful follow-up operations.",
   transform_http_request:
-    "Apply a CyberChef recipe to a raw HTTP request body, selected header values, or the complete message.",
+    "Apply a CyberChef recipe to a raw HTTP request while preserving ambiguous framing for request-smuggling tests.",
   transform_http_response:
     "Apply a CyberChef recipe to a raw HTTP response body, selected header values, or the complete message.",
 } as const satisfies Readonly<Record<string, string>>

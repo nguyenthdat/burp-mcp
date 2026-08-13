@@ -54,10 +54,6 @@ export async function transformHttpMessage(
   if (parsed.data.target === "header") {
     return transformHeader(message, messageKey, parsed.data.headerName, parsed.data.recipe, bake)
   }
-  const framingError = validateBodyFraming(message, messageKey)
-  if (framingError !== null) {
-    return { error: framingError }
-  }
   const baked = await bake(message.body, parsed.data.recipe)
   const transformedBody = getTextOutput(baked)
   if (transformedBody === null) {
@@ -65,7 +61,8 @@ export async function transformHttpMessage(
       error: "CyberChef HTTP body transforms must produce text; use cyberchef_bake for bytes",
     }
   }
-  const updated = parsed.data.updateContentLength
+  const canUpdateContentLength = parsed.data.updateContentLength && hasUnambiguousFraming(message)
+  const updated = canUpdateContentLength
     ? updateContentLength(message, Buffer.byteLength(transformedBody))
     : message
   return {
@@ -74,7 +71,7 @@ export async function transformHttpMessage(
       target: "body",
       bodyLengthBefore: Buffer.byteLength(message.body),
       bodyLengthAfter: Buffer.byteLength(transformedBody),
-      contentLengthUpdated: parsed.data.updateContentLength,
+      contentLengthUpdated: canUpdateContentLength,
     },
   }
 }
@@ -141,20 +138,15 @@ function updateContentLength(message: HttpMessage, byteLength: number): HttpMess
   return { ...message, headers }
 }
 
-function validateBodyFraming(
-  message: HttpMessage,
-  messageKey: "request" | "response",
-): string | null {
-  if (message.headers.some((header) => /^transfer-encoding\s*:/i.test(header))) {
-    return "Cannot transform an HTTP body with Transfer-Encoding; decode the framing first"
+function hasUnambiguousFraming(message: HttpMessage): boolean {
+  if (message.headers.some((header) => /^\s|^transfer-encoding\s*:/i.test(header))) return false
+  if (message.headers.some((header) => !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+:\s*.*$/.test(header))) {
+    return false
   }
-  const lengths = message.headers
-    .filter((header) => /^content-length\s*:/i.test(header))
-    .map((header) => header.slice(header.indexOf(":") + 1).trim())
-  if (new Set(lengths).size > 1) {
-    return `Conflicting Content-Length headers in raw HTTP ${messageKey}`
-  }
-  return null
+  const lengths = message.headers.filter((header) => /^content-length\s*:/i.test(header))
+  if (lengths.length > 1) return false
+  if (lengths.length === 0) return true
+  return /^\s*\d+\s*$/.test(lengths[0]?.slice(lengths[0].indexOf(":") + 1) ?? "")
 }
 
 function serializeHttpMessage(message: HttpMessage): string {

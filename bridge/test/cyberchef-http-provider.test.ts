@@ -54,40 +54,6 @@ describe("CyberChefProvider HTTP and validation", () => {
     })
   })
 
-  test("rejects body transforms with Transfer-Encoding", async () => {
-    // Given
-    const request =
-      "POST / HTTP/1.1\r\nHost: example.test\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
-
-    // When
-    const result = await provider.callTool("transform_http_request", {
-      request,
-      target: "body",
-      recipe: ["To Base64"],
-    })
-
-    // Then
-    expect(result).toEqual({
-      error: "Cannot transform an HTTP body with Transfer-Encoding; decode the framing first",
-    })
-  })
-
-  test("rejects conflicting duplicate Content-Length headers", async () => {
-    // Given
-    const request =
-      "POST / HTTP/1.1\r\nHost: example.test\r\nContent-Length: 5\r\nContent-Length: 4\r\n\r\nhello"
-
-    // When
-    const result = await provider.callTool("transform_http_request", {
-      request,
-      target: "body",
-      recipe: ["To Base64"],
-    })
-
-    // Then
-    expect(result).toEqual({ error: "Conflicting Content-Length headers in raw HTTP request" })
-  })
-
   test("validates Magic depth and canonical base64", async () => {
     // Given / When
     const magic = await provider.callTool("magic", { input: "hello", depth: 11 })

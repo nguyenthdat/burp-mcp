@@ -45,7 +45,7 @@ The bridge discovers tools from the running extension, publishes them under the 
 
 CyberChef exposes `cyberchef_bake`, operation discovery, batch and Magic workflows, HTTP request/response transforms, and one generated MCP tool for every supported non-flow-control CyberChef Node operation. Binary inputs and outputs use tagged base64 values so arbitrary bytes remain lossless.
 
-Browser-only, flow-control, and network-capable CyberChef operations are intentionally not executable in the bridge. `cyberchef_search_operations` still reports them with `supported: false`. Requests are limited to 10 MiB and 30 seconds; body transforms reject ambiguous `Transfer-Encoding` or conflicting `Content-Length` framing.
+Browser-only, flow-control, and network-capable CyberChef operations are intentionally not executable in the bridge. `cyberchef_search_operations` still reports them with `supported: false`. Requests are limited to 10 MiB and 30 seconds. Body transforms update only clearly unambiguous `Content-Length` framing; `Transfer-Encoding`, duplicate or comma-separated lengths, folded headers, and malformed framing are preserved verbatim for request-smuggling tests.
 
 ## Install
 
