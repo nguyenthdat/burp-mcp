@@ -29,7 +29,7 @@ export class CyberChefRuntime {
   constructor(
     private readonly timeoutMs = 30_000,
     private readonly maxMessageBytes = 10 * 1024 * 1024,
-    private readonly nodeCommand = "node",
+    private readonly runtimeCommand = process.execPath,
   ) {}
 
   async request(method: string, params: JsonValue): Promise<JsonValue> {
@@ -74,8 +74,7 @@ export class CyberChefRuntime {
     this.generation += 1
     const generation = this.generation
     const worker = fileURLToPath(new URL("./cyberchef-worker.mjs", import.meta.url))
-    const loader = fileURLToPath(new URL("./cyberchef-loader.mjs", import.meta.url))
-    const child = spawn(this.nodeCommand, ["--import", loader, worker], {
+    const child = spawn(this.runtimeCommand, [worker], {
       stdio: ["pipe", "pipe", "pipe"],
     })
     createInterface({ input: child.stdout }).on("line", (line) => this.handleLine(line, generation))

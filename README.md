@@ -30,7 +30,7 @@ MCP client
     ▼
 @nguyenthdat/burpmcp (Bun bridge)
     ├── authenticated HTTP on 127.0.0.1:9876 ──► Burp MCP extension ──► Burp Suite
-    └── local Node worker ──► CyberChef operations
+    └── local Bun worker ──► CyberChef operations
 ```
 
 The bridge discovers tools from the running extension, publishes them under the `burp_` namespace, and forwards tool calls without exposing Burp directly to the MCP client process. It also publishes local CyberChef tools under `cyberchef_`; these remain usable when Burp is stopped.
@@ -41,9 +41,8 @@ The bridge discovers tools from the running extension, publishes them under the 
 - Java 25 for building the extension.
 - Gradle 9.1 or newer.
 - Bun 1.3 or newer for the MCP bridge.
-- Node.js 18.19 or newer (or Node.js 20.6+) for the local CyberChef worker.
 
-CyberChef exposes `cyberchef_bake`, operation discovery, batch and Magic workflows, HTTP request/response transforms, and one generated MCP tool for every supported non-flow-control CyberChef Node operation. Binary inputs and outputs use tagged base64 values so arbitrary bytes remain lossless.
+CyberChef exposes `cyberchef_bake`, operation discovery, batch and Magic workflows, HTTP request/response transforms, and one generated MCP tool for every supported non-flow-control operation. The bridge runs the official `cyberchef@11.3.0` public API in a Bun worker; a local runtime adapter handles Bun-incompatible upstream modules, while `Jq` and `Disassemble ARM` remain discoverable but unsupported. Binary inputs and outputs use tagged base64 values so arbitrary bytes remain lossless.
 
 Browser-only, flow-control, and network-capable CyberChef operations are intentionally not executable in the bridge. `cyberchef_search_operations` still reports them with `supported: false`. Requests are limited to 10 MiB and 30 seconds. Body transforms update only clearly unambiguous `Content-Length` framing; `Transfer-Encoding`, duplicate or comma-separated lengths, folded headers, and malformed framing are preserved verbatim for request-smuggling tests.
 

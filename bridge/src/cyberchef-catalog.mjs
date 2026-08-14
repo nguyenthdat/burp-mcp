@@ -1,25 +1,27 @@
-import { createRequire } from "node:module"
-import { readdirSync } from "node:fs"
-import { dirname, join } from "node:path"
+import chef, { operations } from "cyberchef"
 
-const require = createRequire(import.meta.url)
-const cyberchefRoot = dirname(require.resolve("cyberchef-node/package.json"))
-const operationConfig = require(join(cyberchefRoot, "src/core/config/OperationConfig.json"))
 const unsupportedOperations = new Set([
   "DNS over HTTPS",
+  "Disassemble ARM",
   "HTTP request",
+  "Jq",
   "Optical Character Recognition",
 ])
-const operationFiles = new Map(
-  readdirSync(join(cyberchefRoot, "src/core/operations"))
-    .filter((file) => file.endsWith(".js"))
-    .map((file) => [sanitize(file.slice(0, -3)), file]),
-)
+const operationEntries = [
+  ...new Map(
+    operations
+      .flatMap((execute) => {
+        const operation = chef.help(execute)?.[0]
+        return operation ? [{ name: operation.name, operation, execute }] : []
+      })
+      .map((entry) => [sanitize(entry.name), entry]),
+  ).values(),
+]
 
 export function listOperations() {
-  return Object.entries(operationConfig)
-    .filter(([name, operation]) => isSupported(name, operation))
-    .map(([name, operation]) => ({
+  return operationEntries
+    .filter(isSupported)
+    .map(({ name, operation }) => ({
       localName: toToolName(name),
       name,
       description: stripHtml(operation.description ?? name),
@@ -34,15 +36,15 @@ export function listOperations() {
 export function searchOperations(query, limit) {
   const queryTokens = [...new Set(tokenize(query))]
   const queryPhrase = sanitize(query)
-  const operationEntries = Object.entries(operationConfig)
   const nameTokenFrequencies = new Map(
     queryTokens.map((queryToken) => [
       queryToken,
-      operationEntries.filter(([name]) => tokenize(name).includes(queryToken)).length,
+      operationEntries.filter(({ name }) => tokenize(name).includes(queryToken)).length,
     ]),
   )
   const matches = operationEntries
-    .map(([name, operation]) => {
+    .map((entry) => {
+      const { name, operation } = entry
       const nameTokens = tokenize(name)
       const descriptionTokens = tokenize(operation.description ?? "")
       let coverage = 0
@@ -64,8 +66,8 @@ export function searchOperations(query, limit) {
         totalScore += score
       }
       return {
+        entry,
         name,
-        operation,
         coverage,
         nameScore,
         totalScore,
@@ -82,28 +84,25 @@ export function searchOperations(query, limit) {
         left.name.localeCompare(right.name),
     )
   return {
-    matches: matches.slice(0, limit).map(({ name, operation }) => ({
+    matches: matches.slice(0, limit).map(({ entry, name }) => ({
       name,
       toolName: toToolName(name),
-      description: stripHtml(operation.description ?? ""),
-      inputType: operation.inputType,
-      outputType: operation.outputType,
-      flowControl: Boolean(operation.flowControl),
-      supported: isSupported(name, operation),
-      args: operation.args ?? [],
+      description: stripHtml(entry.operation.description ?? ""),
+      inputType: entry.operation.inputType,
+      outputType: entry.operation.outputType,
+      flowControl: Boolean(entry.operation.flowControl),
+      supported: isSupported(entry),
+      args: entry.operation.args ?? [],
     })),
   }
 }
 
 export function getOperationDescriptor(name) {
-  const entry = Object.entries(operationConfig).find(
-    ([candidate]) => sanitize(candidate) === sanitize(name),
+  const entry = operationEntries.find(
+    ({ name: candidate }) => sanitize(candidate) === sanitize(name),
   )
   if (!entry) return null
-  const [canonicalName, operation] = entry
-  if (!isSupported(canonicalName, operation)) return null
-  const file = operationFiles.get(sanitize(canonicalName))
-  return file ? { name: canonicalName, operation, file } : null
+  return isSupported(entry) ? entry : null
 }
 
 function operationInputSchema(args) {
@@ -175,11 +174,12 @@ function tokenize(value) {
   )
 }
 
-function isSupported(name, operation) {
+function isSupported({ execute, name, operation }) {
   return (
+    execute.args !== undefined &&
+    typeof execute.flowControl === "boolean" &&
     !operation.flowControl &&
     !operation.manualBake &&
-    !unsupportedOperations.has(name) &&
-    operationFiles.has(sanitize(name))
+    !unsupportedOperations.has(name)
   )
 }

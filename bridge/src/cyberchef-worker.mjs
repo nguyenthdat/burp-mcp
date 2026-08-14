@@ -1,6 +1,10 @@
 import { createInterface } from "node:readline"
-import { listOperations, searchOperations } from "./cyberchef-catalog.mjs"
-import { bake, runMagic, runOperation } from "./cyberchef-engine.mjs"
+import "./cyberchef-bun-compat.mjs"
+
+const [{ listOperations, searchOperations }, { bake, runMagic, runOperation }] = await Promise.all([
+  import("./cyberchef-catalog.mjs"),
+  import("./cyberchef-engine.mjs"),
+])
 
 let queue = Promise.resolve()
 

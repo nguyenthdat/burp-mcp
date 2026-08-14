@@ -18,7 +18,12 @@ test('publishes a Bun-native scoped CLI without a generated root bridge', () => 
   // Then
   assert.equal(packageJson.name, '@nguyenthdat/burpmcp');
   assert.deepEqual(packageJson.bin, { burpmcp: 'bridge/src/main.ts' });
-  assert.deepEqual(packageJson.files, ['bridge/src', 'README.md', 'DISCLOSURE', 'LICENSE']);
+  assert.deepEqual(packageJson.files, [
+    'bridge/src',
+    'README.md',
+    'DISCLOSURE',
+    'LICENSE',
+  ]);
   assert.equal(packageJson.license, 'MIT');
   assert.match(license, /^MIT License/);
   assert.match(license, /Copyright \(c\) 2026 Dat Nguyen/);

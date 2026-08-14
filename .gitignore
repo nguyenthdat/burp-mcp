@@ -373,3 +373,4 @@ Cargo.lock
 
 # Local OpenCode configuration
 # .opencode/opencode.jsonc
+.playwright-mcp/

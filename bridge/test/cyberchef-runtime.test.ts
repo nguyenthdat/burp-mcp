@@ -19,7 +19,7 @@ describe("CyberChefRuntime", () => {
   test("replaces a timed-out worker without stale exit races", async () => {
     // Given
     const command = fileURLToPath(
-      new URL("../../test/fixtures/stalled-cyberchef-node", import.meta.url),
+      new URL("../../test/fixtures/stalled-cyberchef-bun", import.meta.url),
     )
     rmSync(COUNT_FILE, { force: true })
     chmodSync(command, 0o755)

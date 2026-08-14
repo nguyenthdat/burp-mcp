@@ -44,14 +44,13 @@
     "class": "dual-use"
   },
   "engines": {
-    "bun": ">=1.3.0",
-    "node": ">=18.19.0 <19 || >=20.6.0"
+    "bun": ">=1.3.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "bun run typecheck",
     "lint": "biome check bridge/src bridge/test",
-    "test:bridge": "node --test test/*.test.js",
+    "test:bridge": "bun test test/*.test.js",
     "test:unit": "bun test bridge/test",
     "test": "bun run test:bridge && bun run test:unit",
     "check": "bun run lint && bun run build && bun run test",
@@ -68,7 +67,10 @@
     "registry": "https://registry.npmjs.org/"
   },
   "dependencies": {
-    "cyberchef-node": "3.0.1",
+    "cyberchef": "11.3.0",
+    "js-yaml": "4.1.1",
+    "terser": "5.49.0",
+    "yaml": "2.8.1",
     "zod": "^4.1.12"
   }
 }
