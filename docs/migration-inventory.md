@@ -5,9 +5,10 @@
 - Starting revision: `204248fc22f58ee6d9c806a77f82b9e333395b50`
 - Current production path: Kotlin `McpHttpServer` (NanoHTTPD + Gson) and
   `bridge/` Bun/TypeScript MCP stdio + CyberChef worker.
-- Phase 0 status: the typed gRPC spike is implemented behind an opt-in
-  `BURP_MCP_GRPC_PORT` / `-Dburp.mcp.grpc.port` setting. v2 HTTP remains the
-  default and is not removed by this change.
+- Phase 0 status: the typed gRPC spike is enabled with the v2 HTTP server in
+  default `dual` mode on `127.0.0.1:9877`; `BURP_MCP_TRANSPORT` /
+  `-Dburp.mcp.transport` can select `http`, `grpc`, or `dual`. v2 HTTP remains
+  available and is not removed by this change.
 - Contract fixtures: `src/test/resources/contracts/burp-tool-names.json` contains
   the 80 currently advertised v2 `burp_*` backend names and
   `test-fixtures/contracts/burp-tools-v2.json` captures each public description

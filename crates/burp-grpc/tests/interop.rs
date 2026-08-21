@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, bail};
-use burp_grpc::proto::{EchoBytesRequest, PingRequest};
+use burp_grpc::proto::{
+    EchoBytesRequest, PageRequest, PingRequest, ProxyHistoryRequest, ServerInfoRequest,
+};
 use burp_grpc::{DEFAULT_MAX_MESSAGE_BYTES, GrpcActorConfig, connect_client, spawn_actor};
 use std::env;
 use std::path::PathBuf;
@@ -18,7 +20,7 @@ async fn kotlin_server_echoes_binary_payloads_and_handles_concurrency() -> Resul
         );
         return Ok(());
     };
-    let client = connect_client(
+    let mut client = connect_client(
         &endpoint,
         Duration::from_secs(10),
         DEFAULT_MAX_MESSAGE_BYTES,
@@ -26,15 +28,34 @@ async fn kotlin_server_echoes_binary_payloads_and_handles_concurrency() -> Resul
     .await
     .context("connect to Kotlin gRPC server")?;
 
+    let mut info_request = Request::new(ServerInfoRequest {});
+    info_request.set_timeout(Duration::from_secs(2));
+    let info = client.server_info(info_request).await?.into_inner();
+    assert_eq!(
+        DEFAULT_MAX_MESSAGE_BYTES,
+        usize::try_from(info.max_message_bytes)?
+    );
+    assert_eq!(32, info.max_concurrent_calls_per_connection);
+    assert_eq!(30, info.max_rpc_timeout_seconds);
+
+    let mut page_request = Request::new(ProxyHistoryRequest {
+        page: Some(PageRequest {
+            limit: 10,
+            cursor: String::new(),
+        }),
+    });
+    page_request.set_timeout(Duration::from_secs(2));
+    let history = client.proxy_history(page_request).await?.into_inner();
+    assert!(history.items.len() <= 10);
+    assert_eq!(0, history.page.as_ref().map_or(0, |page| page.total));
+
     for payload in [Vec::new(), vec![0xa5], patterned_payload(10 * 1024 * 1024)] {
-        let response = client
-            .clone()
-            .echo_bytes(Request::new(EchoBytesRequest {
-                payload: payload.clone(),
-                delay_millis: 0,
-            }))
-            .await?
-            .into_inner();
+        let mut request = Request::new(EchoBytesRequest {
+            payload: payload.clone(),
+            delay_millis: 0,
+        });
+        request.set_timeout(Duration::from_secs(10));
+        let response = client.clone().echo_bytes(request).await?.into_inner();
         assert_eq!(payload, response.payload);
     }
 
@@ -42,11 +63,13 @@ async fn kotlin_server_echoes_binary_payloads_and_handles_concurrency() -> Resul
     for index in 0..32_u8 {
         let mut concurrent_client = client.clone();
         tasks.push(tokio::spawn(async move {
+            let mut request = Request::new(EchoBytesRequest {
+                payload: vec![index; 4096],
+                delay_millis: 0,
+            });
+            request.set_timeout(Duration::from_secs(5));
             concurrent_client
-                .echo_bytes(Request::new(EchoBytesRequest {
-                    payload: vec![index; 4096],
-                    delay_millis: 0,
-                }))
+                .echo_bytes(request)
                 .await
                 .map(|response| response.into_inner().payload)
         }));

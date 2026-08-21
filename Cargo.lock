@@ -108,8 +108,10 @@ dependencies = [
 name = "burp-mcp"
 version = "3.0.0-alpha.1"
 dependencies = [
+ "anyhow",
  "burp-grpc",
  "tokio",
+ "tonic",
 ]
 
 [[package]]

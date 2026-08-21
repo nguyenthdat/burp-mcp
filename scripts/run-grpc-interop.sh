@@ -37,6 +37,7 @@ done
 export BURP_MCP_INTEROP_ENDPOINT="http://127.0.0.1:$PORT"
 export BURP_MCP_INTEROP_CONTROL="$CONTROL"
 cargo test -p burp-grpc --test interop kotlin_server_echoes_binary_payloads_and_handles_concurrency -- --nocapture
+cargo run -p burp-mcp --locked -- probe --endpoint "$BURP_MCP_INTEROP_ENDPOINT"
 
 # The reconnect test controls an in-process shutdown/restart so the same
 # lifecycle code used on extension unload runs deterministically.

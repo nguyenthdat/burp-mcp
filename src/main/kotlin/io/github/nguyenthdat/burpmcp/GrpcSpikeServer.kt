@@ -14,7 +14,13 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyHistoryResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ServerInfoRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ServerInfoResponse
 import io.grpc.Context
+import io.grpc.Contexts
+import io.grpc.Metadata
 import io.grpc.Server
+import io.grpc.ServerCall
+import io.grpc.ServerCallHandler
+import io.grpc.ServerInterceptor
+import io.grpc.ServerInterceptors
 import io.grpc.Status
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
 import io.grpc.stub.StreamObserver
@@ -30,20 +36,29 @@ import kotlin.math.min
 
 internal const val GRPC_MAX_MESSAGE_BYTES: Int = 16 * 1024 * 1024
 internal const val GRPC_MAX_PAGE_SIZE: Int = 500
+internal const val GRPC_MAX_METADATA_BYTES: Int = 8 * 1024
+internal const val GRPC_MAX_CONCURRENT_CALLS_PER_CONNECTION: Int = 32
+internal const val GRPC_MAX_RPC_TIMEOUT_SECONDS: Long = 30
+internal const val GRPC_MAX_RESPONSE_BYTES: Int = 16 * 1024 * 1024
 private const val GRPC_DEFAULT_PAGE_SIZE: Int = 100
+private const val GRPC_RESPONSE_OVERHEAD_BYTES: Int = 64 * 1024
 private const val GRPC_SHUTDOWN_SECONDS: Long = 5
 
 internal class GrpcSpikeServer(
     private val api: MontoyaApi,
     private val port: Int,
     private val clock: Clock = Clock.systemUTC(),
-    private val serverFactory: (InetSocketAddress, BurpServiceGrpc.BurpServiceImplBase, ExecutorService) -> Server =
+    private val serverFactory:
+        (InetSocketAddress, BurpServiceGrpc.BurpServiceImplBase, ExecutorService) -> Server =
         { address, service, executor ->
             NettyServerBuilder
                 .forAddress(address)
                 .executor(executor)
-                .addService(service)
+                .addService(ServerInterceptors.intercept(service, RequireDeadlineInterceptor))
                 .maxInboundMessageSize(GRPC_MAX_MESSAGE_BYTES)
+                .maxInboundMetadataSize(GRPC_MAX_METADATA_BYTES)
+                .maxConcurrentCallsPerConnection(GRPC_MAX_CONCURRENT_CALLS_PER_CONNECTION)
+                .permitKeepAliveWithoutCalls(false)
                 .build()
         },
 ) : AutoCloseable {
@@ -108,12 +123,37 @@ internal class GrpcSpikeServer(
     }
 }
 
+private object RequireDeadlineInterceptor : ServerInterceptor {
+    override fun <ReqT, RespT> interceptCall(
+        call: ServerCall<ReqT, RespT>,
+        headers: Metadata,
+        next: ServerCallHandler<ReqT, RespT>,
+    ): io.grpc.ServerCall.Listener<ReqT> {
+        val deadline = Context.current().deadline
+        if (deadline == null) {
+            call.close(
+                Status.INVALID_ARGUMENT.withDescription("every gRPC call must set a deadline"),
+                Metadata(),
+            )
+            return object : io.grpc.ServerCall.Listener<ReqT>() {}
+        }
+        if (deadline.timeRemaining(TimeUnit.MILLISECONDS) > TimeUnit.SECONDS.toMillis(GRPC_MAX_RPC_TIMEOUT_SECONDS)) {
+            call.close(
+                Status.INVALID_ARGUMENT.withDescription("gRPC deadline must not exceed ${GRPC_MAX_RPC_TIMEOUT_SECONDS}s"),
+                Metadata(),
+            )
+            return object : io.grpc.ServerCall.Listener<ReqT>() {}
+        }
+        return Contexts.interceptCall(Context.current(), call, headers, next)
+    }
+}
+
 internal class GrpcBurpService(
     private val api: MontoyaApi,
     private val clock: Clock,
 ) : BurpServiceGrpc.BurpServiceImplBase() {
     override fun ping(
-        request: PingRequest,
+        @Suppress("UNUSED_PARAMETER") request: PingRequest,
         responseObserver: StreamObserver<PingResponse>,
     ) {
         if (Context.current().isCancelled) {
@@ -172,6 +212,8 @@ internal class GrpcBurpService(
             val reversedIndices = history.indices.reversed().toList()
             val end = min(offset + limit, reversedIndices.size)
             val builder = ProxyHistoryResponse.newBuilder()
+            var estimatedBytes = 0
+            var boundedEnd = offset
             for (position in offset until end) {
                 if (Context.current().isCancelled) {
                     responseObserver.onError(Status.CANCELLED.asRuntimeException())
@@ -179,24 +221,29 @@ internal class GrpcBurpService(
                 }
                 val index = reversedIndices[position]
                 val entry = history[index]
+                val finalRequest = entry.finalRequest()
                 val response = entry.response()
-                builder.addItems(
+                val item =
                     ProxyHistoryEntry
                         .newBuilder()
                         .setIndex(index)
-                        .setMethod(entry.finalRequest().method())
-                        .setUrl(entry.finalRequest().url())
+                        .setMethod(finalRequest.method())
+                        .setUrl(finalRequest.url())
                         .setStatus(response?.statusCode()?.toInt() ?: 0)
                         .setLength(response?.body()?.length()?.toLong() ?: 0)
-                        .build(),
-                )
+                        .build()
+                val itemBytes = item.serializedSize
+                if (estimatedBytes + itemBytes > GRPC_MAX_RESPONSE_BYTES - GRPC_RESPONSE_OVERHEAD_BYTES) break
+                builder.addItems(item)
+                estimatedBytes += itemBytes
+                boundedEnd = position + 1
             }
             builder.page =
                 PageInfo
                     .newBuilder()
                     .setTotal(history.size)
-                    .setTruncated(end < history.size)
-                    .setNextCursor(if (end < history.size) end.toString() else "")
+                    .setTruncated(boundedEnd < history.size)
+                    .setNextCursor(if (boundedEnd < history.size) boundedEnd.toString() else "")
                     .build()
             responseObserver.onNext(builder.build())
             responseObserver.onCompleted()
@@ -206,7 +253,7 @@ internal class GrpcBurpService(
     }
 
     override fun serverInfo(
-        request: ServerInfoRequest,
+        @Suppress("UNUSED_PARAMETER") request: ServerInfoRequest,
         responseObserver: StreamObserver<ServerInfoResponse>,
     ) {
         responseObserver.onNext(
@@ -214,7 +261,12 @@ internal class GrpcBurpService(
                 .newBuilder()
                 .setExtension("Burp MCP")
                 .setVersion(extensionVersion())
-                .addAllCapabilities(listOf("proxy.read", "transport.echo"))
+                .addAllCapabilities(listOf("proxy.read", "transport.echo", "lifecycle.restart"))
+                .setMaxMessageBytes(GRPC_MAX_MESSAGE_BYTES)
+                .setMaxPageSize(GRPC_MAX_PAGE_SIZE)
+                .setMaxConcurrentCallsPerConnection(GRPC_MAX_CONCURRENT_CALLS_PER_CONNECTION)
+                .setMaxRpcTimeoutSeconds(GRPC_MAX_RPC_TIMEOUT_SECONDS.toInt())
+                .setMaxResponseBytes(GRPC_MAX_RESPONSE_BYTES)
                 .build(),
         )
         responseObserver.onCompleted()

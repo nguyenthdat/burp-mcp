@@ -97,7 +97,7 @@ pub struct GrpcActorConfig {
 impl Default for GrpcActorConfig {
     fn default() -> Self {
         Self {
-            endpoint: "http://127.0.0.1:9876".to_owned(),
+            endpoint: "http://127.0.0.1:9877".to_owned(),
             call_timeout: DEFAULT_CALL_TIMEOUT,
             queue_capacity: DEFAULT_QUEUE_CAPACITY,
             max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,

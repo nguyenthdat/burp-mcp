@@ -43,7 +43,12 @@ class GrpcSpikeServerTest {
 
         assertEquals("burp-mcp-kotlin", ping.server)
         assertEquals(42, ping.unixMillis)
-        assertEquals(listOf("proxy.read", "transport.echo"), info.capabilitiesList)
+        assertEquals(listOf("proxy.read", "transport.echo", "lifecycle.restart"), info.capabilitiesList)
+        assertEquals(GRPC_MAX_MESSAGE_BYTES, info.maxMessageBytes)
+        assertEquals(GRPC_MAX_PAGE_SIZE, info.maxPageSize)
+        assertEquals(GRPC_MAX_CONCURRENT_CALLS_PER_CONNECTION, info.maxConcurrentCallsPerConnection)
+        assertEquals(GRPC_MAX_RPC_TIMEOUT_SECONDS.toInt(), info.maxRpcTimeoutSeconds)
+        assertEquals(GRPC_MAX_RESPONSE_BYTES, info.maxResponseBytes)
         assertTrue(server?.isRunning() == true)
     }
 
@@ -66,6 +71,41 @@ class GrpcSpikeServerTest {
     }
 
     @Test
+    fun `rejects calls without the mandatory client deadline`() {
+        val port = availablePort()
+        server = GrpcSpikeServer(fake(MontoyaApi::class.java), port)
+        server?.start()
+        channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
+        val client = BurpServiceGrpc.newBlockingStub(channel)
+
+        val exception =
+            assertFailsWith<io.grpc.StatusRuntimeException> {
+                client.ping(PingRequest.newBuilder().setClient("no-client-deadline").build())
+            }
+
+        assertEquals(io.grpc.Status.Code.INVALID_ARGUMENT, exception.status.code)
+    }
+
+    @Test
+    fun `rejects a client deadline above the server maximum`() {
+        val port = availablePort()
+        server = GrpcSpikeServer(fake(MontoyaApi::class.java), port)
+        server?.start()
+        channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
+        val client =
+            BurpServiceGrpc
+                .newBlockingStub(channel)
+                .withDeadlineAfter(GRPC_MAX_RPC_TIMEOUT_SECONDS + 30, TimeUnit.SECONDS)
+
+        val exception =
+            assertFailsWith<io.grpc.StatusRuntimeException> {
+                client.ping(PingRequest.newBuilder().setClient("long-deadline").build())
+            }
+
+        assertEquals(io.grpc.Status.Code.INVALID_ARGUMENT, exception.status.code)
+    }
+
+    @Test
     fun `deadline cancels a delayed unary call`() {
         val port = availablePort()
         server = GrpcSpikeServer(fake(MontoyaApi::class.java), port)
@@ -81,6 +121,31 @@ class GrpcSpikeServerTest {
                     .build(),
             )
         }.also { exception -> assertEquals(io.grpc.Status.Code.DEADLINE_EXCEEDED, exception.status.code) }
+    }
+
+    @Test
+    fun `rejects requests above the configured message limit`() {
+        val port = availablePort()
+        server = GrpcSpikeServer(fake(MontoyaApi::class.java), port)
+        server?.start()
+        channel =
+            NettyChannelBuilder
+                .forAddress("127.0.0.1", port)
+                .usePlaintext()
+                .maxInboundMessageSize(GRPC_MAX_MESSAGE_BYTES + 1024)
+                .build()
+        val client = BurpServiceGrpc.newBlockingStub(channel).withDeadlineAfter(5, TimeUnit.SECONDS)
+
+        val exception =
+            assertFailsWith<io.grpc.StatusRuntimeException> {
+                client.echoBytes(
+                    EchoBytesRequest
+                        .newBuilder()
+                        .setPayload(com.google.protobuf.ByteString.copyFrom(ByteArray(GRPC_MAX_MESSAGE_BYTES + 1)))
+                        .build(),
+                )
+            }
+        assertEquals(io.grpc.Status.Code.RESOURCE_EXHAUSTED, exception.status.code)
     }
 
     @Test

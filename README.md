@@ -24,16 +24,22 @@ Some capabilities require Burp Suite Professional or a Burp feature that is avai
 
 ## v3 migration status
 
-`PLAN.md` defines a staged v3 migration. Phase 0 now includes an opt-in,
+`PLAN.md` defines a staged v3 migration. Phase 0 now includes a
 loopback-only Kotlin gRPC interoperability spike and a Rust `tonic` client.
 The v2 Bun/HTTP/CyberChef path remains the production default until the
 migration's parity and cutover gates pass.
 
-To start the spike alongside the v2 HTTP server, assign it a distinct port:
+The extension now starts in dual mode by default: the v2 HTTP compatibility
+server uses `127.0.0.1:9876`, while the typed gRPC spike uses
+`127.0.0.1:9877`. Override the transport or gRPC port before starting Burp:
 
 ```sh
-BURP_MCP_GRPC_PORT=9877
-# or start Burp with -Dburp.mcp.grpc.port=9877
+# gRPC only
+BURP_MCP_TRANSPORT=grpc
+
+# Custom loopback gRPC port
+BURP_MCP_GRPC_PORT=10077
+# JVM alternatives: -Dburp.mcp.transport=grpc -Dburp.mcp.grpc.port=10077
 ```
 
 The spike deliberately has no bearer-token authentication and listens only on
@@ -111,10 +117,14 @@ bunx --package @nguyenthdat/burpmcp burpmcp
 | `BURP_MCP_TOKEN` | `~/.burp-mcp-token` | Bearer token shared by the bridge and extension. |
 | `-Dburp.mcp.port=<port>` | `9876` | JVM override for the extension port. |
 | `-Dburp.mcp.token=<token>` | generated token | JVM override for the extension token. |
-| `BURP_MCP_GRPC_PORT` | disabled | Opt-in Phase 0 loopback gRPC spike port; must differ from the HTTP port. |
-| `-Dburp.mcp.grpc.port=<port>` | disabled | JVM override for the opt-in Phase 0 gRPC spike. |
+| `BURP_MCP_TRANSPORT` | `dual` | `http`, `grpc`, or `dual`; controls which extension listeners start. |
+| `-Dburp.mcp.transport=<mode>` | `dual` | JVM override for the extension transport mode. |
+| `BURP_MCP_GRPC_PORT` | `9877` | Phase 0 loopback gRPC port; must differ from HTTP in dual mode. |
+| `-Dburp.mcp.grpc.port=<port>` | `9877` | JVM override for the loopback gRPC port. |
 
-JVM properties take precedence inside Burp. When overriding the port or token, configure matching values for the bridge.
+JVM properties take precedence inside Burp. HTTP settings must still match the
+v2 bridge. The gRPC host is fixed to IPv4 loopback and cannot be configured.
+Every gRPC call must include a deadline of at most 30 seconds.
 
 ## Security
 
@@ -148,7 +158,16 @@ cargo test --workspace --locked
 scripts/run-grpc-interop.sh
 ```
 
-The extension JAR is written to `build/libs/burp-mcp.jar`.
+The extension JAR is written to `build/libs/burp-mcp.jar`. After loading it in
+Burp, run the live Phase 0 probe:
+
+```sh
+cargo run -p burp-mcp --locked -- probe --endpoint http://127.0.0.1:9877
+```
+
+The probe verifies server information and byte-exact 0-byte, 1-byte, and 10 MiB
+round trips. To complete the lifecycle gate, unload the extension, confirm the
+probe fails, reload the same JAR, and confirm the probe passes again.
 
 ## Releases
 

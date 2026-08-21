@@ -12,9 +12,14 @@ import kotlin.io.path.writeText
 object GrpcInteropServerMain {
     @JvmStatic
     fun main(args: Array<String>) {
-        require(args.size == 2) { "usage: GrpcInteropServerMain <port> <control-directory>" }
+        require(args.size in 1..2) { "usage: GrpcInteropServerMain <port> [control-directory]" }
         val port = args[0].toInt()
-        val controlDirectory = Path.of(args[1]).toAbsolutePath()
+        val controlDirectory =
+            if (args.size == 2) {
+                Path.of(args[1]).toAbsolutePath()
+            } else {
+                Files.createTempDirectory("burp-mcp-grpc-control")
+            }
         Files.createDirectories(controlDirectory)
         val ready = controlDirectory.resolve("ready")
         val stop = controlDirectory.resolve("stop")

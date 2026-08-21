@@ -31,7 +31,8 @@ subsequent v3 transport.
   `ServerInfo`. `ProxyHistory` uses bounded cursor pagination. `EchoBytes` is
   the binary round-trip probe; its delay field exists only to test deadline and
   cancellation interoperability and will be reserved/removed before the
-  production contract is frozen.
+  production contract is frozen. Every call must carry a client deadline no
+  greater than 30 seconds.
 
 ## Consequences
 

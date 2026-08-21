@@ -23,7 +23,8 @@ message PingResponse {
 }
 message EchoBytesRequest {
   bytes payload = 1;
-  uint32 delay_millis = 2; // Phase 0 deadline/cancellation probe only.
+  // Phase 0 deadline/cancellation probe. Reserve before freezing the production contract.
+  uint32 delay_millis = 2;
 }
 message EchoBytesResponse { bytes payload = 1; }
 message ProxyHistoryRequest { PageRequest page = 1; }
@@ -43,4 +44,9 @@ message ServerInfoResponse {
   string extension = 1;
   string version = 2;
   repeated string capabilities = 3;
+  uint32 max_message_bytes = 4;
+  uint32 max_page_size = 5;
+  uint32 max_concurrent_calls_per_connection = 6;
+  uint32 max_rpc_timeout_seconds = 7;
+  uint32 max_response_bytes = 8;
 }
