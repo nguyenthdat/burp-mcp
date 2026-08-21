@@ -710,6 +710,168 @@ Every query must be bounded and return:
 
 Do not expose arbitrary SQL or Cypher in the MVP.
 
+### 12.7 Rust sitegraph implementation stack
+
+The sitemap graph MVP will use a SQLite-backed relational graph model implemented in Rust.
+
+The selected libraries:
+
+| Concern | Library | Reason |
+| --- | --- | --- |
+| Async runtime | `tokio` | Native async runtime for Rust services and gRPC integration |
+| SQLite persistence | `sqlx` | Async SQLite access, migrations, compile-time checked queries |
+| Embedded SQLite runtime | `rusqlite` with `bundled` | Consistent SQLite version across macOS/Linux/Windows binaries |
+| Serialization | `serde` | Typed domain model serialization |
+| JSON handling | `serde_json` | MCP responses and metadata storage |
+| URL normalization | `url` | Deterministic origin, path and endpoint normalization |
+| HTTP model | `http` | Standard request/response metadata representation |
+| Stable identifiers | `blake3` | Fast deterministic fingerprints for nodes and edges |
+| Graph algorithms | `petgraph` | Optional in-memory graph analysis and traversal algorithms |
+| Error handling | `thiserror` + `anyhow` | Typed library errors and binary-level error propagation |
+| Logging | `tracing` | Structured diagnostics |
+| Time handling | `time` | Lightweight timestamp handling with serde support |
+| Property testing | `proptest` | Validate normalization and idempotent graph behavior |
+
+### 12.7.1 Storage architecture
+
+SQLite is the source of truth for the persistent graph.
+
+The graph uses a relational adjacency model:
+
+nodes
+-----
+id
+kind
+stable_hash
+created_at
+updated_at
+metadata JSON
+edges
+-----
+id
+from_id
+to_id
+kind
+evidence_id
+created_at
+metadata JSON
+
+The database stores:
+
+- Origin nodes.
+- Endpoint nodes.
+- Path segments.
+- Parameters.
+- Response fingerprints.
+- Technologies.
+- Issues.
+- Artifacts.
+- Evidence metadata.
+
+Every node and edge must have deterministic identifiers to guarantee idempotent synchronization.
+
+### 12.7.2 Repository architecture
+
+The `sitegraph` crate should be structured as:
+
+sitegraph/
+src/
+├── model/
+│   ├── node.rs
+│   ├── edge.rs
+│   ├── endpoint.rs
+│   └── evidence.rs
+│
+├── normalize/
+│   ├── url.rs
+│   ├── headers.rs
+│   └── fingerprint.rs
+│
+├── storage/
+│   ├── sqlite.rs
+│   ├── migrations.rs
+│   ├── nodes.rs
+│   └── edges.rs
+│
+├── graph/
+│   ├── traversal.rs
+│   ├── neighbors.rs
+│   └── diff.rs
+│
+├── ingest/
+│   ├── sitemap.rs
+│   ├── html.rs
+│   └── openapi.rs
+│
+└── export/
+    ├── json.rs
+    └── csv.rs
+
+### 12.7.3 Graph traversal
+
+The MVP does not require a dedicated graph database.
+
+Traversal is implemented with SQLite recursive CTE queries:
+
+- `sitegraph_neighbors`
+- `sitegraph_trace`
+- bounded relationship traversal
+- deterministic pagination
+
+`petgraph` is reserved for optional in-memory analysis such as:
+
+- shortest path analysis;
+- dependency impact;
+- endpoint clustering.
+
+### 12.7.4 Search
+
+Use SQLite FTS5 for endpoint and artifact search.
+
+Requirements:
+
+- no Elasticsearch dependency;
+- local-only indexing;
+- deterministic search results;
+- migration-managed FTS schema.
+
+### 12.7.5 Privacy and security defaults
+
+The sitegraph database stores metadata only:
+
+Persist:
+
+- normalized URLs;
+- HTTP methods;
+- parameter names;
+- status codes;
+- content types;
+- response fingerprints;
+- relationships;
+- evidence timestamps.
+
+Do not persist by default:
+
+- Authorization headers;
+- Cookie values;
+- query values;
+- request bodies;
+- response bodies;
+- JWTs;
+- API keys or secrets.
+
+### 12.7.6 Testing requirements
+
+The sitegraph implementation must verify:
+
+- repeated synchronization creates no duplicate nodes or edges;
+- stable fingerprints remain unchanged;
+- URL normalization is deterministic;
+- migrations work on clean and existing databases;
+- graph traversal respects depth and result limits;
+- pagination does not skip or duplicate results;
+- sensitive data redaction works correctly.
+
 ## 13. Migration phases
 
 ## Phase 0 — ADR and Rust/Kotlin gRPC spike
