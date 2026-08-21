@@ -22,6 +22,26 @@ Burp MCP connects AI agents and MCP-compatible clients to Burp Suite and CyberCh
 
 Some capabilities require Burp Suite Professional or a Burp feature that is available only in specific editions.
 
+## v3 migration status
+
+`PLAN.md` defines a staged v3 migration. Phase 0 now includes an opt-in,
+loopback-only Kotlin gRPC interoperability spike and a Rust `tonic` client.
+The v2 Bun/HTTP/CyberChef path remains the production default until the
+migration's parity and cutover gates pass.
+
+To start the spike alongside the v2 HTTP server, assign it a distinct port:
+
+```sh
+BURP_MCP_GRPC_PORT=9877
+# or start Burp with -Dburp.mcp.grpc.port=9877
+```
+
+The spike deliberately has no bearer-token authentication and listens only on
+`127.0.0.1`; any local process that can reach the port can call it. Run the
+cross-language fixture with `scripts/run-grpc-interop.sh`. This fixture is
+supporting evidence only: Phase 0 is not accepted until the same lifecycle is
+validated in Burp on JDK 25 and on the intended release platforms.
+
 ## Architecture
 
 ```text
@@ -91,6 +111,8 @@ bunx --package @nguyenthdat/burpmcp burpmcp
 | `BURP_MCP_TOKEN` | `~/.burp-mcp-token` | Bearer token shared by the bridge and extension. |
 | `-Dburp.mcp.port=<port>` | `9876` | JVM override for the extension port. |
 | `-Dburp.mcp.token=<token>` | generated token | JVM override for the extension token. |
+| `BURP_MCP_GRPC_PORT` | disabled | Opt-in Phase 0 loopback gRPC spike port; must differ from the HTTP port. |
+| `-Dburp.mcp.grpc.port=<port>` | disabled | JVM override for the opt-in Phase 0 gRPC spike. |
 
 JVM properties take precedence inside Burp. When overriding the port or token, configure matching values for the bridge.
 
@@ -116,10 +138,14 @@ bun install --frozen-lockfile
 bun run check
 ```
 
-Build and test the Burp extension:
+Build and test the Burp extension and Rust Phase 0 workspace:
 
 ```sh
 gradle clean test jar
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --locked
+scripts/run-grpc-interop.sh
 ```
 
 The extension JAR is written to `build/libs/burp-mcp.jar`.

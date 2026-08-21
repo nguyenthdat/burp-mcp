@@ -1,13 +1,18 @@
+import com.google.protobuf.gradle.id
 import groovy.json.JsonSlurper
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     kotlin("jvm") version "2.4.10"
+    id("com.google.protobuf") version "0.9.6"
 }
 
 group = "io.github.nguyenthdat.burpmcp"
 val packageMetadata = JsonSlurper().parse(file("package.json")) as Map<*, *>
 version = requireNotNull(packageMetadata["version"]) { "package.json must define version" }.toString()
+
+val grpcVersion = "1.73.0"
+val protobufVersion = "4.31.1"
 
 repositories {
     mavenCentral()
@@ -26,15 +31,51 @@ java {
     }
 }
 
+sourceSets {
+    main {
+        proto.srcDir("proto")
+    }
+}
+
 dependencies {
     compileOnly("net.portswigger.burp.extensions:montoya-api:2026.7")
     implementation(kotlin("stdlib"))
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation("io.grpc:grpc-netty-shaded:$grpcVersion")
+    implementation("io.grpc:grpc-protobuf:$grpcVersion")
+    implementation("com.google.protobuf:protobuf-java:$protobufVersion")
+    implementation("io.grpc:grpc-stub:$grpcVersion")
+    compileOnly("org.apache.tomcat:annotations-api:6.0.53")
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("net.portswigger.burp.extensions:montoya-api:2026.7")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:$protobufVersion"
+    }
+    plugins {
+        id("grpc") {
+            artifact = "io.grpc:protoc-gen-grpc-java:$grpcVersion"
+        }
+    }
+    generateProtoTasks {
+        all().configureEach {
+            plugins {
+                id("grpc")
+            }
+        }
+    }
+}
+
+tasks.register("printTestRuntimeClasspath") {
+    dependsOn(tasks.testClasses)
+    doLast {
+        println(sourceSets.test.get().runtimeClasspath.asPath)
+    }
 }
 
 tasks.withType<JavaCompile>().configureEach {

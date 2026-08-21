@@ -5,7 +5,8 @@ import burp.api.montoya.MontoyaApi
 import burp.api.montoya.logging.Logging
 
 class BurpMcpExtension : BurpExtension {
-    private var server: McpHttpServer? = null
+    private var httpServer: McpHttpServer? = null
+    private var grpcServer: GrpcSpikeServer? = null
 
     override fun initialize(api: MontoyaApi) {
         val logging = api.logging()
@@ -13,8 +14,8 @@ class BurpMcpExtension : BurpExtension {
 
         val port = resolvePort(logging)
         try {
-            server = McpHttpServer(api, port)
-            server?.start()
+            httpServer = McpHttpServer(api, port)
+            httpServer?.start()
             logging.logToOutput("[MCP] Server started on http://127.0.0.1:$port")
             logging.logToOutput("[MCP] Configure port via -Dburp.mcp.port=<n> or BURP_MCP_PORT env var (default 9876)")
             logging.logToOutput("[MCP] Auth token: ~/.burp-mcp-token (override with -Dburp.mcp.token or BURP_MCP_TOKEN)")
@@ -26,11 +27,42 @@ class BurpMcpExtension : BurpExtension {
             logging.logToError("[MCP] If port is in use, set -Dburp.mcp.port=<other> and restart Burp.")
         }
 
-        api.extension().registerUnloadingHandler {
-            server?.let {
-                it.stop()
-                logging.logToOutput("[MCP] Server stopped")
+        val grpcPort = resolveGrpcPort(port, logging)
+        if (grpcPort != null) {
+            try {
+                grpcServer = GrpcSpikeServer(api, grpcPort)
+                grpcServer?.start()
+                logging.logToOutput("[MCP] Phase 0 gRPC spike started on 127.0.0.1:$grpcPort")
+            } catch (exception: Exception) {
+                grpcServer?.close()
+                grpcServer = null
+                logging.logToError("[MCP] Failed to start Phase 0 gRPC spike on port $grpcPort: ${exception.message}")
             }
+        }
+
+        api.extension().registerUnloadingHandler {
+            grpcServer?.close()
+            grpcServer = null
+            httpServer?.stop()
+            httpServer = null
+            logging.logToOutput("[MCP] Servers stopped")
+        }
+    }
+
+    private fun resolveGrpcPort(
+        httpPort: Int,
+        logging: Logging,
+    ): Int? {
+        val raw = System.getProperty("burp.mcp.grpc.port") ?: System.getenv("BURP_MCP_GRPC_PORT")
+        if (raw.isNullOrBlank()) return null
+        return try {
+            val grpcPort = raw.trim().toInt()
+            require(grpcPort in 1..65535) { "out of range" }
+            require(grpcPort != httpPort) { "must differ from HTTP port" }
+            grpcPort
+        } catch (exception: Exception) {
+            logging.logToError("[MCP] Invalid gRPC spike port '$raw'; gRPC disabled. ${exception.message}")
+            null
         }
     }
 

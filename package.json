@@ -53,7 +53,8 @@
     "test:bridge": "bun test test/*.test.js",
     "test:unit": "bun test bridge/test",
     "test": "bun run test:bridge && bun run test:unit",
-    "check": "bun run lint && bun run build && bun run test",
+    "check:contract": "bun scripts/generate-burp-contract-fixture.ts --check",
+    "check": "bun run lint && bun run build && bun run check:contract && bun run test",
     "prepack": "bun run check"
   },
   "devDependencies": {

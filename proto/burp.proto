@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package burp.v1;
+
+option java_multiple_files = true;
+option java_package = "io.github.nguyenthdat.burpmcp.grpc.v1";
+option java_outer_classname = "BurpProto";
+
+import "common.proto";
+
+service BurpService {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc EchoBytes(EchoBytesRequest) returns (EchoBytesResponse);
+  rpc ProxyHistory(ProxyHistoryRequest) returns (ProxyHistoryResponse);
+  rpc ServerInfo(ServerInfoRequest) returns (ServerInfoResponse);
+}
+
+message PingRequest { string client = 1; }
+message PingResponse {
+  string server = 1;
+  string version = 2;
+  uint64 unix_millis = 3;
+}
+message EchoBytesRequest {
+  bytes payload = 1;
+  uint32 delay_millis = 2; // Phase 0 deadline/cancellation probe only.
+}
+message EchoBytesResponse { bytes payload = 1; }
+message ProxyHistoryRequest { PageRequest page = 1; }
+message ProxyHistoryResponse {
+  repeated ProxyHistoryEntry items = 1;
+  PageInfo page = 2;
+}
+message ProxyHistoryEntry {
+  uint32 index = 1;
+  string method = 2;
+  string url = 3;
+  uint32 status = 4;
+  uint64 length = 5;
+}
+message ServerInfoRequest {}
+message ServerInfoResponse {
+  string extension = 1;
+  string version = 2;
+  repeated string capabilities = 3;
+}

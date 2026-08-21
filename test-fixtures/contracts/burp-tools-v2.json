@@ -1,0 +1,1647 @@
+{
+  "version": "2.0.0",
+  "namespace": "burp_",
+  "tools": [
+    {
+      "name": "burp_proxy_history",
+      "backendName": "proxy_history",
+      "description": "Get Burp proxy history with optional filtering by URL, method, status code",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Max items (default 100)"
+          },
+          "offset": {
+            "type": "number"
+          },
+          "url_filter": {
+            "type": "string"
+          },
+          "method_filter": {
+            "type": "string"
+          },
+          "status_filter": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_proxy_detail",
+      "backendName": "proxy_detail",
+      "description": "Get full request/response details for a specific proxy history item by index",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "number",
+            "description": "History item index"
+          }
+        },
+        "required": [
+          "index"
+        ]
+      }
+    },
+    {
+      "name": "burp_proxy_websocket",
+      "backendName": "proxy_websocket",
+      "description": "Get WebSocket message history",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_proxy_clear",
+      "backendName": "proxy_clear",
+      "description": "Clear proxy history",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "burp_proxy_history_filtered",
+      "backendName": "proxy_history_filtered",
+      "description": "Filter proxy history by annotation color or notes",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "has_notes": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_send_request",
+      "backendName": "send_request",
+      "description": "Send an HTTP request through Burp and get the response",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "Full URL"
+          },
+          "body": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "burp_send_to_repeater",
+      "backendName": "send_to_repeater",
+      "description": "Display a raw HTTP request in Burp Repeater without sending it. tab_name is an optional tab caption, not a tag.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string",
+            "description": "Raw HTTP request displayed in Repeater without sending it"
+          },
+          "tab_name": {
+            "type": "string",
+            "description": "Optional Repeater tab caption, not a tag",
+            "default": "MCP"
+          }
+        },
+        "required": [
+          "request"
+        ]
+      }
+    },
+    {
+      "name": "burp_repeater_send",
+      "backendName": "repeater_send",
+      "description": "Send a request and get response (like Repeater)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string",
+            "description": "Raw HTTP request"
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "number"
+          },
+          "https": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "request",
+          "host"
+        ]
+      }
+    },
+    {
+      "name": "burp_repeater_modify_send",
+      "backendName": "repeater_modify_send",
+      "description": "Modify headers/body of a request then send it",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "number"
+          },
+          "https": {
+            "type": "boolean"
+          },
+          "replace_header": {
+            "type": "object"
+          },
+          "add_header": {
+            "type": "object"
+          },
+          "replace_body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "host"
+        ]
+      }
+    },
+    {
+      "name": "burp_send_to_intruder",
+      "backendName": "send_to_intruder",
+      "description": "Send a request to Burp Intruder",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request"
+        ]
+      }
+    },
+    {
+      "name": "burp_intruder_attack",
+      "backendName": "intruder_attack",
+      "description": "Run a numeric range brute force attack (synchronous)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url_template": {
+            "type": "string",
+            "description": "URL with @@ placeholder"
+          },
+          "placeholder": {
+            "type": "string"
+          },
+          "from": {
+            "type": "number"
+          },
+          "to": {
+            "type": "number"
+          },
+          "pad_digits": {
+            "type": "number"
+          },
+          "method": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object"
+          },
+          "success_length_not": {
+            "type": "number"
+          },
+          "success_contains": {
+            "type": "string"
+          },
+          "body_template": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url_template"
+        ]
+      }
+    },
+    {
+      "name": "burp_intruder_attack_async",
+      "backendName": "intruder_attack_async",
+      "description": "Run a multi-threaded numeric range brute force attack",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url_template": {
+            "type": "string"
+          },
+          "placeholder": {
+            "type": "string"
+          },
+          "from": {
+            "type": "number"
+          },
+          "to": {
+            "type": "number"
+          },
+          "pad_digits": {
+            "type": "number"
+          },
+          "method": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object"
+          },
+          "success_length_not": {
+            "type": "number"
+          },
+          "threads": {
+            "type": "number"
+          },
+          "body_template": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url_template"
+        ]
+      }
+    },
+    {
+      "name": "burp_intruder_attack_wordlist",
+      "backendName": "intruder_attack_wordlist",
+      "description": "Run a wordlist-based attack",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url_template": {
+            "type": "string"
+          },
+          "wordlist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "method": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object"
+          },
+          "success_length_not": {
+            "type": "number"
+          },
+          "body_template": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url_template",
+          "wordlist"
+        ]
+      }
+    },
+    {
+      "name": "burp_intruder_pitchfork",
+      "backendName": "intruder_pitchfork",
+      "description": "Run a Pitchfork attack (parallel multi-param)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url_template": {
+            "type": "string"
+          },
+          "placeholders": {
+            "type": "object"
+          },
+          "method": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object"
+          },
+          "success_length_not": {
+            "type": "number"
+          },
+          "body_template": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url_template",
+          "placeholders"
+        ]
+      }
+    },
+    {
+      "name": "burp_intruder_cluster_bomb",
+      "backendName": "intruder_cluster_bomb",
+      "description": "Run a Cluster Bomb attack (cartesian product multi-param)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url_template": {
+            "type": "string"
+          },
+          "placeholders": {
+            "type": "object"
+          },
+          "method": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object"
+          },
+          "success_length_not": {
+            "type": "number"
+          },
+          "max_requests": {
+            "type": "number"
+          },
+          "body_template": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url_template",
+          "placeholders"
+        ]
+      }
+    },
+    {
+      "name": "burp_intruder_battering_ram",
+      "backendName": "intruder_battering_ram",
+      "description": "Run a Battering Ram attack (same payload all positions)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url_template": {
+            "type": "string"
+          },
+          "wordlist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "placeholder": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object"
+          },
+          "success_length_not": {
+            "type": "number"
+          },
+          "body_template": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url_template",
+          "wordlist"
+        ]
+      }
+    },
+    {
+      "name": "burp_intruder_with_options",
+      "backendName": "intruder_with_options",
+      "description": "Run attack with advanced options (throttle, encoding, grep, timing)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url_template": {
+            "type": "string"
+          },
+          "from": {
+            "type": "number"
+          },
+          "to": {
+            "type": "number"
+          },
+          "pad_digits": {
+            "type": "number"
+          },
+          "method": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object"
+          },
+          "success_length_not": {
+            "type": "number"
+          },
+          "throttle_ms": {
+            "type": "number"
+          },
+          "payload_prefix": {
+            "type": "string"
+          },
+          "payload_suffix": {
+            "type": "string"
+          },
+          "payload_encoding": {
+            "type": "string"
+          },
+          "grep_extract": {
+            "type": "string"
+          },
+          "record_time": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "url_template"
+        ]
+      }
+    },
+    {
+      "name": "burp_sitemap",
+      "backendName": "sitemap",
+      "description": "Get site map entries with optional URL prefix filter",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url_prefix": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_target_info",
+      "backendName": "target_info",
+      "description": "Get target information (hosts, technologies detected)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_intercept_toggle",
+      "backendName": "intercept_toggle",
+      "description": "Enable or disable proxy intercept",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "enable": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_encode",
+      "backendName": "encode",
+      "description": "Encode a string (base64, url, hex)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "base64, url, or hex"
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "burp_decode",
+      "backendName": "decode",
+      "description": "Decode a string (base64, url)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "base64 or url"
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "burp_convert_request",
+      "backendName": "convert_request",
+      "description": "Convert HTTP request method (e.g. GET to POST)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string"
+          },
+          "convert_to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request"
+        ]
+      }
+    },
+    {
+      "name": "burp_export_request",
+      "backendName": "export_request",
+      "description": "Export a request as curl or Python requests code",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "description": "curl or python"
+          },
+          "https": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "request"
+        ]
+      }
+    },
+    {
+      "name": "burp_generate_csrf_poc",
+      "backendName": "generate_csrf_poc",
+      "description": "Generate a CSRF proof-of-concept HTML page",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "https": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "request"
+        ]
+      }
+    },
+    {
+      "name": "burp_extract_from_response",
+      "backendName": "extract_from_response",
+      "description": "Extract data from a response using regex",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "number"
+          },
+          "regex": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum matches returned (default 100, max 500)"
+          }
+        },
+        "required": [
+          "index",
+          "regex"
+        ]
+      }
+    },
+    {
+      "name": "burp_payload_process",
+      "backendName": "payload_process",
+      "description": "Process a payload (hash, encode, reverse, etc.)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string",
+            "description": "base64_encode/decode, url_encode/decode, md5, sha1, sha256, hex_encode, lowercase, uppercase, reverse, length"
+          }
+        },
+        "required": [
+          "input",
+          "operation"
+        ]
+      }
+    },
+    {
+      "name": "burp_scan",
+      "backendName": "scan",
+      "description": "Start a vulnerability scan",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Target URL"
+          },
+          "mode": {
+            "type": "string",
+            "description": "active or passive",
+            "default": "active"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "burp_scan_active",
+      "backendName": "scan_active",
+      "description": "Start a standard legacy active audit for a request. This cannot target or prove execution of a particular BCheck; poll scan_results for discovered issues. Requires Burp Professional.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string",
+            "description": "Raw HTTP request that seeds a standard active audit and does not select a BCheck"
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "number"
+          },
+          "https": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "host",
+          "request"
+        ]
+      }
+    },
+    {
+      "name": "burp_bambda_import",
+      "backendName": "bambda_import",
+      "description": "Import a Bambda script into Burp. Imports only; this tool does not execute the script.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "script": {
+            "type": "string",
+            "description": "Complete Bambda script to import only; it is not executed"
+          }
+        },
+        "required": [
+          "script"
+        ]
+      }
+    },
+    {
+      "name": "burp_bcheck_import",
+      "backendName": "bcheck_import",
+      "description": "Import a BCheck script into Burp with the requested enabled state. Imports only; this tool does not run the BCheck.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "script": {
+            "type": "string",
+            "description": "Complete BCheck script to import only; it is not run"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Requested BCheck state after a successful import"
+          }
+        },
+        "required": [
+          "script",
+          "enabled"
+        ]
+      }
+    },
+    {
+      "name": "burp_scan_results",
+      "backendName": "scan_results",
+      "description": "Get scan results (discovered vulnerabilities)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_scan_issue_detail",
+      "backendName": "scan_issue_detail",
+      "description": "Get detailed information about a specific scan issue",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "index"
+        ]
+      }
+    },
+    {
+      "name": "burp_crawl",
+      "backendName": "crawl",
+      "description": "Start crawling a URL (adds to scope)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "burp_get_scope",
+      "backendName": "get_scope",
+      "description": "Check if a URL is in Burp scope",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_add_to_scope",
+      "backendName": "add_to_scope",
+      "description": "Add a URL to Burp scope",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "burp_remove_from_scope",
+      "backendName": "remove_from_scope",
+      "description": "Remove a URL from Burp scope",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "burp_collaborator_generate",
+      "backendName": "collaborator_generate",
+      "description": "Generate Burp Collaborator payloads for OOB testing",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_collaborator_poll",
+      "backendName": "collaborator_poll",
+      "description": "Poll for Collaborator interactions (DNS/HTTP callbacks)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "burp_search_history",
+      "backendName": "search_history",
+      "description": "Search proxy history with regex (in URL, request, or response)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "regex": {
+            "type": "string"
+          },
+          "search_in": {
+            "type": "string",
+            "description": "url, request, or response"
+          },
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_highlight",
+      "backendName": "highlight",
+      "description": "Set the highlight color on an item in the current Burp Proxy HTTP history. This does not address Repeater history or tags.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "number",
+            "description": "Zero-based current Proxy HTTP history index"
+          },
+          "color": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "index"
+        ]
+      }
+    },
+    {
+      "name": "burp_annotate",
+      "backendName": "annotate",
+      "description": "Set notes on an item in the current Burp Proxy HTTP history. This does not address Repeater history or tags.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "number",
+            "description": "Zero-based current Proxy HTTP history index"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "note"
+        ]
+      }
+    },
+    {
+      "name": "burp_compare",
+      "backendName": "compare",
+      "description": "Compare two proxy history responses (diff)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "index1": {
+            "type": "number"
+          },
+          "index2": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "index1",
+          "index2"
+        ]
+      }
+    },
+    {
+      "name": "burp_export_config",
+      "backendName": "export_config",
+      "description": "Export Burp project configuration as JSON",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "burp_import_config",
+      "backendName": "import_config",
+      "description": "Import Burp project configuration from JSON",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "config"
+        ]
+      }
+    },
+    {
+      "name": "burp_set_upstream_proxy",
+      "backendName": "set_upstream_proxy",
+      "description": "Set upstream proxy (SOCKS/HTTP) for all Burp traffic",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "proxy_host": {
+            "type": "string"
+          },
+          "proxy_port": {
+            "type": "number"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "proxy_host",
+          "proxy_port"
+        ]
+      }
+    },
+    {
+      "name": "burp_set_dns_override",
+      "backendName": "set_dns_override",
+      "description": "Override DNS resolution for a hostname",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "hostname": {
+            "type": "string"
+          },
+          "ip": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "hostname",
+          "ip"
+        ]
+      }
+    },
+    {
+      "name": "burp_set_http2",
+      "backendName": "set_http2",
+      "description": "Enable or disable HTTP/2",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "enable": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_cookie_jar",
+      "backendName": "cookie_jar",
+      "description": "List cookies in Burp cookie jar with name, value, domain, path, and expiration (optional domain filter)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number"
+          },
+          "domain": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_token_analysis",
+      "backendName": "token_analysis",
+      "description": "Analyze token entropy and randomness",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tokens": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "tokens"
+        ]
+      }
+    },
+    {
+      "name": "burp_sequencer",
+      "backendName": "sequencer",
+      "description": "Analyze a batch of tokens for randomness quality",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tokens": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "tokens"
+        ]
+      }
+    },
+    {
+      "name": "burp_save_project",
+      "backendName": "save_project",
+      "description": "Save the current Burp project",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "burp_burp_version",
+      "backendName": "burp_version",
+      "description": "Get Burp Suite version information",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "burp_add_issue",
+      "backendName": "add_issue",
+      "description": "Manually add a vulnerability issue to the site map",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "remediation": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "burp_register_http_handler",
+      "backendName": "register_http_handler",
+      "description": "Register an auto-modify rule for HTTP requests (add header or replace text)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "header_name": {
+            "type": "string"
+          },
+          "header_value": {
+            "type": "string"
+          },
+          "match": {
+            "type": "string"
+          },
+          "replace": {
+            "type": "string"
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "header_name",
+              "header_value"
+            ]
+          },
+          {
+            "required": [
+              "match",
+              "replace"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "burp_remove_http_handler",
+      "backendName": "remove_http_handler",
+      "description": "Remove/clear HTTP handler rules",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "burp_register_proxy_rule",
+      "backendName": "register_proxy_rule",
+      "description": "Register a proxy intercept rule (intercept URLs containing a string)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url_contains": {
+            "type": "string"
+          },
+          "intercept": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "url_contains"
+        ]
+      }
+    },
+    {
+      "name": "burp_remove_proxy_rule",
+      "backendName": "remove_proxy_rule",
+      "description": "Remove/clear proxy intercept rules",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "burp_extensions_list",
+      "backendName": "extensions_list",
+      "description": "Get information about loaded extensions",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "burp_log",
+      "backendName": "log",
+      "description": "Write a message to Burp extension output log",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "level": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "burp_cookie_jar_set",
+      "backendName": "cookie_jar_set",
+      "description": "Set cookie in Burp cookie jar",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "name",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "burp_send_request_parallel",
+      "backendName": "send_request_parallel",
+      "description": "Send parallel HTTP requests",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "method": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "method",
+                "url"
+              ]
+            }
+          }
+        },
+        "required": [
+          "requests"
+        ]
+      }
+    },
+    {
+      "name": "burp_websocket_create",
+      "backendName": "websocket_create",
+      "description": "Create WebSocket connection",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "number"
+          },
+          "https": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host"
+        ]
+      }
+    },
+    {
+      "name": "burp_websocket_send_text",
+      "backendName": "websocket_send_text",
+      "description": "Send text on WebSocket",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "burp_websocket_send_binary",
+      "backendName": "websocket_send_binary",
+      "description": "Send binary on WebSocket",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "burp_websocket_close",
+      "backendName": "websocket_close",
+      "description": "Close WebSocket",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "burp_websocket_list",
+      "backendName": "websocket_list",
+      "description": "List active WebSockets",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "burp_passive_intel",
+      "backendName": "passive_intel",
+      "description": "Extract secrets from proxy history",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_session_create_rule",
+      "backendName": "session_create_rule",
+      "description": "Create session handling rule",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "find": {
+            "type": "string"
+          },
+          "replace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "find",
+          "replace"
+        ]
+      }
+    },
+    {
+      "name": "burp_session_list_rules",
+      "backendName": "session_list_rules",
+      "description": "List session rules",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "burp_session_remove_rule",
+      "backendName": "session_remove_rule",
+      "description": "Remove session rule",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "burp_jwt_decode",
+      "backendName": "jwt_decode",
+      "description": "Decode JWT tokens",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ]
+      }
+    },
+    {
+      "name": "burp_jwt_attack",
+      "backendName": "jwt_attack",
+      "description": "JWT attacks (alg:none)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "attack": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ]
+      }
+    },
+    {
+      "name": "burp_injection_probe",
+      "backendName": "injection_probe",
+      "description": "SQLi/SSTI/LFI probe",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "param": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "param"
+        ]
+      }
+    },
+    {
+      "name": "burp_access_control_sweep",
+      "backendName": "access_control_sweep",
+      "description": "Test different auth levels",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "number"
+          },
+          "https": {
+            "type": "boolean"
+          },
+          "auth_headers": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "host",
+          "auth_headers"
+        ]
+      }
+    },
+    {
+      "name": "burp_race_condition",
+      "backendName": "race_condition",
+      "description": "Race condition testing",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "number"
+          },
+          "https": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "request",
+          "host"
+        ]
+      }
+    },
+    {
+      "name": "burp_inline_fuzzer",
+      "backendName": "inline_fuzzer",
+      "description": "FUZZ marker fuzzing",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "template": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "number"
+          },
+          "https": {
+            "type": "boolean"
+          },
+          "marker": {
+            "type": "string"
+          },
+          "wordlist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "template",
+          "host",
+          "wordlist"
+        ]
+      }
+    },
+    {
+      "name": "burp_scope_gate",
+      "backendName": "scope_gate",
+      "description": "Enable/disable scope gate",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_privacy_mode",
+      "backendName": "privacy_mode",
+      "description": "Set privacy mode (strict/off)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "burp_audit_log",
+      "backendName": "audit_log",
+      "description": "View audit log entries",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  ]
+}

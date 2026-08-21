@@ -1,0 +1,10 @@
+[package]
+name = "burp-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+burp-grpc = { path = "../burp-grpc" }
+tokio.workspace = true
