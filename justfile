@@ -59,7 +59,7 @@ juice-shop-start:
           --restart no \
           "{{ juice_shop_image }}" >/dev/null; \
       fi
-    @for attempt in $$(seq 1 60); do \
+    @for attempt in $(seq 1 60); do \
         curl --fail --silent --show-error --max-time 2 "http://127.0.0.1:{{ juice_shop_port }}/" >/dev/null && { \
           echo 'Juice Shop ready at http://127.0.0.1:{{ juice_shop_port }}/#/'; \
           exit 0; \
@@ -96,15 +96,15 @@ goose-test target_url=goose_target grpc_port=goose_grpc_port proxy_port=goose_pr
     @nc -z 127.0.0.1 1234 || { echo 'LM Studio is not listening on 127.0.0.1:1234; run: just lms' >&2; exit 1; }
     @nc -z 127.0.0.1 "{{ proxy_port }}" || { echo 'Burp Proxy is not listening on 127.0.0.1:{{ proxy_port }}' >&2; exit 1; }
     @goose recipe validate "{{ goose_recipe }}"
-    @mkdir -p "$$(dirname "{{ report_path }}")"
+    @mkdir -p "$(dirname "{{ report_path }}")"
     @printf '' > "{{ report_path }}"
-    @target_origin=$$(python3 -c 'import sys, urllib.parse; u=urllib.parse.urlsplit(sys.argv[1]); print(u.scheme + chr(58) + chr(47) * 2 + u.netloc)' "{{ target_url }}"); \
-      target_hostname=$$(python3 -c 'import sys, urllib.parse; print(urllib.parse.urlsplit(sys.argv[1]).hostname)' "{{ target_url }}"); \
+    @target_origin=$(python3 -c 'import sys, urllib.parse; u=urllib.parse.urlsplit(sys.argv[1]); print(u.scheme + chr(58) + chr(47) * 2 + u.netloc)' "{{ target_url }}"); \
+      target_hostname=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.urlsplit(sys.argv[1]).hostname)' "{{ target_url }}"); \
       goose run \
         --recipe "{{ goose_recipe }}" \
         --params "target_url={{ target_url }}" \
-        --params "target_origin=$$target_origin" \
-        --params "target_hostname=$$target_hostname" \
+        --params "target_origin=$target_origin" \
+        --params "target_hostname=$target_hostname" \
         --params "grpc_port={{ grpc_port }}" \
         --params "proxy_port={{ proxy_port }}" \
         --params "report_path={{ report_path }}" \
@@ -114,8 +114,8 @@ goose-test target_url=goose_target grpc_port=goose_grpc_port proxy_port=goose_pr
         --quiet \
         --output-format json >/dev/null
     @jq -e 'type == "object" and (.summary.failed | type == "number") and (.confirmed_defects | type == "array")' "{{ report_path }}" >/dev/null || { echo 'Goose did not write a valid validation report' >&2; exit 1; }
-    @failed="$$(jq -r '.summary.failed' "{{ report_path }}")"; \
-      defects="$$(jq -r '.confirmed_defects | length' "{{ report_path }}")"; \
+    @failed="$(jq -r '.summary.failed' "{{ report_path }}")"; \
+      defects="$(jq -r '.confirmed_defects | length' "{{ report_path }}")"; \
       if (( failed > 0 || defects > 0 )); then \
         echo 'NEEDS_FIX — send the JSON below for remediation:'; \
         jq '{overall_status, summary, confirmed_defects, blockers, report_path}' "{{ report_path }}"; \
