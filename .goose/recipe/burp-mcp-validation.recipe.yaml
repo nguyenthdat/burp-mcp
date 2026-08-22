@@ -13,11 +13,24 @@ parameters:
     input_type: string
     requirement: required
     description: "Base URL of the test system you own or are explicitly authorized to assess"
+  - key: target_origin
+    input_type: string
+    requirement: required
+    description: "Scheme and authority derived from target_url, without path, query, or fragment"
+  - key: target_hostname
+    input_type: string
+    requirement: required
+    description: "Hostname derived from target_url for Burp cookie filtering"
   - key: grpc_port
     input_type: number
     requirement: optional
     default: "9877"
     description: "Loopback gRPC port exposed by the loaded Burp MCP extension"
+  - key: proxy_port
+    input_type: number
+    requirement: optional
+    default: "8080"
+    description: "Burp Proxy listener port used by Playwright to populate target history and cookies"
   - key: report_path
     input_type: string
     requirement: optional
@@ -49,6 +62,32 @@ extensions:
     timeout: 300
     bundled: false
     description: "Project-native Burp MCP stdio server backed by the Kotlin extension over loopback gRPC"
+  - type: stdio
+    name: playwright
+    cmd: "bunx"
+    args:
+      - "--bun"
+      - "@playwright/mcp@0.0.79"
+      - "--headless"
+      - "--isolated"
+      - "--browser"
+      - "chrome"
+      - "--caps"
+      - "storage"
+      - "--proxy-server"
+      - "http://127.0.0.1:{{ proxy_port }}"
+      - "--allowed-origins"
+      - "{{ target_origin }}"
+      - "--image-responses"
+      - "omit"
+      - "--timeout-navigation"
+      - "60000"
+      - "--timeout-settle"
+      - "1000"
+      - "--ignore-https-errors"
+    timeout: 120
+    bundled: false
+    description: "Headless isolated browser routed through Burp Proxy to populate target data when needed"
   - type: platform
     name: developer
 
@@ -57,23 +96,29 @@ instructions: |
 
   Resource and concurrency boundary:
   - Run this recipe as exactly one Goose agent. Do not use sub-recipes, summon/delegate, orchestrator, scheduler, nested Goose sessions, or background agents/processes.
-  - Issue at most 4 tool calls in any single assistant turn. This is a hard ceiling across Burp MCP and developer tools combined, not 4 calls per extension.
   - Wait for every call in the current batch to finish before issuing the next batch. A call that depends on another call's output must run in a later turn.
-  - Process the matrix in its written A, B, C, D, E order. Split any section requiring more than 4 calls into consecutive batches; never fan out the whole matrix at once.
+  - Issue at most 4 tool calls in any single assistant turn. This is a hard ceiling across Burp MCP, Playwright, and developer tools combined, not 4 calls per extension.
   - Prefer fewer than 4 concurrent calls when a response may be large. Never start parallel builds, tests, scans, or nested model prompts.
 
   Hard safety boundary:
-  - The only authorized HTTP origin is {{ target_url }}. Never send traffic to another origin, redirect target, discovered host, Collaborator domain, or third-party service.
-  - Do not create users, change credentials, delete data, upload files, exploit findings, bypass authorization, persist access, or perform denial-of-service behavior.
-  - active_checks={{ active_checks }}. When false, do not invoke crawl, scan, race-condition, inline-fuzzer, parallel-send, or any other operation that emits multiple requests.
+  - The only authorized top-level navigation is exactly {{ target_url }}. Do not manually navigate to a discovered URL, redirect target, alternate host, Collaborator domain, or third-party service.
+  - Playwright is configured with `--allowed-origins={{ target_origin }}`. Subresources required by the target may load only when the MCP server permits them; never weaken or remove this restriction during the run.
+  - Playwright's allowlist reduces accidental subresource access but is not a security boundary and does not constrain redirects. If navigation leaves the authorized origin, stop browser bootstrap immediately, record it as BLOCKED, and do not interact with or report content from the redirected page.
+  - active_checks={{ active_checks }}. When false, do not invoke crawl, scan, race-condition, inline-fuzzer, parallel-send, or any other operation that emits multiple test requests.
   - When active checks are enabled, keep each bounded operation at no more than 5 requests/inputs, use harmless marker values, remain inside {{ target_url }}, and cancel a job that exceeds 60 seconds.
   - Never enable Proxy interception automatically. Test burp_intercept_state as read-only unless it is already enabled; restore any state you deliberately change.
-  - Cookie mutation, issue creation, send-to-Repeater, and send-to-Intruder change Burp state. Do not invoke them during the default run. Validate their presence and schemas through tool discovery; invoke only if the user explicitly requests that state mutation after reviewing this report.
+  - Cookie mutation, issue creation, send-to-Repeater, and send-to-Intruder change Burp state. Do not invoke them during the default run, except for the single namespaced synthetic cookie fallback explicitly defined in precondition 8. Validate other state-changing tools through discovery only.
 
   Preconditions:
   1. Use the developer extension to verify ./target/debug/burp-mcp exists. If absent, run exactly `cargo build -p burp-mcp` from the repository root.
   2. Call burp_burp_version. If it returns an offline, unavailable, or connection error, stop HTTP testing. Still test decoder, write a blocked report, and give the exact prerequisite: load the Kotlin Burp extension exposing 127.0.0.1:{{ grpc_port }}.
   3. Call burp_extension_info and record the filename, BApp status, and command-line arguments. Treat arguments as sensitive: record only their count, never their values.
+  4. Before matrix A, inspect Burp target data with bounded metadata-only calls: `burp_proxy_history_filtered` using URL filter {{ target_url }} and limit 1, then `burp_cookie_jar` using domain {{ target_hostname }} and limit 1.
+  5. If both calls already contain target data, do not launch Playwright for bootstrap. Continue directly to matrix A.
+  6. If either target history or target cookies are empty, use Playwright MCP to navigate once to exactly {{ target_url }} through Burp Proxy at 127.0.0.1:{{ proxy_port }}. Wait up to 60 seconds for navigation, then wait up to 10 additional seconds for network/UI settling. Do not interact with the page.
+  7. Before closing Playwright, call its read-only cookie-list tool for the target domain and record names/domains only. Never record cookie values. Then close Playwright and repeat the same two bounded Burp reads. Use the refreshed state for matrix B. An empty cookie jar is BLOCKED/NOT_APPLICABLE when Playwright also observed no target cookie; it is FAIL only if Playwright observed a target cookie but `burp_cookie_jar` cannot return it.
+  8. If Playwright observed no target cookie and the refreshed Burp cookie jar is still empty, create exactly one harmless Burp-only test item with `burp_cookie_jar_set`: name `burp_mcp_validation`, value `synthetic-nonsecret`, domain `{{ target_hostname }}`, path `/`, and no expiration. This user-authorized fallback exists only to test cookie-jar write/read behavior; do not create any application cookie or send the synthetic cookie to the target. Read it back once with `burp_cookie_jar`, record only its name/domain and that it was synthetic, and never record its value.
+  9. Leave the synthetic cookie in Burp's cookie jar as deterministic fixture data for later reruns. Do not overwrite or duplicate it if it already exists.
 
   Test matrix:
   A. Offline deterministic utilities; these do not need Burp or target traffic.
@@ -120,7 +165,7 @@ instructions: |
   - The final assistant response must be the same JSON object written to {{ report_path }} with no markdown wrapper.
 
 prompt: |
-  Run the complete Burp MCP validation matrix against the explicitly authorized target {{ target_url }}. Respect active_checks={{ active_checks }} and fix_mode={{ fix_mode }}. Write the redacted report to {{ report_path }} and return the same structured JSON.
+  Run the complete Burp MCP validation matrix against the explicitly authorized target {{ target_url }}. When bounded preflight reads show missing Burp target history or cookies, first use Playwright MCP through Burp Proxy on port {{ proxy_port }} to load exactly the target once and repopulate Burp state without interacting with the application. Respect active_checks={{ active_checks }} and fix_mode={{ fix_mode }}. Write the redacted report to {{ report_path }} and return the same structured JSON.
 
 response:
   json_schema:
