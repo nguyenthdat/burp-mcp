@@ -1,4 +1,3 @@
-use crate::utility::{self, DataValue, MAX_BATCH_ITEMS};
 use burp_protocol::BurpClient;
 use burp_protocol::proto::{
     CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest, CloseWebSocketRequest,
@@ -20,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use sitegraph::{IssueObservation, SitemapObservation, SqliteGraph, SyncBatch};
 use std::path::Path;
 use std::sync::Arc;
+use utility_tools::{self as utility, DataValue};
 
 const MAX_PAGE_SIZE: u32 = 500;
 
@@ -341,44 +341,27 @@ pub enum UtilityValueInput {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct UtilityStepInput {
+pub struct DecoderStepInput {
     pub op: String,
     #[serde(default)]
     pub args: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct UtilityRunInput {
+pub struct DecoderInput {
     pub input: UtilityValueInput,
-    pub operation: String,
+    #[serde(default)]
+    pub operation: Option<String>,
     #[serde(default)]
     pub args: serde_json::Value,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct UtilityRecipeInput {
-    pub input: UtilityValueInput,
-    pub steps: Vec<UtilityStepInput>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct UtilityBatchInput {
-    pub items: Vec<UtilityRecipeInput>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct UtilitySearchInput {
-    pub query: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct UtilityDescribeInput {
-    pub operation: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct UtilityMagicInput {
-    pub input: UtilityValueInput,
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub describe: Option<String>,
+    #[serde(default)]
+    pub magic: bool,
+    #[serde(default)]
+    pub steps: Vec<DecoderStepInput>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1323,79 +1306,11 @@ impl BurpTools {
     }
 
     #[tool(
-        name = "utility_run",
-        description = "Run one pure bounded Rust utility operation"
+        name = "decoder",
+        description = "One bounded offline decoder tool with many operations. Supply operation for one transform, steps for a recipe, query to search the operation catalog, describe for one operation's metadata, or magic=true for deterministic decode suggestions."
     )]
-    async fn utility_run(&self, Parameters(input): Parameters<UtilityRunInput>) -> String {
-        utility_result_json(
-            utility_value(input.input)
-                .and_then(|value| utility::run(&input.operation, value, &input.args)),
-        )
-    }
-
-    #[tool(
-        name = "utility_recipe",
-        description = "Run a bounded sequence of pure Rust utility operations"
-    )]
-    async fn utility_recipe(&self, Parameters(input): Parameters<UtilityRecipeInput>) -> String {
-        utility_result_json(run_utility_recipe(input))
-    }
-
-    #[tool(
-        name = "utility_batch",
-        description = "Run a bounded batch of Rust utility recipes"
-    )]
-    async fn utility_batch(&self, Parameters(input): Parameters<UtilityBatchInput>) -> String {
-        if input.items.len() > MAX_BATCH_ITEMS {
-            return serde_json::json!({"error": format!("batch must contain at most {MAX_BATCH_ITEMS} items")}).to_string();
-        }
-        serde_json::json!({
-            "results": input.items.into_iter().map(|item| match run_utility_recipe(item) {
-                Ok(value) => utility_value_json(value),
-                Err(error) => serde_json::json!({"error": error}),
-            }).collect::<Vec<_>>()
-        })
-        .to_string()
-    }
-
-    #[tool(
-        name = "utility_search_operations",
-        description = "Search the Rust utility operation registry"
-    )]
-    async fn utility_search_operations(
-        &self,
-        Parameters(input): Parameters<UtilitySearchInput>,
-    ) -> String {
-        serde_json::to_string(&utility::search(&input.query)).expect("utility registry serializes")
-    }
-
-    #[tool(
-        name = "utility_describe_operation",
-        description = "Describe one Rust utility operation"
-    )]
-    async fn utility_describe_operation(
-        &self,
-        Parameters(input): Parameters<UtilityDescribeInput>,
-    ) -> String {
-        match utility::describe(&input.operation) {
-            Some(operation) => {
-                serde_json::to_string(&operation).expect("utility operation serializes")
-            }
-            None => serde_json::json!({"error": "operation not found"}).to_string(),
-        }
-    }
-
-    #[tool(
-        name = "utility_magic",
-        description = "Suggest bounded deterministic utility transformations"
-    )]
-    async fn utility_magic(&self, Parameters(input): Parameters<UtilityMagicInput>) -> String {
-        match utility_value(input.input) {
-            Ok(value) => {
-                serde_json::json!({"suggestions": utility_magic_suggestions(&value)}).to_string()
-            }
-            Err(error) => serde_json::json!({"error": error}).to_string(),
-        }
+    async fn decoder(&self, Parameters(input): Parameters<DecoderInput>) -> String {
+        decoder_json(input)
     }
     #[tool(
         name = "sitegraph_sync",
@@ -1724,16 +1639,44 @@ fn utility_value(input: UtilityValueInput) -> Result<DataValue, String> {
     }
 }
 
-fn run_utility_recipe(input: UtilityRecipeInput) -> Result<DataValue, String> {
-    let steps = input
-        .steps
-        .into_iter()
-        .map(|step| (step.op, step.args))
-        .collect::<Vec<_>>();
-    utility::run_recipe(utility_value(input.input)?, &steps)
+fn decoder_json(input: DecoderInput) -> String {
+    if let Some(query) = input.query.as_deref() {
+        return serde_json::to_string(&utility::search(query))
+            .expect("decoder operation registry must serialize");
+    }
+    if let Some(operation) = input.describe.as_deref() {
+        return match utility::describe(operation) {
+            Some(operation) => serde_json::to_string(&operation)
+                .expect("decoder operation metadata must serialize"),
+            None => serde_json::json!({"error": "operation not found"}).to_string(),
+        };
+    }
+    let value = match utility_value(input.input) {
+        Ok(value) => value,
+        Err(error) => return serde_json::json!({"error": error}).to_string(),
+    };
+    if input.magic {
+        return serde_json::json!({"suggestions": utility::magic(&value)}).to_string();
+    }
+    let result = match (input.operation, input.steps.is_empty()) {
+        (Some(operation), true) => utility::run(&operation, value, &input.args),
+        (None, false) => {
+            let steps = input
+                .steps
+                .into_iter()
+                .map(|step| (step.op, step.args))
+                .collect::<Vec<_>>();
+            utility::run_recipe(value, &steps)
+        }
+        (Some(_), false) => Err("provide either operation or steps, not both".to_owned()),
+        (None, true) => {
+            Err("provide an operation, steps, query, describe, or magic mode".to_owned())
+        }
+    };
+    decoder_result_json(result)
 }
 
-fn utility_result_json(result: Result<DataValue, String>) -> String {
+fn decoder_result_json(result: Result<DataValue, String>) -> String {
     match result {
         Ok(value) => utility_value_json(value).to_string(),
         Err(error) => serde_json::json!({"error": error}).to_string(),
@@ -1748,29 +1691,6 @@ fn utility_value_json(value: DataValue) -> serde_json::Value {
             "base64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, value),
         }),
         DataValue::Json(value) => serde_json::json!({"kind": "json", "value": value}),
-    }
-}
-
-fn utility_magic_suggestions(input: &DataValue) -> Vec<&'static str> {
-    match input {
-        DataValue::Text(value) => {
-            let mut suggestions = Vec::new();
-            if value.len().is_multiple_of(2) && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-                suggestions.push("hex.decode");
-            }
-            if base64::Engine::decode(&base64::engine::general_purpose::STANDARD, value).is_ok() {
-                suggestions.push("base64.decode");
-            }
-            if value.contains('%') {
-                suggestions.push("url.decode");
-            }
-            if serde_json::from_str::<serde_json::Value>(value).is_ok() {
-                suggestions.push("json.pretty");
-            }
-            suggestions
-        }
-        DataValue::Bytes(value) if value.starts_with(&[0x1f, 0x8b]) => vec!["gzip.decompress"],
-        _ => Vec::new(),
     }
 }
 

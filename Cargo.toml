@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/burp-protocol", "crates/burp-mcp", "crates/sitegraph"]
+members = [
+    "crates/burp-protocol",
+    "crates/burp-mcp",
+    "crates/burp-tools",
+    "crates/sitegraph",
+    "crates/utility-core",
+    "crates/utility-tools",
+]
 
 [workspace.package]
 edition = "2024"
@@ -15,6 +22,8 @@ authors = ["Dat Nguyen <dat.nguyen@bitbytelab.io>"]
 anyhow = "1.0.100"
 base64 = "0.22.1"
 blake3 = "1.8.3"
+brotli = "8.0.2"
+html-escape = "0.2.13"
 flate2 = "1.1.5"
 hmac = "0.12.1"
 md-5 = "0.10.6"

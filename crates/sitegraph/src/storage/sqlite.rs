@@ -313,6 +313,109 @@ impl SqliteGraph {
             upserted_nodes += 2;
             upserted_edges += 1;
         }
+        for technology in &batch.technologies {
+            let normalized =
+                url::normalize(&technology.endpoint_url).map_err(StorageError::InvalidInput)?;
+            let endpoint_id =
+                fingerprint::stable_id("endpoint", &[&normalized.origin, "GET", &normalized.path]);
+            let endpoint = nodes::node(
+                NodeKind::Endpoint,
+                endpoint_id,
+                now,
+                json!({"origin": normalized.origin, "method": "GET", "path": normalized.path}),
+            );
+            nodes::upsert(
+                &mut transaction,
+                &endpoint,
+                nodes::SearchFields {
+                    origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
+                    method: "GET",
+                    path: endpoint.metadata["path"].as_str().unwrap_or_default(),
+                    name: "",
+                },
+            )
+            .await?;
+            let normalized_name = technology.name.trim().to_ascii_lowercase();
+            let technology_node = nodes::node(
+                NodeKind::Technology,
+                fingerprint::stable_id("technology", &[&normalized_name]),
+                now,
+                json!({"name": normalized_name}),
+            );
+            nodes::upsert(
+                &mut transaction,
+                &technology_node,
+                nodes::SearchFields {
+                    name: technology_node.metadata["name"]
+                        .as_str()
+                        .unwrap_or_default(),
+                    ..nodes::SearchFields::default()
+                },
+            )
+            .await?;
+            edges::upsert(
+                &mut transaction,
+                &endpoint.id,
+                &technology_node.id,
+                crate::model::EdgeKind::HasTechnology,
+                &evidence_id,
+                now,
+            )
+            .await?;
+            upserted_nodes += 2;
+            upserted_edges += 1;
+        }
+        for artifact in &batch.artifacts {
+            let normalized =
+                url::normalize(&artifact.endpoint_url).map_err(StorageError::InvalidInput)?;
+            let endpoint_id =
+                fingerprint::stable_id("endpoint", &[&normalized.origin, "GET", &normalized.path]);
+            let endpoint = nodes::node(
+                NodeKind::Endpoint,
+                endpoint_id,
+                now,
+                json!({"origin": normalized.origin, "method": "GET", "path": normalized.path}),
+            );
+            nodes::upsert(
+                &mut transaction,
+                &endpoint,
+                nodes::SearchFields {
+                    origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
+                    method: "GET",
+                    path: endpoint.metadata["path"].as_str().unwrap_or_default(),
+                    name: "",
+                },
+            )
+            .await?;
+            let kind = artifact.kind.trim().to_ascii_lowercase();
+            let name = artifact.name.trim();
+            let artifact_node = nodes::node(
+                NodeKind::Artifact,
+                fingerprint::stable_id("artifact", &[&kind, name, &artifact.fingerprint]),
+                now,
+                json!({"kind": kind, "name": name, "fingerprint": artifact.fingerprint}),
+            );
+            nodes::upsert(
+                &mut transaction,
+                &artifact_node,
+                nodes::SearchFields {
+                    name: artifact_node.metadata["name"].as_str().unwrap_or_default(),
+                    ..nodes::SearchFields::default()
+                },
+            )
+            .await?;
+            edges::upsert(
+                &mut transaction,
+                &endpoint.id,
+                &artifact_node.id,
+                crate::model::EdgeKind::HasArtifact,
+                &evidence_id,
+                now,
+            )
+            .await?;
+            upserted_nodes += 2;
+            upserted_edges += 1;
+        }
         sqlx::query("INSERT INTO graph_metadata(key, value) VALUES('last_synced_at', ?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
             .bind(now.to_string())
             .execute(&mut *transaction)
@@ -708,5 +811,97 @@ mod tests {
         let csv = graph.export_csv(0, 2).await.unwrap();
         assert!(csv.truncated);
         assert!(!csv.csv.contains("private body"));
+    }
+
+    #[tokio::test]
+    async fn file_database_reopens_and_recovers_interrupted_user_transaction() {
+        let path = std::env::temp_dir().join(format!(
+            "burp-mcp-sitegraph-{}-{}.sqlite",
+            std::process::id(),
+            OffsetDateTime::now_utc().unix_timestamp_nanos()
+        ));
+        let graph = SqliteGraph::open(&path).await.unwrap();
+        graph
+            .sync(&SyncBatch {
+                sitemap: vec![observation("persistent", b"")],
+                ..SyncBatch::default()
+            })
+            .await
+            .unwrap();
+        let mut transaction = graph.pool().begin().await.unwrap();
+        sqlx::query("INSERT INTO graph_metadata(key, value) VALUES('interrupted', 'private')")
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        transaction.rollback().await.unwrap();
+        graph.pool().close().await;
+
+        let reopened = SqliteGraph::open(&path).await.unwrap();
+        assert_eq!(reopened.status().await.unwrap().schema_version, 2);
+        assert!(reopened.search("persistent", 0, 10).await.unwrap().total > 0);
+        let interrupted = sqlx::query("SELECT value FROM graph_metadata WHERE key='interrupted'")
+            .fetch_optional(reopened.pool())
+            .await
+            .unwrap();
+        assert!(interrupted.is_none());
+        reopened.pool().close().await;
+        let _ = tokio::fs::remove_file(&path).await;
+        let _ = tokio::fs::remove_file(path.with_extension("sqlite-wal")).await;
+        let _ = tokio::fs::remove_file(path.with_extension("sqlite-shm")).await;
+    }
+
+    #[tokio::test]
+    async fn technologies_and_artifacts_persist_as_searchable_linked_nodes() {
+        let graph = graph().await;
+        graph
+            .sync(&SyncBatch {
+                technologies: vec![crate::model::TechnologyObservation {
+                    name: "Synthetic Runtime".to_owned(),
+                    endpoint_url: "https://example.test/app?token=private".to_owned(),
+                }],
+                artifacts: vec![crate::model::ArtifactObservation {
+                    kind: "schema".to_owned(),
+                    name: "public-contract".to_owned(),
+                    endpoint_url: "https://example.test/app?key=secret".to_owned(),
+                    fingerprint: "sha256:synthetic".to_owned(),
+                }],
+                ..SyncBatch::default()
+            })
+            .await
+            .unwrap();
+
+        let technology = sqlx::query("SELECT id, metadata FROM nodes WHERE kind='technology'")
+            .fetch_one(graph.pool())
+            .await
+            .unwrap();
+        let artifact = sqlx::query("SELECT id, metadata FROM nodes WHERE kind='artifact'")
+            .fetch_one(graph.pool())
+            .await
+            .unwrap();
+        assert!(
+            technology
+                .get::<String, _>("metadata")
+                .contains("synthetic runtime")
+        );
+        assert!(
+            artifact
+                .get::<String, _>("metadata")
+                .contains("public-contract")
+        );
+        let linked = sqlx::query(
+            "SELECT count(*) AS count FROM edges WHERE kind IN ('has_technology', 'has_artifact')",
+        )
+        .fetch_one(graph.pool())
+        .await
+        .unwrap()
+        .get::<i64, _>("count");
+        assert_eq!(linked, 2);
+        let stored = sqlx::query("SELECT group_concat(metadata, '') AS value FROM nodes")
+            .fetch_one(graph.pool())
+            .await
+            .unwrap()
+            .get::<String, _>("value");
+        assert!(!stored.contains("private"));
+        assert!(!stored.contains("secret"));
     }
 }

@@ -1,6 +1,6 @@
 # Burp MCP v3 — Migration Plan
 
-> **Status:** Draft  
+> **Status:** Implemented; automated repository verification complete, manual Burp/JDK 25 host validation remains external
 > **Created:** 2026-08-21  
 > **Target:** Replace the TypeScript/Bun bridge and CyberChef runtime with a native Rust MCP server; connect Rust to the Kotlin Burp extension through gRPC; add a persistent sitemap graph.
 
@@ -1257,22 +1257,23 @@ Expected MVP: approximately **8–10 weeks**, depending on the gRPC spike and th
 
 ## 19. Definition of Done for v3
 
-- [ ] No TypeScript or JavaScript production bridge.
-- [ ] No Bun, Node or npm runtime requirement.
-- [ ] No CyberChef dependency or worker.
-- [ ] MCP server is a native Rust binary using `rmcp`.
-- [ ] Rust and Kotlin communicate through loopback-only gRPC without application-level authentication.
-- [ ] Existing advertised Burp tools are ported or have documented replacements.
-- [ ] Kotlin no longer exposes the HTTP/JSON transport.
-- [ ] Kotlin domain services no longer depend on Gson `JsonObject`.
-- [ ] Raw HTTP messages remain byte-exact and preserve duplicate headers.
-- [ ] Long-running operations use jobs and support status/cancellation.
-- [ ] Utility execution has strict resource limits and no network access.
-- [ ] Sitemap graph supports sync, status, search, neighbors, trace, detail, diff and export.
-- [ ] Graph persistence does not store secrets or raw bodies by default.
-- [ ] CI tests Gradle, Cargo, protobuf generation and cross-language gRPC.
-- [ ] Releases contain the extension JAR, native binaries, checksums and SBOM.
+- [x] No TypeScript or JavaScript production bridge.
+- [x] No Bun, Node or npm runtime requirement.
+- [x] No CyberChef dependency or worker.
+- [x] MCP server is a native Rust binary using `rmcp`.
+- [x] Rust and Kotlin communicate through loopback-only gRPC without application-level authentication.
+- [x] Existing advertised Burp tools are ported or have documented replacements.
+- [x] Kotlin no longer exposes the HTTP/JSON transport.
+- [x] Kotlin domain services no longer depend on Gson `JsonObject`.
+- [x] Raw HTTP messages use protobuf `bytes`; byte-exact interop fixtures cover binary payloads and duplicate header representation.
+- [x] Long-running operations use bounded jobs and support status/cancellation.
+- [x] Utility execution is exposed through one generic `decoder` MCP tool with strict resource limits and no network, filesystem or code-execution operations. Catalog lookup, recipes, batches of steps and deterministic magic remain modes/operations behind that interface rather than extra tools.
+- [x] Sitemap graph supports sync, status, search, neighbors, trace, detail, diff and export.
+- [x] Graph persistence does not store secrets or raw bodies by default.
+- [x] CI tests Gradle, Cargo, protobuf generation, cross-language gRPC and native builds on Linux, macOS and Windows.
+- [x] Release automation stages the extension JAR, native binary, checksums and CycloneDX SBOM.
 
+Manual validation in an interactive Burp Suite/JDK 25 host remains documented in `docs/phase0-burp-jdk25-verification.md`; it is not reproducible in headless repository CI.
 ## 20. Recommended pull request sequence
 
 1. **PR 1 — Baseline contracts:** ADR, current tool/schema fixtures and migration inventory; no behavior changes.

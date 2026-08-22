@@ -14,6 +14,7 @@ pub enum EdgeKind {
     RedirectsTo,
     HasIssue,
     HasTechnology,
+    HasArtifact,
 }
 
 impl EdgeKind {
@@ -29,6 +30,7 @@ impl EdgeKind {
             Self::RedirectsTo => "redirects_to",
             Self::HasIssue => "has_issue",
             Self::HasTechnology => "has_technology",
+            Self::HasArtifact => "has_artifact",
         }
     }
 }

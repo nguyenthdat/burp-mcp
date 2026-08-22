@@ -1,14 +1,11 @@
 mod cli;
-mod tools;
-mod utility;
-
 use crate::cli::{Cli, Command, ServeArgs};
-use crate::tools::BurpTools;
 use anyhow::{Context, Result, anyhow, bail};
 use burp_protocol::proto::{
     EchoBytesRequest, PageRequest, PingRequest, ProxyHistoryRequest, ServerInfoRequest,
 };
 use burp_protocol::{BurpClientConfig, DEFAULT_MAX_MESSAGE_BYTES, connect_client, spawn_client};
+use burp_tools::BurpTools;
 use clap::Parser;
 use rmcp::{ServiceExt, transport::stdio};
 use std::time::Duration;
