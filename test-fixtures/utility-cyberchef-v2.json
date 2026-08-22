@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "source": "CyberChef v10-compatible outputs",
+  "cases": [
+    {
+      "operation": "base64.encode",
+      "input": { "kind": "text", "value": "hello" },
+      "output": { "kind": "text", "value": "aGVsbG8=" }
+    },
+    {
+      "operation": "base64.decode",
+      "input": { "kind": "text", "value": "AP8=" },
+      "output": { "kind": "bytes", "base64": "AP8=" }
+    },
+    {
+      "operation": "hex.encode",
+      "input": { "kind": "bytes", "base64": "AP8=" },
+      "output": { "kind": "text", "value": "00ff" }
+    },
+    {
+      "operation": "url.decode",
+      "input": { "kind": "text", "value": "hello%20world" },
+      "output": { "kind": "text", "value": "hello world" }
+    },
+    {
+      "operation": "sha256",
+      "input": { "kind": "text", "value": "hello" },
+      "output": { "kind": "text", "value": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" }
+    },
+    {
+      "operation": "json.minify",
+      "input": { "kind": "text", "value": "{\n  \"ok\": true\n}" },
+      "output": { "kind": "text", "value": "{\"ok\":true}" }
+    }
+  ]
+}

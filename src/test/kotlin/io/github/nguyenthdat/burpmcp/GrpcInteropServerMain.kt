@@ -1,6 +1,7 @@
 package io.github.nguyenthdat.burpmcp
 
 import burp.api.montoya.MontoyaApi
+import io.github.nguyenthdat.burpmcp.rpc.BurpRpcServer
 import java.lang.reflect.Proxy
 import java.nio.file.Files
 import java.nio.file.Path
@@ -29,7 +30,7 @@ object GrpcInteropServerMain {
         listOf(ready, stop, stopped, start, exit).forEach(Path::deleteIfExists)
 
         val api = fakeMontoyaApi()
-        var server: GrpcSpikeServer? = startServer(api, port)
+        var server: BurpRpcServer? = startServer(api, port)
         ready.writeText("127.0.0.1:$port")
         try {
             while (!exit.exists()) {
@@ -58,7 +59,7 @@ object GrpcInteropServerMain {
     private fun startServer(
         api: MontoyaApi,
         port: Int,
-    ): GrpcSpikeServer = GrpcSpikeServer(api, port).also(GrpcSpikeServer::start)
+    ): BurpRpcServer = BurpRpcServer(api, port).also(BurpRpcServer::start)
 
     @Suppress("UNCHECKED_CAST")
     private fun fakeMontoyaApi(): MontoyaApi =

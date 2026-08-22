@@ -1,0 +1,1058 @@
+package io.github.nguyenthdat.burpmcp.rpc
+
+import burp.api.montoya.MontoyaApi
+import io.github.nguyenthdat.burpmcp.CookieFacade
+import io.github.nguyenthdat.burpmcp.CookieQuery
+import io.github.nguyenthdat.burpmcp.AnnotationFacade
+import io.github.nguyenthdat.burpmcp.HttpFacade
+import io.github.nguyenthdat.burpmcp.ConfigFacade
+import io.github.nguyenthdat.burpmcp.HttpRequestSpec
+import io.github.nguyenthdat.burpmcp.HttpHandlerFacade
+import io.github.nguyenthdat.burpmcp.HttpHandlerRule
+import io.github.nguyenthdat.burpmcp.ProxyFacade
+import io.github.nguyenthdat.burpmcp.ProxyHistoryQuery
+import io.github.nguyenthdat.burpmcp.ProxyRuleFacade
+import io.github.nguyenthdat.burpmcp.ScannerFacade
+import io.github.nguyenthdat.burpmcp.ScanIssueQuery
+import io.github.nguyenthdat.burpmcp.SitemapFacade
+import io.github.nguyenthdat.burpmcp.SitemapQuery
+import io.github.nguyenthdat.burpmcp.TargetFacade
+import io.github.nguyenthdat.burpmcp.SessionRule
+import io.github.nguyenthdat.burpmcp.SessionRuleFacade
+import io.github.nguyenthdat.burpmcp.HttpBatchJobOutput
+import io.github.nguyenthdat.burpmcp.JobFacade
+import io.github.nguyenthdat.burpmcp.JobSnapshot
+import io.github.nguyenthdat.burpmcp.AuditJobOutput
+import io.github.nguyenthdat.burpmcp.LongOperationFacade
+import io.github.nguyenthdat.burpmcp.TaskJobOutput
+import io.github.nguyenthdat.burpmcp.CollaboratorFacade
+import io.github.nguyenthdat.burpmcp.WebSocketFacade
+import io.github.nguyenthdat.burpmcp.grpc.v1.CookieEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.CookieJarRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.CookieJarResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.SendRequestRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.SendRequestResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.SendRequestsRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.SendRequestsResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ActionResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.SendToRepeaterRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.SetHighlightRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.SetNoteRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.MutateScopeRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ConfigResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ExportConfigRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ImportConfigRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ClearHttpHandlerRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.RegisterHttpHandlerRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ClearProxyRulesRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.RegisterProxyRuleRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.CreateSessionRuleRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListSessionRulesRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListSessionRulesResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.RemoveSessionRulesRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.SessionRuleEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.CancelJobRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.GetJobResultRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.GetJobStatusRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.HttpJobResultItem
+import io.github.nguyenthdat.burpmcp.grpc.v1.JobResultResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.JobStatusResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.StartBoundedInputMatrixRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.StartConcurrentRequestCheckRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.StartCrawlRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.CollaboratorInteractionEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.GenerateCollaboratorPayloadsRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.GenerateCollaboratorPayloadsResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.PollCollaboratorInteractionsRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.PollCollaboratorInteractionsResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.CloseWebSocketRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.CreateWebSocketRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.CreateWebSocketResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListWebSocketsRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListWebSocketsResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.SendWebSocketBinaryRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.SendWebSocketTextRequest
+import io.github.nguyenthdat.burpmcp.ScriptImportFacade
+import io.github.nguyenthdat.burpmcp.grpc.v1.StartAuditRequest
+import com.google.protobuf.Any
+import com.google.rpc.Status as RpcStatus
+import io.github.nguyenthdat.burpmcp.grpc.v1.ErrorCode
+import io.github.nguyenthdat.burpmcp.grpc.v1.RpcError
+import io.github.nguyenthdat.burpmcp.grpc.v1.BurpServiceGrpc
+import io.github.nguyenthdat.burpmcp.grpc.v1.ImportBambdaRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ImportBCheckRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ScriptImportResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.EchoBytesRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.EchoBytesResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.PageInfo
+import io.github.nguyenthdat.burpmcp.grpc.v1.PingRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.PingResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyHistoryRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyDetailRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyDetailResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyHistoryEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyHistoryResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.SitemapEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.SitemapSnapshotRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.SitemapSnapshotResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ScopeCheckRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ScopeCheckResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.TargetInfoRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.TargetInfoResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ScanIssueEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.ScanIssuesRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ScanIssuesResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ServerInfoRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ServerInfoResponse
+import io.grpc.Context
+import io.grpc.Contexts
+import io.grpc.Metadata
+import io.grpc.Server
+import io.grpc.ServerCall
+import io.grpc.ServerCallHandler
+import io.grpc.ServerInterceptor
+import io.grpc.ServerInterceptors
+import io.grpc.Status
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
+import io.grpc.protobuf.StatusProto
+import io.grpc.stub.StreamObserver
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.time.Clock
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.min
+
+internal const val GRPC_MAX_MESSAGE_BYTES: Int = 16 * 1024 * 1024
+internal const val GRPC_MAX_PAGE_SIZE: Int = 500
+internal const val GRPC_MAX_METADATA_BYTES: Int = 8 * 1024
+internal const val GRPC_MAX_CONCURRENT_CALLS_PER_CONNECTION: Int = 32
+internal const val GRPC_MAX_RPC_TIMEOUT_SECONDS: Long = 30
+internal const val GRPC_MAX_RESPONSE_BYTES: Int = 16 * 1024 * 1024
+private const val GRPC_DEFAULT_PAGE_SIZE: Int = 100
+private const val GRPC_RESPONSE_OVERHEAD_BYTES: Int = 64 * 1024
+private const val GRPC_SHUTDOWN_SECONDS: Long = 5
+
+internal class BurpRpcServer(
+    private val api: MontoyaApi,
+    private val port: Int,
+    private val clock: Clock = Clock.systemUTC(),
+    private val serverFactory:
+        (InetSocketAddress, BurpServiceGrpc.BurpServiceImplBase, ExecutorService) -> Server =
+        { address, service, executor ->
+            NettyServerBuilder
+                .forAddress(address)
+                .executor(executor)
+                .addService(ServerInterceptors.intercept(service, RpcDeadlineInterceptor))
+                .maxInboundMessageSize(GRPC_MAX_MESSAGE_BYTES)
+                .maxInboundMetadataSize(GRPC_MAX_METADATA_BYTES)
+                .maxConcurrentCallsPerConnection(GRPC_MAX_CONCURRENT_CALLS_PER_CONNECTION)
+                .permitKeepAliveWithoutCalls(false)
+                .build()
+        },
+) : AutoCloseable {
+    private val running = AtomicBoolean(false)
+    private var server: Server? = null
+    private var executor: ExecutorService? = null
+    private var service: BurpRpcService? = null
+
+    fun start() {
+        check(running.compareAndSet(false, true)) { "gRPC server is already running" }
+        val address = loopbackAddress(port)
+        val workerPool =
+            ThreadPoolExecutor(
+                8,
+                8,
+                0,
+                TimeUnit.MILLISECONDS,
+                ArrayBlockingQueue(64),
+                { runnable -> Thread(runnable, "burp-mcp-grpc").apply { isDaemon = true } },
+                ThreadPoolExecutor.AbortPolicy(),
+            )
+        executor = workerPool
+        try {
+            val currentService = BurpRpcService(api, clock)
+            service = currentService
+            server = serverFactory(address, currentService, workerPool).start()
+        } catch (exception: Exception) {
+            workerPool.shutdownNow()
+            executor = null
+            running.set(false)
+            service = null
+            throw exception
+        }
+    }
+
+    fun isRunning(): Boolean = running.get() && server?.isShutdown == false
+
+    override fun close() {
+        val current = server
+        server = null
+        running.set(false)
+        if (current != null) {
+            current.shutdown()
+            if (!current.awaitTermination(GRPC_SHUTDOWN_SECONDS, TimeUnit.SECONDS)) {
+                current.shutdownNow()
+                current.awaitTermination(GRPC_SHUTDOWN_SECONDS, TimeUnit.SECONDS)
+            }
+        }
+        service?.close()
+        service = null
+        executor?.let { workerPool ->
+            workerPool.shutdown()
+            if (!workerPool.awaitTermination(GRPC_SHUTDOWN_SECONDS, TimeUnit.SECONDS)) {
+                workerPool.shutdownNow()
+                workerPool.awaitTermination(GRPC_SHUTDOWN_SECONDS, TimeUnit.SECONDS)
+            }
+        }
+        executor = null
+    }
+
+    internal companion object {
+        fun loopbackAddress(port: Int): InetSocketAddress {
+            require(port in 1..65535) { "gRPC port must be between 1 and 65535" }
+            val address = InetAddress.getByName("127.0.0.1")
+            require(address.isLoopbackAddress) { "gRPC server address must be loopback" }
+            return InetSocketAddress(address, port)
+        }
+    }
+}
+
+private object RpcDeadlineInterceptor : ServerInterceptor {
+    override fun <ReqT, RespT> interceptCall(
+        call: ServerCall<ReqT, RespT>,
+        headers: Metadata,
+        next: ServerCallHandler<ReqT, RespT>,
+    ): io.grpc.ServerCall.Listener<ReqT> {
+        val deadline = Context.current().deadline
+        if (deadline == null) {
+            val failure = structuredStatus(Status.INVALID_ARGUMENT, ErrorCode.ERROR_CODE_INVALID_ARGUMENT, "every gRPC call must set a deadline")
+            call.close(failure.status, failure.trailers ?: Metadata())
+            return object : io.grpc.ServerCall.Listener<ReqT>() {}
+        }
+        if (deadline.timeRemaining(TimeUnit.MILLISECONDS) > TimeUnit.SECONDS.toMillis(GRPC_MAX_RPC_TIMEOUT_SECONDS)) {
+            val failure =
+                structuredStatus(
+                    Status.INVALID_ARGUMENT,
+                    ErrorCode.ERROR_CODE_INVALID_ARGUMENT,
+                    "gRPC deadline must not exceed ${GRPC_MAX_RPC_TIMEOUT_SECONDS}s",
+                )
+            call.close(failure.status, failure.trailers ?: Metadata())
+            return object : io.grpc.ServerCall.Listener<ReqT>() {}
+        }
+        return Contexts.interceptCall(Context.current(), call, headers, next)
+    }
+}
+private fun structuredStatus(
+    status: Status,
+    code: ErrorCode,
+    message: String,
+    retryable: Boolean = false,
+): io.grpc.StatusRuntimeException {
+    val detail =
+        RpcError
+            .newBuilder()
+            .setCode(code)
+            .setMessage(message)
+            .setRetryable(retryable)
+            .build()
+    val rpcStatus =
+        RpcStatus
+            .newBuilder()
+            .setCode(status.code.value())
+            .setMessage(message)
+            .addDetails(Any.pack(detail))
+            .build()
+    return StatusProto.toStatusRuntimeException(rpcStatus)
+}
+
+internal class BurpRpcService(
+    private val api: MontoyaApi,
+    private val clock: Clock,
+    private val proxyFacade: ProxyFacade = ProxyFacade(api),
+    private val sitemapFacade: SitemapFacade = SitemapFacade(api),
+    private val targetFacade: TargetFacade = TargetFacade(api),
+    private val scannerFacade: ScannerFacade = ScannerFacade(api),
+    private val cookieFacade: CookieFacade = CookieFacade(api),
+    private val httpFacade: HttpFacade = HttpFacade(api),
+    private val annotationFacade: AnnotationFacade = AnnotationFacade(api),
+    private val collaboratorFacade: CollaboratorFacade = CollaboratorFacade(api),
+    private val scriptImportFacade: ScriptImportFacade = ScriptImportFacade(api),
+    private val webSocketFacade: WebSocketFacade = WebSocketFacade(api),
+    private val configFacade: ConfigFacade = ConfigFacade(api),
+    private val httpHandlerFacade: HttpHandlerFacade = HttpHandlerFacade(api),
+    private val proxyRuleFacade: ProxyRuleFacade = ProxyRuleFacade(api),
+    private val sessionRuleFacade: SessionRuleFacade = SessionRuleFacade(api),
+    private val jobFacade: JobFacade = JobFacade(),
+    private val longOperationFacade: LongOperationFacade = LongOperationFacade(api, jobFacade),
+) : BurpServiceGrpc.BurpServiceImplBase() {
+    override fun ping(
+        @Suppress("UNUSED_PARAMETER") request: PingRequest,
+        responseObserver: StreamObserver<PingResponse>,
+    ) {
+        if (Context.current().isCancelled) {
+            responseObserver.onError(Status.CANCELLED.asRuntimeException())
+            return
+        }
+        responseObserver.onNext(
+            PingResponse
+                .newBuilder()
+                .setServer("burp-mcp-kotlin")
+                .setVersion(extensionVersion())
+                .setUnixMillis(clock.millis())
+                .build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun echoBytes(
+        request: EchoBytesRequest,
+        responseObserver: StreamObserver<EchoBytesResponse>,
+    ) {
+        val delayMillis = request.delayMillis.toLong().coerceAtMost(5_000)
+        if (delayMillis > 0) {
+            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(delayMillis)
+            while (System.nanoTime() < deadline) {
+                if (Context.current().isCancelled) {
+                    responseObserver.onError(Status.CANCELLED.asRuntimeException())
+                    return
+                }
+                Thread.sleep(minOf(10, delayMillis))
+            }
+        }
+        if (Context.current().isCancelled) {
+            responseObserver.onError(Status.CANCELLED.asRuntimeException())
+            return
+        }
+        responseObserver.onNext(EchoBytesResponse.newBuilder().setPayload(request.payload).build())
+        responseObserver.onCompleted()
+    }
+
+    override fun proxyHistory(
+        request: ProxyHistoryRequest,
+        responseObserver: StreamObserver<ProxyHistoryResponse>,
+    ) {
+        try {
+            val limit =
+                when {
+                    !request.hasPage() || request.page.limit == 0 -> 100
+                    request.page.limit > GRPC_MAX_PAGE_SIZE -> {
+                        responseObserver.onError(
+                            Status.INVALID_ARGUMENT
+                                .withDescription("page limit must be at most $GRPC_MAX_PAGE_SIZE")
+                                .asRuntimeException(),
+                        )
+                        return
+                    }
+                    else -> request.page.limit.toInt()
+                }
+            val offset = request.page.cursor.toIntOrNull()?.coerceAtLeast(0) ?: 0
+            val page =
+                proxyFacade.history(
+                    ProxyHistoryQuery(
+                        limit = limit,
+                        offset = offset,
+                        urlFilter = request.urlFilter.takeIf(String::isNotEmpty),
+                        methodFilter = request.methodFilter.takeIf(String::isNotEmpty),
+                        statusFilter = if (request.hasStatusFilter()) request.statusFilter.toInt() else null,
+                        hasNotes = request.hasNotes,
+                        colorFilter = request.color.takeIf(String::isNotEmpty),
+                    ),
+                )
+            val builder = ProxyHistoryResponse.newBuilder()
+            var estimatedBytes = 0
+            var boundedEnd = page.offset
+            for (item in page.items) {
+                if (Context.current().isCancelled) {
+                    responseObserver.onError(Status.CANCELLED.asRuntimeException())
+                    return
+                }
+                val protoItem =
+                    ProxyHistoryEntry
+                        .newBuilder()
+                        .setIndex(item.index)
+                        .setMethod(item.method)
+                        .setUrl(item.url)
+                        .setStatus(item.status ?: 0)
+                        .setLength(item.length?.toLong() ?: 0)
+                        .setHasResponse(item.hasResponse)
+                        .setNotes(item.notes ?: "")
+                        .setHighlight(item.highlight ?: "")
+                        .build()
+                val itemBytes = protoItem.serializedSize
+                if (estimatedBytes + itemBytes > GRPC_MAX_RESPONSE_BYTES - GRPC_RESPONSE_OVERHEAD_BYTES) break
+                builder.addItems(protoItem)
+                estimatedBytes += itemBytes
+                boundedEnd++
+            }
+            builder.page =
+                PageInfo
+                    .newBuilder()
+                    .setTotal(page.total)
+                    .setTruncated(boundedEnd < page.total)
+                    .setNextCursor(if (boundedEnd < page.total) boundedEnd.toString() else "")
+                    .build()
+            responseObserver.onNext(builder.build())
+            responseObserver.onCompleted()
+        } catch (exception: Exception) {
+            responseObserver.onError(Status.INTERNAL.withDescription("unable to read proxy history").withCause(exception).asRuntimeException())
+        }
+    }
+
+    override fun proxyDetail(
+        request: ProxyDetailRequest,
+        responseObserver: StreamObserver<ProxyDetailResponse>,
+    ) {
+        val detail = proxyFacade.detail(request.index)
+        if (detail == null) {
+            responseObserver.onError(
+                structuredStatus(Status.NOT_FOUND, ErrorCode.ERROR_CODE_NOT_FOUND, "proxy history index ${request.index} was not found"),
+            )
+            return
+        }
+        val response =
+            ProxyDetailResponse
+                .newBuilder()
+                .setIndex(detail.index)
+                .setRequest(com.google.protobuf.ByteString.copyFromUtf8(detail.request))
+                .setNotes(detail.notes ?: "")
+                .setHighlight(detail.highlight ?: "")
+        detail.response?.let { response.setResponse(com.google.protobuf.ByteString.copyFromUtf8(it)) }
+        responseObserver.onNext(response.build())
+        responseObserver.onCompleted()
+    }
+
+    override fun sitemapSnapshot(
+        request: SitemapSnapshotRequest,
+        responseObserver: StreamObserver<SitemapSnapshotResponse>,
+    ) {
+        val limit =
+            when {
+                !request.hasPage() || request.page.limit == 0 -> 100
+                request.page.limit > GRPC_MAX_PAGE_SIZE -> {
+                    responseObserver.onError(
+                        structuredStatus(Status.INVALID_ARGUMENT, ErrorCode.ERROR_CODE_INVALID_ARGUMENT, "page limit must be at most $GRPC_MAX_PAGE_SIZE"),
+                    )
+                    return
+                }
+                else -> request.page.limit.toInt()
+            }
+        val offset = request.page.cursor.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val page = sitemapFacade.snapshot(SitemapQuery(request.urlPrefix, limit, offset))
+        val response = SitemapSnapshotResponse.newBuilder()
+        var boundedEnd = page.offset
+        var estimatedBytes = 0
+        for (item in page.items) {
+            val protoItem =
+                SitemapEntry
+                    .newBuilder()
+                    .setUrl(item.url)
+                    .setMethod(item.method)
+                    .setStatus(item.status)
+                    .setContentType(item.contentType)
+                    .setResponseBody(com.google.protobuf.ByteString.copyFrom(item.responseBody))
+                    .setRedirectUrl(item.redirectUrl)
+                    .addAllResponseLinks(item.responseLinks)
+                    .addAllFormActions(item.formActions)
+                    .addAllScriptSources(item.scriptSources)
+                    .build()
+            if (estimatedBytes + protoItem.serializedSize > GRPC_MAX_RESPONSE_BYTES - GRPC_RESPONSE_OVERHEAD_BYTES) break
+            response.addItems(protoItem)
+            estimatedBytes += protoItem.serializedSize
+            boundedEnd++
+        }
+        response.page =
+            PageInfo
+                .newBuilder()
+                .setTotal(page.total)
+                .setTruncated(boundedEnd < page.total)
+                .setNextCursor(if (boundedEnd < page.total) boundedEnd.toString() else "")
+                .build()
+        responseObserver.onNext(response.build())
+        responseObserver.onCompleted()
+    }
+
+    override fun targetInfo(
+        request: TargetInfoRequest,
+        responseObserver: StreamObserver<TargetInfoResponse>,
+    ) {
+        val limit = if (request.limit == 0) 500 else request.limit.toInt().coerceAtMost(500)
+        val info = targetFacade.info(request.urlPrefix, limit)
+        responseObserver.onNext(
+            TargetInfoResponse
+                .newBuilder()
+                .addAllHosts(info.hosts)
+                .addAllTechnologies(info.technologies)
+                .setRequestsSampled(info.requestsSampled)
+                .build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun scopeCheck(
+        request: ScopeCheckRequest,
+        responseObserver: StreamObserver<ScopeCheckResponse>,
+    ) {
+        val scope = targetFacade.scope(request.url)
+        responseObserver.onNext(
+            ScopeCheckResponse
+                .newBuilder()
+                .setUrl(scope.url)
+                .setInScope(scope.inScope)
+                .build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun scanIssues(
+        request: ScanIssuesRequest,
+        responseObserver: StreamObserver<ScanIssuesResponse>,
+    ) {
+        val limit =
+            when {
+                !request.hasPage() || request.page.limit == 0 -> 50
+                request.page.limit > GRPC_MAX_PAGE_SIZE -> {
+                    responseObserver.onError(
+                        structuredStatus(Status.INVALID_ARGUMENT, ErrorCode.ERROR_CODE_INVALID_ARGUMENT, "page limit must be at most $GRPC_MAX_PAGE_SIZE"),
+                    )
+                    return
+                }
+                else -> request.page.limit.toInt()
+            }
+        val offset = request.page.cursor.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val page = scannerFacade.issues(ScanIssueQuery(limit, offset))
+        val response =
+            ScanIssuesResponse
+                .newBuilder()
+                .addAllItems(
+                    page.items.map { item ->
+                        ScanIssueEntry
+                            .newBuilder()
+                            .setIndex(item.index)
+                            .setName(item.name)
+                            .setSeverity(item.severity)
+                            .setConfidence(item.confidence)
+                            .setUrl(item.url)
+                            .setDetail(item.detail)
+                            .build()
+                    },
+                ).setPage(
+                    PageInfo
+                        .newBuilder()
+                        .setTotal(page.total)
+                        .setTruncated(page.offset + page.items.size < page.total)
+                        .setNextCursor(if (page.offset + page.items.size < page.total) (page.offset + page.items.size).toString() else "")
+                        .build(),
+                ).build()
+        responseObserver.onNext(response)
+        responseObserver.onCompleted()
+    }
+
+    override fun cookieJar(
+        request: CookieJarRequest,
+        responseObserver: StreamObserver<CookieJarResponse>,
+    ) {
+        val limit = if (request.limit == 0) 100 else request.limit.toInt()
+        if (limit > GRPC_MAX_PAGE_SIZE) {
+            responseObserver.onError(
+                structuredStatus(
+                    Status.INVALID_ARGUMENT,
+                    ErrorCode.ERROR_CODE_INVALID_ARGUMENT,
+                    "cookie limit must be at most $GRPC_MAX_PAGE_SIZE",
+                ),
+            )
+            return
+        }
+        val cookies = cookieFacade.cookies(CookieQuery(request.domain.takeIf(String::isNotEmpty), limit))
+        responseObserver.onNext(
+            CookieJarResponse
+                .newBuilder()
+                .addAllItems(
+                    cookies.map { cookie ->
+                        CookieEntry
+                            .newBuilder()
+                            .setName(cookie.name)
+                            .setValue(cookie.value)
+                            .setDomain(cookie.domain ?: "")
+                            .setPath(cookie.path ?: "")
+                            .setExpiration(cookie.expiration ?: "")
+                            .build()
+                    },
+                ).build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun sendRequest(
+        request: SendRequestRequest,
+        responseObserver: StreamObserver<SendRequestResponse>,
+    ) {
+        val exchange = httpFacade.send(request.toSpec())
+        responseObserver.onNext(exchange.toProto())
+        responseObserver.onCompleted()
+    }
+
+    override fun sendRequests(
+        request: SendRequestsRequest,
+        responseObserver: StreamObserver<SendRequestsResponse>,
+    ) {
+        if (request.requestsCount > 32) {
+            responseObserver.onError(
+                structuredStatus(Status.INVALID_ARGUMENT, ErrorCode.ERROR_CODE_INVALID_ARGUMENT, "at most 32 requests may be sent in one batch"),
+            )
+            return
+        }
+        responseObserver.onNext(
+            SendRequestsResponse
+                .newBuilder()
+                .addAllResponses(httpFacade.sendParallel(request.requestsList.map { it.toSpec() }).map { it.toProto() })
+                .build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun sendToRepeater(
+        request: SendToRepeaterRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        val port = if (request.port == 0) if (request.https) 443 else 80 else request.port.toInt()
+        httpFacade.sendToRepeater(
+            request.request.toStringUtf8(),
+            request.host,
+            port,
+            request.https,
+            request.tabName.takeIf(String::isNotEmpty),
+        )
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("request opened in Repeater").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun setHighlight(
+        request: SetHighlightRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        val color = annotationFacade.highlight(request.index, request.color.takeIf(String::isNotEmpty))
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage(color).build())
+        responseObserver.onCompleted()
+    }
+
+    override fun setNote(
+        request: SetNoteRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        annotationFacade.annotate(request.index, request.note)
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("note updated").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun mutateScope(
+        request: MutateScopeRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        if (request.include) targetFacade.include(request.url) else targetFacade.exclude(request.url)
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage(if (request.include) "included" else "excluded").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun exportConfig(
+        request: ExportConfigRequest,
+        responseObserver: StreamObserver<ConfigResponse>,
+    ) {
+        responseObserver.onNext(ConfigResponse.newBuilder().setConfig(configFacade.export(request.pathsList)).build())
+        responseObserver.onCompleted()
+    }
+
+    override fun importConfig(
+        request: ImportConfigRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        configFacade.import(request.config)
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("configuration imported").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun registerHttpHandler(
+        request: RegisterHttpHandlerRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        httpHandlerFacade.register(
+            HttpHandlerRule(
+                request.headerName.takeIf(String::isNotEmpty),
+                request.headerValue.takeIf(String::isNotEmpty),
+                request.match.takeIf(String::isNotEmpty),
+                request.replacement.takeIf(String::isNotEmpty),
+            ),
+        )
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("HTTP handler registered").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun clearHttpHandler(
+        @Suppress("UNUSED_PARAMETER") request: ClearHttpHandlerRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        httpHandlerFacade.clear()
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("HTTP handlers cleared").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun registerProxyRule(
+        request: RegisterProxyRuleRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        proxyRuleFacade.register(request.urlContains, request.intercept)
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("proxy rule registered").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun clearProxyRules(
+        @Suppress("UNUSED_PARAMETER") request: ClearProxyRulesRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        proxyRuleFacade.clear()
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("proxy rules cleared").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun createSessionRule(
+        request: CreateSessionRuleRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        sessionRuleFacade.create(SessionRule(request.find, request.replacement))
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("session rule created").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun listSessionRules(
+        @Suppress("UNUSED_PARAMETER") request: ListSessionRulesRequest,
+        responseObserver: StreamObserver<ListSessionRulesResponse>,
+    ) {
+        val response =
+            ListSessionRulesResponse
+                .newBuilder()
+                .addAllItems(
+                    sessionRuleFacade.list().map { rule ->
+                        SessionRuleEntry.newBuilder().setFind(rule.find).setReplacement(rule.replacement).build()
+                    },
+                ).build()
+        responseObserver.onNext(response)
+        responseObserver.onCompleted()
+    }
+
+    override fun removeSessionRules(
+        @Suppress("UNUSED_PARAMETER") request: RemoveSessionRulesRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        sessionRuleFacade.remove()
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("session rules removed").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun startConcurrentRequestCheck(
+        request: StartConcurrentRequestCheckRequest,
+        responseObserver: StreamObserver<JobStatusResponse>,
+    ) {
+        val port = request.port.toInt().takeIf { it > 0 } ?: if (request.https) 443 else 80
+        val snapshot =
+            longOperationFacade.startRace(
+                request.request.toStringUtf8(),
+                request.host,
+                port,
+                request.https,
+                request.count.toInt().takeIf { it > 0 } ?: 10,
+            )
+        responseObserver.onNext(snapshot.toStatusProto())
+        responseObserver.onCompleted()
+    }
+
+    override fun startBoundedInputMatrix(
+        request: StartBoundedInputMatrixRequest,
+        responseObserver: StreamObserver<JobStatusResponse>,
+    ) {
+        val port = request.port.toInt().takeIf { it > 0 } ?: if (request.https) 443 else 80
+        val snapshot =
+            longOperationFacade.startInlineFuzzer(
+                request.template.toStringUtf8(),
+                request.host,
+                port,
+                request.https,
+                request.marker.ifEmpty { "FUZZ" },
+                request.inputsList,
+            )
+        responseObserver.onNext(snapshot.toStatusProto())
+        responseObserver.onCompleted()
+    }
+
+    override fun startAudit(
+        request: StartAuditRequest,
+        responseObserver: StreamObserver<JobStatusResponse>,
+    ) {
+        responseObserver.onNext(longOperationFacade.startAudit(request.url, request.active).toStatusProto())
+        responseObserver.onCompleted()
+    }
+
+    override fun startCrawl(
+        request: StartCrawlRequest,
+        responseObserver: StreamObserver<JobStatusResponse>,
+    ) {
+        responseObserver.onNext(longOperationFacade.startCrawl(request.url).toStatusProto())
+        responseObserver.onCompleted()
+    }
+
+    override fun getJobStatus(
+        request: GetJobStatusRequest,
+        responseObserver: StreamObserver<JobStatusResponse>,
+    ) {
+        val snapshot = jobFacade.status(request.id)
+        if (snapshot == null) {
+            responseObserver.onError(Status.NOT_FOUND.withDescription("job not found").asRuntimeException())
+            return
+        }
+        responseObserver.onNext(snapshot.toStatusProto())
+        responseObserver.onCompleted()
+    }
+
+    override fun cancelJob(
+        request: CancelJobRequest,
+        responseObserver: StreamObserver<JobStatusResponse>,
+    ) {
+        val snapshot = jobFacade.cancel(request.id)
+        if (snapshot == null) {
+            responseObserver.onError(Status.NOT_FOUND.withDescription("job not found").asRuntimeException())
+            return
+        }
+        responseObserver.onNext(snapshot.toStatusProto())
+        responseObserver.onCompleted()
+    }
+
+    override fun getJobResult(
+        request: GetJobResultRequest,
+        responseObserver: StreamObserver<JobResultResponse>,
+    ) {
+        val snapshot = jobFacade.result(request.id)
+        if (snapshot == null) {
+            responseObserver.onError(Status.NOT_FOUND.withDescription("job not found").asRuntimeException())
+            return
+        }
+        val limit = request.page.limit.toInt().takeIf { it > 0 }?.coerceAtMost(GRPC_MAX_PAGE_SIZE) ?: GRPC_DEFAULT_PAGE_SIZE
+        val offset = request.page.cursor.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        responseObserver.onNext(snapshot.toResultProto(offset, limit))
+        responseObserver.onCompleted()
+    }
+
+    override fun generateCollaboratorPayloads(
+        request: GenerateCollaboratorPayloadsRequest,
+        responseObserver: StreamObserver<GenerateCollaboratorPayloadsResponse>,
+    ) {
+        val payloads = collaboratorFacade.generate(request.count.toInt().takeIf { it > 0 } ?: 1)
+        responseObserver.onNext(GenerateCollaboratorPayloadsResponse.newBuilder().addAllPayloads(payloads).build())
+        responseObserver.onCompleted()
+    }
+
+    override fun pollCollaboratorInteractions(
+        request: PollCollaboratorInteractionsRequest,
+        responseObserver: StreamObserver<PollCollaboratorInteractionsResponse>,
+    ) {
+        val items = collaboratorFacade.interactions()
+        val limit = request.page.limit.toInt().takeIf { it > 0 }?.coerceAtMost(GRPC_MAX_PAGE_SIZE) ?: GRPC_DEFAULT_PAGE_SIZE
+        val offset = request.page.cursor.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val end = minOf(offset + limit, items.size)
+        val pageItems = if (offset >= items.size) emptyList() else items.subList(offset, end)
+        responseObserver.onNext(
+            PollCollaboratorInteractionsResponse
+                .newBuilder()
+                .addAllItems(
+                    pageItems.map { item ->
+                        CollaboratorInteractionEntry
+                            .newBuilder()
+                            .setId(item.id)
+                            .setType(item.type)
+                            .setClientIp(item.clientIp)
+                            .setClientPort(item.clientPort)
+                            .setTimestamp(item.timestamp)
+                            .build()
+                    },
+                ).setPage(
+                    PageInfo.newBuilder()
+                        .setTotal(items.size)
+                        .setTruncated(end < items.size)
+                        .setNextCursor(if (end < items.size) end.toString() else "")
+                        .build(),
+                ).build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun createWebSocket(
+        request: CreateWebSocketRequest,
+        responseObserver: StreamObserver<CreateWebSocketResponse>,
+    ) {
+        val port = request.port.toInt().takeIf { it > 0 } ?: if (request.https) 443 else 80
+        val creation = webSocketFacade.create(request.host, port, request.https, request.path.ifEmpty { "/" })
+        responseObserver.onNext(CreateWebSocketResponse.newBuilder().setId(creation.id.orEmpty()).setStatus(creation.status).build())
+        responseObserver.onCompleted()
+    }
+
+    override fun sendWebSocketText(
+        request: SendWebSocketTextRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        webSocketFacade.sendText(request.id, request.text)
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("message sent").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun sendWebSocketBinary(
+        request: SendWebSocketBinaryRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        webSocketFacade.sendBinary(request.id, request.data.toByteArray())
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("message sent").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun closeWebSocket(
+        request: CloseWebSocketRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        webSocketFacade.close(request.id)
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("WebSocket closed").build())
+        responseObserver.onCompleted()
+    }
+    override fun importBambda(
+        request: ImportBambdaRequest,
+        responseObserver: StreamObserver<ScriptImportResponse>,
+    ) {
+        val result = scriptImportFacade.importBambda(request.script)
+        responseObserver.onNext(ScriptImportResponse.newBuilder().setSuccess(result.success).setStatus(result.status).addAllErrors(result.errors).build())
+        responseObserver.onCompleted()
+    }
+
+    override fun importBCheck(
+        request: ImportBCheckRequest,
+        responseObserver: StreamObserver<ScriptImportResponse>,
+    ) {
+        val result = scriptImportFacade.importBCheck(request.script, request.enabled)
+        responseObserver.onNext(ScriptImportResponse.newBuilder().setSuccess(result.success).setStatus(result.status).addAllErrors(result.errors).build())
+        responseObserver.onCompleted()
+    }
+
+
+    override fun listWebSockets(
+        @Suppress("UNUSED_PARAMETER") request: ListWebSocketsRequest,
+        responseObserver: StreamObserver<ListWebSocketsResponse>,
+    ) {
+        responseObserver.onNext(ListWebSocketsResponse.newBuilder().addAllIds(webSocketFacade.list()).build())
+        responseObserver.onCompleted()
+    }
+
+    override fun serverInfo(
+        @Suppress("UNUSED_PARAMETER") request: ServerInfoRequest,
+        responseObserver: StreamObserver<ServerInfoResponse>,
+    ) {
+        val burpVersion = api.burpSuite().version()
+        val builder =
+            ServerInfoResponse
+                .newBuilder()
+                .setExtension("Burp MCP")
+                .setVersion(extensionVersion())
+                .addAllCapabilities(listOf("proxy.read", "sitemap.read", "scanner.read", "cookies.read", "transport.echo", "lifecycle.restart"))
+                .setMaxMessageBytes(GRPC_MAX_MESSAGE_BYTES)
+                .setMaxPageSize(GRPC_MAX_PAGE_SIZE)
+                .setMaxConcurrentCallsPerConnection(GRPC_MAX_CONCURRENT_CALLS_PER_CONNECTION)
+                .setMaxRpcTimeoutSeconds(GRPC_MAX_RPC_TIMEOUT_SECONDS.toInt())
+                .setMaxResponseBytes(GRPC_MAX_RESPONSE_BYTES)
+                .setBurpVersion(burpVersion?.toString().orEmpty())
+                .setBurpEdition(burpVersion?.edition()?.name ?: "UNKNOWN")
+                .setBurpBuildNumber(burpVersion?.buildNumber() ?: 0)
+        burpVersion?.name()?.let(builder::setBurpName)
+        responseObserver.onNext(builder.build())
+        responseObserver.onCompleted()
+    }
+
+    private fun SendRequestRequest.toSpec(): HttpRequestSpec =
+        HttpRequestSpec(
+            method = method.ifEmpty { "GET" },
+            url = url,
+            body = body.toStringUtf8(),
+            headers = headersList.associate { it.name to it.value },
+        )
+
+    private fun io.github.nguyenthdat.burpmcp.HttpExchange.toProto(): SendRequestResponse =
+        SendRequestResponse
+            .newBuilder()
+            .setRequest(com.google.protobuf.ByteString.copyFromUtf8(request))
+            .setResponse(com.google.protobuf.ByteString.copyFromUtf8(response ?: ""))
+            .setStatus(status ?: 0)
+            .setHasResponse(response != null)
+            .build()
+
+    fun close() {
+        jobFacade.close()
+        httpHandlerFacade.clear()
+        proxyRuleFacade.clear()
+        sessionRuleFacade.remove()
+        webSocketFacade.close()
+    }
+
+
+    private fun extensionVersion(): String =
+        BurpRpcService::class.java.`package`.implementationVersion ?: "development"
+}
+    private fun JobSnapshot.toStatusProto(): JobStatusResponse =
+        JobStatusResponse
+            .newBuilder()
+            .setId(id)
+            .setOperation(operation)
+            .setState(state.name.lowercase())
+            .setError(error.orEmpty())
+            .build()
+
+    private fun JobSnapshot.toResultProto(offset: Int, limit: Int): JobResultResponse {
+        val builder =
+            JobResultResponse
+                .newBuilder()
+                .setId(id)
+                .setOperation(operation)
+                .setState(state.name.lowercase())
+                .setError(error.orEmpty())
+        when (val output = result) {
+            is HttpBatchJobOutput -> {
+                val end = minOf(offset + limit, output.items.size)
+                val pageItems = if (offset >= output.items.size) emptyList() else output.items.subList(offset, end)
+                builder
+                    .addAllItems(
+                        pageItems.map { item ->
+                            HttpJobResultItem
+                                .newBuilder()
+                                .setLabel(item.label)
+                                .also { entry -> item.status?.let(entry::setStatus) }
+                                .also { entry -> item.length?.let(entry::setLength) }
+                                .setError(item.error.orEmpty())
+                                .build()
+                        },
+                    ).setPage(
+                        PageInfo
+                            .newBuilder()
+                            .setTotal(output.items.size)
+                            .setTruncated(end < output.items.size)
+                            .setNextCursor(if (end < output.items.size) end.toString() else "")
+                            .build(),
+                    ).setUniqueLengths(output.uniqueLengths)
+                    .setVerdict(output.verdict)
+            }
+
+            is TaskJobOutput -> builder.setRequestCount(output.requestCount).setErrorCount(output.errorCount)
+            is AuditJobOutput ->
+                builder
+                    .setRequestCount(output.requestCount)
+                    .setErrorCount(output.errorCount)
+                    .setIssueCount(output.issueCount)
+            null -> Unit
+        }
+        return builder.build()
+    }
+

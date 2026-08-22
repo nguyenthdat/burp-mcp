@@ -180,8 +180,8 @@ burp-mcp/
 ├── crates/
 │   ├── burp-mcp/
 │   │   └── CLI, MCP stdio server and composition root
-│   ├── burp-grpc/
-│   │   └── generated tonic/prost client and gRPC actor
+│   ├── burp-protocol/
+│   │   └── generated tonic/prost client and bounded Burp client
 │   ├── burp-tools/
 │   │   └── MCP wrappers, descriptions and JSON Schema
 │   ├── utility-core/
@@ -357,7 +357,7 @@ Public MCP types should use:
 - typed input and output structs;
 - structured tool errors.
 
-Generated tonic/prost types must remain internal to `burp-grpc` and must not leak into MCP tool APIs.
+Generated tonic/prost types must remain internal to `burp-protocol` and must not leak into MCP tool APIs.
 
 ### 9.1 gRPC actor
 

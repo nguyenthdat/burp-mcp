@@ -40,7 +40,7 @@ This creates a small, testable seam without deleting or changing the existing
 NanoHTTPD server, Bun package, CyberChef runtime, or release workflow. The
 Rust actor reports an actionable `Unavailable` error while Burp is offline and
 recreates the channel after transport failures. Generated Rust code remains
-internal to `burp-grpc`; future MCP APIs must use Rust DTOs.
+internal to `burp-protocol`; future MCP APIs must use Rust DTOs.
 
 The spike still needs evidence from a Burp-hosted extension on JDK 25 and
 cross-platform runs. Mocked Montoya tests prove lifecycle and protocol behavior

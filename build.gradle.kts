@@ -1,5 +1,4 @@
 import com.google.protobuf.gradle.id
-import groovy.json.JsonSlurper
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -8,8 +7,7 @@ plugins {
 }
 
 group = "io.github.nguyenthdat.burpmcp"
-val packageMetadata = JsonSlurper().parse(file("package.json")) as Map<*, *>
-version = requireNotNull(packageMetadata["version"]) { "package.json must define version" }.toString()
+version = providers.gradleProperty("version").orElse("3.0.0-alpha.1").get()
 
 val grpcVersion = "1.73.0"
 val protobufVersion = "4.31.1"
@@ -40,8 +38,6 @@ sourceSets {
 dependencies {
     compileOnly("net.portswigger.burp.extensions:montoya-api:2026.7")
     implementation(kotlin("stdlib"))
-    implementation("com.google.code.gson:gson:2.11.0")
-    implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("io.grpc:grpc-netty-shaded:$grpcVersion")
     implementation("io.grpc:grpc-protobuf:$grpcVersion")
     implementation("com.google.protobuf:protobuf-java:$protobufVersion")

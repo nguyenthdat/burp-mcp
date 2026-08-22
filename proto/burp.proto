@@ -12,6 +12,43 @@ service BurpService {
   rpc Ping(PingRequest) returns (PingResponse);
   rpc EchoBytes(EchoBytesRequest) returns (EchoBytesResponse);
   rpc ProxyHistory(ProxyHistoryRequest) returns (ProxyHistoryResponse);
+  rpc ProxyDetail(ProxyDetailRequest) returns (ProxyDetailResponse);
+  rpc ScanIssues(ScanIssuesRequest) returns (ScanIssuesResponse);
+  rpc SitemapSnapshot(SitemapSnapshotRequest) returns (SitemapSnapshotResponse);
+  rpc TargetInfo(TargetInfoRequest) returns (TargetInfoResponse);
+  rpc ScopeCheck(ScopeCheckRequest) returns (ScopeCheckResponse);
+  rpc CookieJar(CookieJarRequest) returns (CookieJarResponse);
+  rpc SendRequest(SendRequestRequest) returns (SendRequestResponse);
+  rpc SendRequests(SendRequestsRequest) returns (SendRequestsResponse);
+  rpc SendToRepeater(SendToRepeaterRequest) returns (ActionResponse);
+  rpc SetHighlight(SetHighlightRequest) returns (ActionResponse);
+  rpc SetNote(SetNoteRequest) returns (ActionResponse);
+  rpc MutateScope(MutateScopeRequest) returns (ActionResponse);
+  rpc ExportConfig(ExportConfigRequest) returns (ConfigResponse);
+  rpc ImportConfig(ImportConfigRequest) returns (ActionResponse);
+  rpc RegisterHttpHandler(RegisterHttpHandlerRequest) returns (ActionResponse);
+  rpc ClearHttpHandler(ClearHttpHandlerRequest) returns (ActionResponse);
+  rpc RegisterProxyRule(RegisterProxyRuleRequest) returns (ActionResponse);
+  rpc ClearProxyRules(ClearProxyRulesRequest) returns (ActionResponse);
+  rpc CreateSessionRule(CreateSessionRuleRequest) returns (ActionResponse);
+  rpc ListSessionRules(ListSessionRulesRequest) returns (ListSessionRulesResponse);
+  rpc RemoveSessionRules(RemoveSessionRulesRequest) returns (ActionResponse);
+  rpc StartConcurrentRequestCheck(StartConcurrentRequestCheckRequest) returns (JobStatusResponse);
+  rpc StartBoundedInputMatrix(StartBoundedInputMatrixRequest) returns (JobStatusResponse);
+  rpc StartCrawl(StartCrawlRequest) returns (JobStatusResponse);
+  rpc StartAudit(StartAuditRequest) returns (JobStatusResponse);
+  rpc GetJobStatus(GetJobStatusRequest) returns (JobStatusResponse);
+  rpc CancelJob(CancelJobRequest) returns (JobStatusResponse);
+  rpc GetJobResult(GetJobResultRequest) returns (JobResultResponse);
+  rpc GenerateCollaboratorPayloads(GenerateCollaboratorPayloadsRequest) returns (GenerateCollaboratorPayloadsResponse);
+  rpc PollCollaboratorInteractions(PollCollaboratorInteractionsRequest) returns (PollCollaboratorInteractionsResponse);
+  rpc CreateWebSocket(CreateWebSocketRequest) returns (CreateWebSocketResponse);
+  rpc SendWebSocketText(SendWebSocketTextRequest) returns (ActionResponse);
+  rpc SendWebSocketBinary(SendWebSocketBinaryRequest) returns (ActionResponse);
+  rpc CloseWebSocket(CloseWebSocketRequest) returns (ActionResponse);
+  rpc ListWebSockets(ListWebSocketsRequest) returns (ListWebSocketsResponse);
+  rpc ImportBambda(ImportBambdaRequest) returns (ScriptImportResponse);
+  rpc ImportBCheck(ImportBCheckRequest) returns (ScriptImportResponse);
   rpc ServerInfo(ServerInfoRequest) returns (ServerInfoResponse);
 }
 
@@ -27,7 +64,14 @@ message EchoBytesRequest {
   uint32 delay_millis = 2;
 }
 message EchoBytesResponse { bytes payload = 1; }
-message ProxyHistoryRequest { PageRequest page = 1; }
+message ProxyHistoryRequest {
+  PageRequest page = 1;
+  string url_filter = 2;
+  string method_filter = 3;
+  optional uint32 status_filter = 4;
+  bool has_notes = 5;
+  string color = 6;
+}
 message ProxyHistoryResponse {
   repeated ProxyHistoryEntry items = 1;
   PageInfo page = 2;
@@ -38,6 +82,238 @@ message ProxyHistoryEntry {
   string url = 3;
   uint32 status = 4;
   uint64 length = 5;
+  bool has_response = 6;
+  string notes = 7;
+  string highlight = 8;
+}
+message ProxyDetailRequest { uint32 index = 1; }
+message ProxyDetailResponse {
+  uint32 index = 1;
+  bytes request = 2;
+  bytes response = 3;
+  string notes = 4;
+  string highlight = 5;
+}
+message SitemapSnapshotRequest {
+  string url_prefix = 1;
+  PageRequest page = 2;
+}
+message SitemapSnapshotResponse {
+  repeated SitemapEntry items = 1;
+  PageInfo page = 2;
+}
+message SitemapEntry {
+  string url = 1;
+  string method = 2;
+  uint32 status = 3;
+  string content_type = 4;
+  bytes response_body = 5;
+  string redirect_url = 6;
+  repeated string response_links = 7;
+  repeated string form_actions = 8;
+  repeated string script_sources = 9;
+}
+message TargetInfoRequest {
+  string url_prefix = 1;
+  uint32 limit = 2;
+}
+message TargetInfoResponse {
+  repeated string hosts = 1;
+  repeated string technologies = 2;
+  uint32 requests_sampled = 3;
+}
+message ScopeCheckRequest { string url = 1; }
+message ScopeCheckResponse {
+  string url = 1;
+  bool in_scope = 2;
+}
+message ScanIssuesRequest { PageRequest page = 1; }
+message ScanIssuesResponse {
+  repeated ScanIssueEntry items = 1;
+  PageInfo page = 2;
+}
+message CookieJarRequest {
+  string domain = 1;
+  uint32 limit = 2;
+}
+message CookieJarResponse { repeated CookieEntry items = 1; }
+message CookieEntry {
+  string name = 1;
+  string value = 2;
+  string domain = 3;
+  string path = 4;
+  string expiration = 5;
+}
+message ScanIssueEntry {
+  uint32 index = 1;
+  string name = 2;
+  string severity = 3;
+  string confidence = 4;
+  string url = 5;
+  string detail = 6;
+}
+message HttpHeaderEntry {
+  string name = 1;
+  string value = 2;
+}
+message SendRequestRequest {
+  string method = 1;
+  string url = 2;
+  bytes body = 3;
+  repeated HttpHeaderEntry headers = 4;
+}
+message SendRequestResponse {
+  bytes request = 1;
+  bytes response = 2;
+  uint32 status = 3;
+  bool has_response = 4;
+}
+message SendRequestsRequest { repeated SendRequestRequest requests = 1; }
+message SendRequestsResponse { repeated SendRequestResponse responses = 1; }
+message SendToRepeaterRequest {
+  bytes request = 1;
+  string host = 2;
+  uint32 port = 3;
+  bool https = 4;
+  string tab_name = 5;
+}
+message ActionResponse {
+  bool success = 1;
+  string message = 2;
+}
+message SetHighlightRequest {
+  uint32 index = 1;
+  string color = 2;
+}
+message SetNoteRequest {
+  uint32 index = 1;
+  string note = 2;
+}
+message MutateScopeRequest {
+  string url = 1;
+  bool include = 2;
+}
+message ExportConfigRequest { repeated string paths = 1; }
+message ConfigResponse { string config = 1; }
+message ImportConfigRequest { string config = 1; }
+message RegisterHttpHandlerRequest {
+  string header_name = 1;
+  string header_value = 2;
+  string match = 3;
+  string replacement = 4;
+}
+message ClearHttpHandlerRequest {}
+message RegisterProxyRuleRequest {
+  string url_contains = 1;
+  bool intercept = 2;
+}
+message ClearProxyRulesRequest {}
+message CreateSessionRuleRequest {
+  string find = 1;
+  string replacement = 2;
+}
+message ListSessionRulesRequest {}
+message SessionRuleEntry {
+  string find = 1;
+  string replacement = 2;
+}
+message ListSessionRulesResponse { repeated SessionRuleEntry items = 1; }
+message RemoveSessionRulesRequest {}
+message StartConcurrentRequestCheckRequest {
+  bytes request = 1;
+  string host = 2;
+  uint32 port = 3;
+  bool https = 4;
+  uint32 count = 5;
+}
+message StartBoundedInputMatrixRequest {
+  bytes template = 1;
+  string host = 2;
+  uint32 port = 3;
+  bool https = 4;
+  string marker = 5;
+  repeated string inputs = 6;
+}
+message StartCrawlRequest { string url = 1; }
+message StartAuditRequest {
+  string url = 1;
+  bool active = 2;
+}
+message GetJobStatusRequest { string id = 1; }
+message CancelJobRequest { string id = 1; }
+message GetJobResultRequest {
+  string id = 1;
+  PageRequest page = 2;
+}
+message JobStatusResponse {
+  string id = 1;
+  string operation = 2;
+  string state = 3;
+  string error = 4;
+}
+message HttpJobResultItem {
+  string label = 1;
+  optional uint32 status = 2;
+  optional uint32 length = 3;
+  string error = 4;
+}
+message JobResultResponse {
+  string id = 1;
+  string operation = 2;
+  string state = 3;
+  repeated HttpJobResultItem items = 4;
+  PageInfo page = 5;
+  uint32 unique_lengths = 6;
+  string verdict = 7;
+  uint32 request_count = 8;
+  uint32 error_count = 9;
+  string error = 10;
+  uint32 issue_count = 11;
+}
+message GenerateCollaboratorPayloadsRequest { uint32 count = 1; }
+message GenerateCollaboratorPayloadsResponse { repeated string payloads = 1; }
+message PollCollaboratorInteractionsRequest { PageRequest page = 1; }
+message CollaboratorInteractionEntry {
+  string id = 1;
+  string type = 2;
+  string client_ip = 3;
+  uint32 client_port = 4;
+  string timestamp = 5;
+}
+message PollCollaboratorInteractionsResponse {
+  repeated CollaboratorInteractionEntry items = 1;
+  PageInfo page = 2;
+}
+message CreateWebSocketRequest {
+  string host = 1;
+  uint32 port = 2;
+  bool https = 3;
+  string path = 4;
+}
+message CreateWebSocketResponse {
+  string id = 1;
+  string status = 2;
+}
+message SendWebSocketTextRequest {
+  string id = 1;
+  string text = 2;
+}
+message SendWebSocketBinaryRequest {
+  string id = 1;
+  bytes data = 2;
+}
+message CloseWebSocketRequest { string id = 1; }
+message ListWebSocketsRequest {}
+message ListWebSocketsResponse { repeated string ids = 1; }
+message ImportBambdaRequest { string script = 1; }
+message ImportBCheckRequest {
+  string script = 1;
+  bool enabled = 2;
+}
+message ScriptImportResponse {
+  bool success = 1;
+  string status = 2;
+  repeated string errors = 3;
 }
 message ServerInfoRequest {}
 message ServerInfoResponse {
@@ -49,4 +325,8 @@ message ServerInfoResponse {
   uint32 max_concurrent_calls_per_connection = 6;
   uint32 max_rpc_timeout_seconds = 7;
   uint32 max_response_bytes = 8;
+  string burp_name = 9;
+  string burp_version = 10;
+  string burp_edition = 11;
+  uint64 burp_build_number = 12;
 }

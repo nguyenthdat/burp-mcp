@@ -1,0 +1,27 @@
+[package]
+name = "sitegraph"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+analysis = ["dep:petgraph"]
+
+[dependencies]
+blake3.workspace = true
+http.workspace = true
+petgraph = { workspace = true, optional = true }
+regex.workspace = true
+rusqlite.workspace = true # Links the bundled SQLite runtime used by SQLx.
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

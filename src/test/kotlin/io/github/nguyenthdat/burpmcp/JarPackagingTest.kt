@@ -16,13 +16,13 @@ class JarPackagingTest {
         JarFile(jarPath.toFile()).use { jar ->
             assertNotNull(jar.getJarEntry("META-INF/extensions/burp-extension.properties"))
             assertNotNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/BurpMcpExtension.class"))
-            assertNotNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/GrpcSpikeServer.class"))
+            assertNotNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/rpc/BurpRpcServer.class"))
             assertNotNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/grpc/v1/BurpServiceGrpc.class"))
             assertNotNull(jar.getJarEntry("io/grpc/netty/shaded/io/grpc/netty/NettyServerBuilder.class"))
             assertNotNull(jar.getJarEntry("com/google/protobuf/ByteString.class"))
-            assertNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/GrpcSpikeServerTest.class"))
+            assertNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/BurpRpcServerTest.class"))
             assertEquals("Burp MCP", jar.manifest.mainAttributes.getValue("Implementation-Title"))
-            assertEquals("2.0.0", jar.manifest.mainAttributes.getValue("Implementation-Version"))
+            assertEquals("3.0.0-alpha.1", jar.manifest.mainAttributes.getValue("Implementation-Version"))
         }
     }
 }
