@@ -57,7 +57,7 @@ internal class LongOperationFacade(
             awaitTaskCompletion(
                 operation = "crawl",
                 snapshot = { TaskJobOutput(crawl.requestCount(), crawl.errorCount()) },
-                status = { null },
+                status = { runCatching { crawl.statusMessage() }.getOrNull() },
                 timeoutMillis = taskTimeoutMillis,
                 stableMillis = taskStableMillis,
                 pollMillis = taskPollMillis,

@@ -14,25 +14,39 @@ internal data class SessionRule(
 internal class SessionRuleFacade(
     private val api: MontoyaApi,
 ) {
-    private var active: Pair<SessionRule, Registration>? = null
+    private var active: Triple<SessionRule, Registration, Registration>? = null
 
     @Synchronized
     fun create(rule: SessionRule) {
         require(rule.find.isNotEmpty()) { "find must not be empty" }
-        active?.second?.deregister()
-        val registration =
+        active?.let { (_, sessionRegistration, proxyRegistration) ->
+            sessionRegistration.deregister()
+            proxyRegistration.deregister()
+        }
+        val sessionRegistration =
             api.http().registerSessionHandlingAction(
                 object : SessionHandlingAction {
                     override fun name(): String = "Burp MCP replace session token"
 
-                    override fun performAction(actionData: SessionHandlingActionData): ActionResult {
-                        val request = actionData.request()
-                        val updated = request.withBody(request.bodyToString().replace(rule.find, rule.replacement))
-                        return ActionResult.actionResult(updated, actionData.annotations())
-                    }
+                    override fun performAction(actionData: SessionHandlingActionData): ActionResult =
+                        ActionResult.actionResult(replaceInRequest(actionData.request(), rule), actionData.annotations())
                 },
             )
-        active = rule to registration
+        val proxyRegistration =
+            api.proxy().registerRequestHandler(
+                object : burp.api.montoya.proxy.http.ProxyRequestHandler {
+                    override fun handleRequestReceived(
+                        interceptedRequest: burp.api.montoya.proxy.http.InterceptedRequest,
+                    ): burp.api.montoya.proxy.http.ProxyRequestReceivedAction =
+                        burp.api.montoya.proxy.http.ProxyRequestReceivedAction.continueWith(replaceInRequest(interceptedRequest, rule))
+
+                    override fun handleRequestToBeSent(
+                        interceptedRequest: burp.api.montoya.proxy.http.InterceptedRequest,
+                    ): burp.api.montoya.proxy.http.ProxyRequestToBeSentAction =
+                        burp.api.montoya.proxy.http.ProxyRequestToBeSentAction.continueWith(replaceInRequest(interceptedRequest, rule))
+                },
+            )
+        active = Triple(rule, sessionRegistration, proxyRegistration)
     }
 
     @Synchronized
@@ -40,7 +54,22 @@ internal class SessionRuleFacade(
 
     @Synchronized
     fun remove() {
-        active?.second?.deregister()
+        active?.let { (_, sessionRegistration, proxyRegistration) ->
+            sessionRegistration.deregister()
+            proxyRegistration.deregister()
+        }
         active = null
     }
+}
+
+internal fun replaceInRequest(
+    request: burp.api.montoya.http.message.requests.HttpRequest,
+    rule: SessionRule,
+): burp.api.montoya.http.message.requests.HttpRequest {
+    val serialized = request.toString()
+    if (!serialized.contains(rule.find)) return request
+    return burp.api.montoya.http.message.requests.HttpRequest.httpRequest(
+        request.httpService(),
+        serialized.replace(rule.find, rule.replacement),
+    )
 }

@@ -40,6 +40,10 @@ service BurpService {
   rpc CreateSessionRule(CreateSessionRuleRequest) returns (ActionResponse);
   rpc ListSessionRules(ListSessionRulesRequest) returns (ListSessionRulesResponse);
   rpc RemoveSessionRules(RemoveSessionRulesRequest) returns (ActionResponse);
+  rpc CreateMacro(CreateMacroRequest) returns (ActionResponse);
+  rpc ListMacros(ListMacrosRequest) returns (ListMacrosResponse);
+  rpc RunMacro(RunMacroRequest) returns (RunMacroResponse);
+  rpc RemoveMacro(RemoveMacroRequest) returns (ActionResponse);
   rpc StartConcurrentRequestCheck(StartConcurrentRequestCheckRequest) returns (JobStatusResponse);
   rpc StartBoundedInputMatrix(StartBoundedInputMatrixRequest) returns (JobStatusResponse);
   rpc StartCrawl(StartCrawlRequest) returns (JobStatusResponse);
@@ -273,6 +277,40 @@ message SessionRuleEntry {
 }
 message ListSessionRulesResponse { repeated SessionRuleEntry items = 1; }
 message RemoveSessionRulesRequest {}
+message MacroItem {
+  string request = 1;
+  string method = 2;
+  string url = 3;
+  string response = 4;
+  uint32 status_code = 5;
+  string cookies_received = 6;
+  repeated MacroParameter request_parameters = 7;
+  repeated string custom_parameters = 8;
+}
+message MacroParameter {
+  string name = 1;
+  string original_value = 2;
+  string parameter_handling = 3;
+  string preset_value = 4;
+  string type = 5;
+}
+message MacroDefinition {
+  string description = 1;
+  uint64 serial_number = 2;
+  repeated MacroItem items = 3;
+}
+message CreateMacroRequest { MacroDefinition macro = 1; }
+message ListMacrosRequest {}
+message ListMacrosResponse { repeated MacroDefinition macros = 1; }
+message RunMacroRequest { string description = 1; }
+message RunMacroItem {
+  string request = 1;
+  string response = 2;
+  uint32 status_code = 3;
+  bool has_response = 4;
+}
+message RunMacroResponse { repeated RunMacroItem items = 1; }
+message RemoveMacroRequest { string description = 1; }
 message StartConcurrentRequestCheckRequest {
   bytes request = 1;
   string host = 2;

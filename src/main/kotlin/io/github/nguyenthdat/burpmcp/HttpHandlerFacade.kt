@@ -15,10 +15,34 @@ internal data class HttpHandlerRule(
     val replace: String?,
 )
 
+internal fun mutateRequest(
+    request: burp.api.montoya.http.message.requests.HttpRequest,
+    rule: HttpHandlerRule,
+): burp.api.montoya.http.message.requests.HttpRequest {
+    var updated = request
+    if (rule.headerName != null && rule.headerValue != null) {
+        updated = if (updated.hasHeader(rule.headerName)) {
+            updated.withUpdatedHeader(rule.headerName, rule.headerValue)
+        } else {
+            updated.withAddedHeader(rule.headerName, rule.headerValue)
+        }
+    }
+    if (rule.match != null && rule.replace != null) {
+        val path = updated.path()
+        if (path.contains(rule.match)) {
+            updated = updated.withPath(path.replace(rule.match, rule.replace))
+        } else {
+            val body = updated.bodyToString()
+            if (body.contains(rule.match)) updated = updated.withBody(body.replace(rule.match, rule.replace))
+        }
+    }
+    return updated
+}
+
 internal class HttpHandlerFacade(
     private val api: MontoyaApi,
 ) {
-    private var registration: Registration? = null
+    private var registrations: List<Registration> = emptyList()
 
     @Synchronized
     fun register(rule: HttpHandlerRule) {
@@ -26,30 +50,33 @@ internal class HttpHandlerFacade(
             (rule.headerName != null && rule.headerValue != null) ||
                 (rule.match != null && rule.replace != null),
         ) { "header_name/header_value or match/replace is required" }
-        registration?.deregister()
-        registration =
-            api.http().registerHttpHandler(
-                object : HttpHandler {
-                    override fun handleHttpRequestToBeSent(requestToBeSent: HttpRequestToBeSent): RequestToBeSentAction {
-                        var request: burp.api.montoya.http.message.requests.HttpRequest = requestToBeSent
-                        if (rule.headerName != null && rule.headerValue != null) {
-                            request = request.withUpdatedHeader(rule.headerName, rule.headerValue)
-                        }
-                        if (rule.match != null && rule.replace != null) {
-                            request = request.withBody(request.bodyToString().replace(rule.match, rule.replace))
-                        }
-                        return RequestToBeSentAction.continueWith(request)
-                    }
+        registrations.forEach(Registration::deregister)
+        val handler =
+            object : HttpHandler {
+                override fun handleHttpRequestToBeSent(requestToBeSent: HttpRequestToBeSent): RequestToBeSentAction =
+                    RequestToBeSentAction.continueWith(mutateRequest(requestToBeSent, rule))
 
-                    override fun handleHttpResponseReceived(responseReceived: HttpResponseReceived): ResponseReceivedAction =
-                        ResponseReceivedAction.continueWith(responseReceived)
-                },
-            )
+                override fun handleHttpResponseReceived(responseReceived: HttpResponseReceived): ResponseReceivedAction =
+                    ResponseReceivedAction.continueWith(responseReceived)
+            }
+        val proxyHandler =
+            object : burp.api.montoya.proxy.http.ProxyRequestHandler {
+                override fun handleRequestReceived(
+                    interceptedRequest: burp.api.montoya.proxy.http.InterceptedRequest,
+                ): burp.api.montoya.proxy.http.ProxyRequestReceivedAction =
+                    burp.api.montoya.proxy.http.ProxyRequestReceivedAction.continueWith(mutateRequest(interceptedRequest, rule))
+
+                override fun handleRequestToBeSent(
+                    interceptedRequest: burp.api.montoya.proxy.http.InterceptedRequest,
+                ): burp.api.montoya.proxy.http.ProxyRequestToBeSentAction =
+                    burp.api.montoya.proxy.http.ProxyRequestToBeSentAction.continueWith(mutateRequest(interceptedRequest, rule))
+            }
+        registrations = listOf(api.http().registerHttpHandler(handler), api.proxy().registerRequestHandler(proxyHandler))
     }
 
     @Synchronized
     fun clear() {
-        registration?.deregister()
-        registration = null
+        registrations.forEach(Registration::deregister)
+        registrations = emptyList()
     }
 }

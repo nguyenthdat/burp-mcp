@@ -1,18 +1,20 @@
 use burp_protocol::BurpClient;
 use burp_protocol::proto::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
-    CloseWebSocketRequest, ConfigResponse, CookieJarRequest, CreateSessionRuleRequest,
+    CloseWebSocketRequest, ConfigResponse, CookieJarRequest, CreateMacroRequest, CreateSessionRuleRequest,
     CreateWebSocketRequest, ExportConfigRequest, ExtensionInfoRequest,
     GenerateCollaboratorPayloadsRequest, GetJobResultRequest, GetJobStatusRequest, HttpHeaderEntry,
     ImportBCheckRequest, ImportBambdaRequest, ImportConfigRequest, InterceptStateRequest,
-    ListSessionRulesRequest, ListWebSocketsRequest, MutateScopeRequest, PageRequest,
-    PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
-    ProxyWebSocketHistoryRequest, RegisterHttpHandlerRequest, RegisterProxyRuleRequest,
-    RemoveSessionRulesRequest, ScanIssueDetailRequest, ScanIssuesRequest, ScopeCheckRequest,
-    SendRequestRequest, SendRequestsRequest, SendToIntruderRequest, SendToRepeaterRequest,
-    SendWebSocketBinaryRequest, SendWebSocketTextRequest, SetCookieRequest, SetHighlightRequest,
-    SetNoteRequest, SitemapSnapshotRequest, StartAuditRequest, StartBoundedInputMatrixRequest,
-    StartConcurrentRequestCheckRequest, StartCrawlRequest, TargetInfoRequest,
+    ListMacrosRequest, ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition,
+    MacroItem, MacroParameter, MutateScopeRequest, PageRequest, PollCollaboratorInteractionsRequest,
+    ProxyDetailRequest, ProxyHistoryRequest, ProxyWebSocketHistoryRequest,
+    RegisterHttpHandlerRequest, RegisterProxyRuleRequest, RemoveMacroRequest,
+    RemoveSessionRulesRequest, RunMacroRequest, ScanIssueDetailRequest, ScanIssuesRequest,
+    ScopeCheckRequest, SendRequestRequest, SendRequestsRequest, SendToIntruderRequest,
+    SendToRepeaterRequest, SendWebSocketBinaryRequest, SendWebSocketTextRequest,
+    SetCookieRequest, SetHighlightRequest, SetNoteRequest, SitemapSnapshotRequest,
+    StartAuditRequest, StartBoundedInputMatrixRequest, StartConcurrentRequestCheckRequest,
+    StartCrawlRequest, TargetInfoRequest,
 };
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
@@ -314,6 +316,39 @@ pub struct RegisterProxyRuleInput {
 pub struct CreateSessionRuleInput {
     pub find: String,
     pub replace: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct MacroParameterInput {
+    pub name: String,
+    pub original_value: Option<String>,
+    pub parameter_handling: Option<String>,
+    pub preset_value: Option<String>,
+    pub r#type: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct MacroItemInput {
+    pub request: String,
+    pub method: Option<String>,
+    pub url: String,
+    pub response: Option<String>,
+    pub status_code: Option<u32>,
+    pub cookies_received: Option<String>,
+    pub request_parameters: Option<Vec<MacroParameterInput>>,
+    pub custom_parameters: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CreateMacroInput {
+    pub description: String,
+    pub serial_number: Option<u64>,
+    pub items: Vec<MacroItemInput>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct MacroDescriptionInput {
+    pub description: String,
 }
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ConcurrentRequestCheckInput {
@@ -982,6 +1017,57 @@ impl BurpTools {
         )
     }
 
+    #[tool(name = "burp_macro_create", description = "Create or replace a Burp Settings > Sessions > Macros definition")]
+    async fn macro_create(&self, Parameters(input): Parameters<CreateMacroInput>) -> String {
+        action_json(
+            self.client
+                .create_macro(CreateMacroRequest {
+                    r#macro: Some(MacroDefinition {
+                        description: input.description,
+                        serial_number: input.serial_number.unwrap_or_default(),
+                        items: input.items.into_iter().map(|item| MacroItem {
+                            request: item.request,
+                            method: item.method.unwrap_or_default(),
+                            url: item.url,
+                            response: item.response.unwrap_or_default(),
+                            status_code: item.status_code.unwrap_or_default(),
+                            cookies_received: item.cookies_received.unwrap_or_default(),
+                            request_parameters: item.request_parameters.unwrap_or_default().into_iter().map(|parameter| MacroParameter {
+                                name: parameter.name,
+                                original_value: parameter.original_value.unwrap_or_default(),
+                                parameter_handling: parameter.parameter_handling.unwrap_or_else(|| "preset_value".to_owned()),
+                                preset_value: parameter.preset_value.unwrap_or_default(),
+                                r#type: parameter.r#type.unwrap_or_default(),
+                            }).collect(),
+                            custom_parameters: item.custom_parameters.unwrap_or_default(),
+                        }).collect(),
+                    }),
+                })
+                .await,
+        )
+    }
+
+    #[tool(name = "burp_macro_list", description = "List Burp Settings > Sessions > Macros definitions")]
+    async fn macro_list(&self) -> String {
+        match self.client.list_macros(ListMacrosRequest {}).await {
+            Ok(response) => serde_json::json!({"macros": response.macros.into_iter().map(macro_json).collect::<Vec<_>>()}).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(name = "burp_macro_run", description = "Execute requests from a Burp session macro definition")]
+    async fn macro_run(&self, Parameters(input): Parameters<MacroDescriptionInput>) -> String {
+        match self.client.run_macro(RunMacroRequest { description: input.description }).await {
+            Ok(response) => serde_json::json!({"items": response.items.into_iter().map(|item| serde_json::json!({"request": item.request, "response": item.response, "status_code": item.status_code, "has_response": item.has_response})).collect::<Vec<_>>()}).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(name = "burp_macro_remove", description = "Remove a Burp Settings > Sessions > Macros definition")]
+    async fn macro_remove(&self, Parameters(input): Parameters<MacroDescriptionInput>) -> String {
+        action_json(self.client.remove_macro(RemoveMacroRequest { description: input.description }).await)
+    }
+
     #[tool(
         name = "burp_race_condition",
         description = "Start a bounded concurrent request comparison job"
@@ -1029,17 +1115,17 @@ impl BurpTools {
         )
     }
 
-    #[tool(name = "burp_scan", description = "Start a bounded Burp audit job")]
+    #[tool(name = "burp_scan", description = "Start a Burp passive audit job; active auditing is unsupported")]
     async fn scan(&self, Parameters(input): Parameters<AuditInput>) -> String {
-        let active = input.mode.as_deref().unwrap_or("active") != "passive";
-        job_status_json(
-            self.client
-                .start_audit(StartAuditRequest {
-                    url: input.url,
-                    active,
-                })
-                .await,
-        )
+        match input.mode.as_deref().unwrap_or("active") {
+            "passive" => job_status_json(
+                self.client
+                    .start_audit(StartAuditRequest { url: input.url, active: false })
+                    .await,
+            ),
+            "active" => serde_json::json!({"error": "active scan is unsupported", "supported_modes": ["passive"]}).to_string(),
+            _ => serde_json::json!({"error": "mode must be passive or active"}).to_string(),
+        }
     }
 
     #[tool(name = "burp_crawl", description = "Start a bounded Burp crawl job")]
@@ -1826,6 +1912,29 @@ impl BurpTools {
     }
 }
 
+fn macro_json(macro_definition: MacroDefinition) -> serde_json::Value {
+    serde_json::json!({
+        "description": macro_definition.description,
+        "serial_number": macro_definition.serial_number,
+        "items": macro_definition.items.into_iter().map(|item| serde_json::json!({
+            "request": item.request,
+            "method": item.method,
+            "url": item.url,
+            "response": item.response,
+            "status_code": item.status_code,
+            "cookies_received": item.cookies_received,
+            "request_parameters": item.request_parameters.into_iter().map(|parameter| serde_json::json!({
+                "name": parameter.name,
+                "original_value": parameter.original_value,
+                "parameter_handling": parameter.parameter_handling,
+                "preset_value": parameter.preset_value,
+                "type": parameter.r#type,
+            })).collect::<Vec<_>>(),
+            "custom_parameters": item.custom_parameters,
+        })).collect::<Vec<_>>(),
+    })
+}
+
 #[tool_handler(name = "burp-mcp", version = "3.0.0-alpha.1")]
 impl rmcp::ServerHandler for BurpTools {
     async fn call_tool(
@@ -2174,6 +2283,10 @@ mod contract_tests {
                     "burp_job_cancel"
                         | "burp_job_result"
                         | "burp_job_status"
+                        | "burp_macro_create"
+                        | "burp_macro_list"
+                        | "burp_macro_remove"
+                        | "burp_macro_run"
                         | "burp_scan_issues"
                         | "decoder"
                 )

@@ -28,7 +28,20 @@ import io.github.nguyenthdat.burpmcp.TaskJobOutput
 import io.github.nguyenthdat.burpmcp.CollaboratorFacade
 import io.github.nguyenthdat.burpmcp.WebSocketFacade
 import io.github.nguyenthdat.burpmcp.BurpCapabilityFacade
+import io.github.nguyenthdat.burpmcp.MacroDefinition
+import io.github.nguyenthdat.burpmcp.MacroItemDefinition
+import io.github.nguyenthdat.burpmcp.MacroParameterDefinition
 import io.github.nguyenthdat.burpmcp.grpc.v1.AddIssueRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.CreateMacroRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListMacrosRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListMacrosResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.MacroDefinition as MacroDefinitionProto
+import io.github.nguyenthdat.burpmcp.grpc.v1.MacroItem as MacroItemProto
+import io.github.nguyenthdat.burpmcp.grpc.v1.MacroParameter as MacroParameterProto
+import io.github.nguyenthdat.burpmcp.grpc.v1.RemoveMacroRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.RunMacroItem
+import io.github.nguyenthdat.burpmcp.grpc.v1.RunMacroRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.RunMacroResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ExtensionInfoRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ExtensionInfoResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptStateRequest
@@ -298,6 +311,7 @@ internal class BurpRpcService(
     private val httpHandlerFacade: HttpHandlerFacade = HttpHandlerFacade(api),
     private val proxyRuleFacade: ProxyRuleFacade = ProxyRuleFacade(api),
     private val sessionRuleFacade: SessionRuleFacade = SessionRuleFacade(api),
+    private val macroFacade: io.github.nguyenthdat.burpmcp.MacroFacade = io.github.nguyenthdat.burpmcp.MacroFacade(api),
     private val jobFacade: JobFacade = JobFacade(),
     private val longOperationFacade: LongOperationFacade = LongOperationFacade(api, jobFacade),
     private val capabilityFacade: BurpCapabilityFacade = BurpCapabilityFacade(api),
@@ -887,6 +901,57 @@ internal class BurpRpcService(
         responseObserver.onCompleted()
     }
 
+    override fun createMacro(
+        request: CreateMacroRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        val macro = macroFacade.create(request.macro.toDomain())
+        responseObserver.onNext(
+            ActionResponse.newBuilder().setSuccess(true).setMessage(macro.serialNumber.toString()).build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun listMacros(
+        @Suppress("UNUSED_PARAMETER") request: ListMacrosRequest,
+        responseObserver: StreamObserver<ListMacrosResponse>,
+    ) {
+        responseObserver.onNext(
+            ListMacrosResponse.newBuilder().addAllMacros(macroFacade.list().map { it.toProto() }).build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun runMacro(
+        request: RunMacroRequest,
+        responseObserver: StreamObserver<RunMacroResponse>,
+    ) {
+        responseObserver.onNext(
+            RunMacroResponse.newBuilder().addAllItems(
+                macroFacade.run(request.description).map { exchange ->
+                    RunMacroItem.newBuilder()
+                        .setRequest(exchange.request)
+                        .setResponse(exchange.response.orEmpty())
+                        .setStatusCode(exchange.status ?: 0)
+                        .setHasResponse(exchange.response != null)
+                        .build()
+                },
+            ).build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun removeMacro(
+        request: RemoveMacroRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        val removed = macroFacade.remove(request.description)
+        responseObserver.onNext(
+            ActionResponse.newBuilder().setSuccess(removed).setMessage(if (removed) "macro removed" else "macro not found").build(),
+        )
+        responseObserver.onCompleted()
+    }
+
     override fun startConcurrentRequestCheck(
         request: StartConcurrentRequestCheckRequest,
         responseObserver: StreamObserver<JobStatusResponse>,
@@ -1137,7 +1202,58 @@ internal class BurpRpcService(
 
     private fun extensionVersion(): String =
         BurpRpcService::class.java.`package`.implementationVersion ?: "development"
-}
+    private fun MacroDefinitionProto.toDomain(): MacroDefinition =
+        MacroDefinition(
+            description = description,
+            serialNumber = serialNumber.toLong(),
+            items = itemsList.map { item ->
+                MacroItemDefinition(
+                    request = item.request,
+                    method = item.method,
+                    url = item.url,
+                    response = item.response,
+                    statusCode = item.statusCode.toInt(),
+                    cookiesReceived = item.cookiesReceived,
+                    requestParameters = item.requestParametersList.map { parameter ->
+                        MacroParameterDefinition(
+                            name = parameter.name,
+                            originalValue = parameter.originalValue,
+                            parameterHandling = parameter.parameterHandling,
+                            presetValue = parameter.presetValue,
+                            type = parameter.type,
+                        )
+                    },
+                    customParameters = item.customParametersList,
+                )
+            },
+        )
+
+    private fun MacroDefinition.toProto(): MacroDefinitionProto =
+        MacroDefinitionProto.newBuilder()
+            .setDescription(description)
+            .setSerialNumber(serialNumber.toULong().toLong())
+            .addAllItems(items.map { item ->
+                MacroItemProto.newBuilder()
+                    .setRequest(item.request)
+                    .setMethod(item.method)
+                    .setUrl(item.url)
+                    .setResponse(item.response)
+                    .setStatusCode(item.statusCode)
+                    .setCookiesReceived(item.cookiesReceived)
+                    .addAllRequestParameters(item.requestParameters.map { parameter ->
+                        MacroParameterProto.newBuilder()
+                            .setName(parameter.name)
+                            .setOriginalValue(parameter.originalValue)
+                            .setParameterHandling(parameter.parameterHandling)
+                            .setPresetValue(parameter.presetValue)
+                            .setType(parameter.type)
+                            .build()
+                    })
+                    .addAllCustomParameters(item.customParameters)
+                    .build()
+            })
+            .build()
+
     private fun JobSnapshot.toStatusProto(): JobStatusResponse =
         JobStatusResponse
             .newBuilder()
@@ -1191,3 +1307,5 @@ internal class BurpRpcService(
         }
         return builder.build()
     }
+
+}

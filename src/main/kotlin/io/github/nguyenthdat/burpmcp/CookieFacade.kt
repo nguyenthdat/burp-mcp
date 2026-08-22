@@ -50,6 +50,6 @@ internal class CookieFacade(
         require(domain.isNotBlank()) { "cookie domain must not be blank" }
         require(path.startsWith('/')) { "cookie path must start with '/'" }
         val parsedExpiration = expiration?.takeIf(String::isNotBlank)?.let(java.time.ZonedDateTime::parse)
-        api.http().cookieJar().setCookie(name, value, domain, path, parsedExpiration)
+        api.http().cookieJar().setCookie(name, value, path, domain, parsedExpiration)
     }
 }

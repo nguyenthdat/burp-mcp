@@ -156,6 +156,22 @@ enum Command {
         request: proto::RemoveSessionRulesRequest,
         response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
     },
+    CreateMacro {
+        request: proto::CreateMacroRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
+    ListMacros {
+        request: proto::ListMacrosRequest,
+        response: oneshot::Sender<Result<proto::ListMacrosResponse, ClientError>>,
+    },
+    RunMacro {
+        request: proto::RunMacroRequest,
+        response: oneshot::Sender<Result<proto::RunMacroResponse, ClientError>>,
+    },
+    RemoveMacro {
+        request: proto::RemoveMacroRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
     StartConcurrentRequestCheck {
         request: proto::StartConcurrentRequestCheckRequest,
         response: oneshot::Sender<Result<proto::JobStatusResponse, ClientError>>,
@@ -473,6 +489,34 @@ impl BurpClient {
     ) -> Result<proto::ActionResponse, ClientError> {
         self.send(|response| Command::RemoveSessionRules { request, response })
             .await
+    }
+
+    pub async fn create_macro(
+        &self,
+        request: proto::CreateMacroRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::CreateMacro { request, response }).await
+    }
+
+    pub async fn list_macros(
+        &self,
+        request: proto::ListMacrosRequest,
+    ) -> Result<proto::ListMacrosResponse, ClientError> {
+        self.send(|response| Command::ListMacros { request, response }).await
+    }
+
+    pub async fn run_macro(
+        &self,
+        request: proto::RunMacroRequest,
+    ) -> Result<proto::RunMacroResponse, ClientError> {
+        self.send(|response| Command::RunMacro { request, response }).await
+    }
+
+    pub async fn remove_macro(
+        &self,
+        request: proto::RemoveMacroRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::RemoveMacro { request, response }).await
     }
 
     pub async fn start_concurrent_request_check(
@@ -1017,6 +1061,46 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::CreateMacro { request, response } => {
+            let result = client
+                .create_macro(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::ListMacros { request, response } => {
+            let result = client
+                .list_macros(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::RunMacro { request, response } => {
+            let result = client
+                .run_macro(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::RemoveMacro { request, response } => {
+            let result = client
+                .remove_macro(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
         Command::StartConcurrentRequestCheck { request, response } => {
             let result = client
                 .start_concurrent_request_check(with_deadline(request, config.call_timeout))
@@ -1288,6 +1372,18 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::RemoveSessionRules { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::CreateMacro { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ListMacros { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::RunMacro { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::RemoveMacro { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::StartConcurrentRequestCheck { response, .. } => {
