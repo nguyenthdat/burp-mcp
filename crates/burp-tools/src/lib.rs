@@ -55,6 +55,7 @@ struct ProxyHistoryOutput {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ProxyHistoryFilteredInput {
+    pub url_filter: Option<String>,
     pub has_notes: Option<bool>,
     pub color: Option<String>,
     pub limit: Option<u32>,
@@ -380,9 +381,22 @@ pub struct BCheckImportInput {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum UtilityValueInput {
-    Text { value: String },
-    Bytes { base64: String },
-    Json { value: serde_json::Value },
+    Text {
+        value: String,
+    },
+    Bytes {
+        base64: String,
+    },
+    Json {
+        #[schemars(schema_with = "json_value_schema")]
+        value: serde_json::Value,
+    },
+}
+
+fn json_value_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": ["null", "boolean", "number", "string", "array", "object"]
+    })
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -516,7 +530,7 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_proxy_history_filtered",
-        description = "Filter proxy history by annotation color or notes"
+        description = "Filter proxy history by URL, annotation color, or notes"
     )]
     async fn proxy_history_filtered(
         &self,
@@ -528,19 +542,7 @@ impl BurpTools {
         }
         match self
             .client
-            .proxy_history(ProxyHistoryRequest {
-                page: Some(PageRequest {
-                    limit,
-                    cursor: input
-                        .cursor
-                        .unwrap_or_else(|| input.offset.unwrap_or_default().to_string()),
-                }),
-                url_filter: String::new(),
-                method_filter: String::new(),
-                status_filter: None,
-                has_notes: input.has_notes.unwrap_or(false),
-                color: input.color.unwrap_or_default(),
-            })
+            .proxy_history(to_filtered_proxy_history_request(input, limit))
             .await
         {
             Ok(response) => {
@@ -1897,6 +1899,25 @@ fn to_proto_request(input: SendRequestInput) -> SendRequestRequest {
     }
 }
 
+fn to_filtered_proxy_history_request(
+    input: ProxyHistoryFilteredInput,
+    limit: u32,
+) -> ProxyHistoryRequest {
+    ProxyHistoryRequest {
+        page: Some(PageRequest {
+            limit,
+            cursor: input
+                .cursor
+                .unwrap_or_else(|| input.offset.unwrap_or_default().to_string()),
+        }),
+        url_filter: input.url_filter.unwrap_or_default(),
+        method_filter: String::new(),
+        status_filter: None,
+        has_notes: input.has_notes.unwrap_or(false),
+        color: input.color.unwrap_or_default(),
+    }
+}
+
 fn job_status_json(
     result: Result<burp_protocol::proto::JobStatusResponse, burp_protocol::ClientError>,
 ) -> String {
@@ -2024,7 +2045,9 @@ fn shell_quote(value: &str) -> String {
 }
 #[cfg(test)]
 mod contract_tests {
-    use super::BurpTools;
+    use super::{
+        BurpTools, DecoderInput, ProxyHistoryFilteredInput, to_filtered_proxy_history_request,
+    };
     use serde::Deserialize;
     use serde_json::Value;
     use std::collections::BTreeSet;
@@ -2145,6 +2168,57 @@ mod contract_tests {
             78,
             "reference advertised tool count changed; update the manifest explicitly"
         );
+    }
+
+    #[test]
+    fn filtered_proxy_history_exposes_and_forwards_url_filter() {
+        let schema = serde_json::to_value(schemars::schema_for!(ProxyHistoryFilteredInput))
+            .expect("filtered proxy history input schema must serialize");
+        assert!(
+            schema["properties"].get("url_filter").is_some(),
+            "filtered proxy history must expose url_filter"
+        );
+
+        let request = to_filtered_proxy_history_request(
+            ProxyHistoryFilteredInput {
+                url_filter: Some("https://mcl-staging.opswat.com/".to_owned()),
+                has_notes: None,
+                color: None,
+                limit: Some(5),
+                offset: None,
+                cursor: None,
+            },
+            5,
+        );
+        assert_eq!(request.url_filter, "https://mcl-staging.opswat.com/");
+        assert_eq!(request.page.expect("page is required").limit, 5);
+    }
+
+    #[test]
+    fn decoder_schema_avoids_true_subschemas() {
+        let schema = serde_json::to_value(schemars::schema_for!(DecoderInput))
+            .expect("decoder input schema must serialize");
+        let true_paths = schema_true_paths(&schema, "$".to_owned());
+        assert!(
+            true_paths.is_empty(),
+            "true subschemas are unsupported by LM Studio: {true_paths:?}"
+        );
+    }
+
+    fn schema_true_paths(value: &Value, path: String) -> Vec<String> {
+        match value {
+            Value::Bool(true) => vec![path],
+            Value::Array(values) => values
+                .iter()
+                .enumerate()
+                .flat_map(|(index, value)| schema_true_paths(value, format!("{path}[{index}]")))
+                .collect(),
+            Value::Object(values) => values
+                .iter()
+                .flat_map(|(key, value)| schema_true_paths(value, format!("{path}.{key}")))
+                .collect(),
+            _ => Vec::new(),
+        }
     }
 
     fn actual_tool_names() -> BTreeSet<String> {

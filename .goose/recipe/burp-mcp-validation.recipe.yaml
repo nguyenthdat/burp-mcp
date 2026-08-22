@@ -1,0 +1,233 @@
+version: "1.0.0"
+title: "Burp MCP Feature Validation"
+description: "Validate the implemented Burp MCP tool surface against a running Burp Suite extension, exercise only the authorized target, write a reproducible report, and optionally fix repository defects found by the run."
+
+settings:
+  goose_provider: "lmstudio"
+  goose_model: "qwen3.8-27b-abliterated"
+  temperature: 0.1
+  max_turns: 10
+
+parameters:
+  - key: target_url
+    input_type: string
+    requirement: required
+    description: "Base URL of the test system you own or are explicitly authorized to assess"
+  - key: grpc_port
+    input_type: number
+    requirement: optional
+    default: "9877"
+    description: "Loopback gRPC port exposed by the loaded Burp MCP extension"
+  - key: report_path
+    input_type: string
+    requirement: optional
+    default: "target/goose-burp-mcp-report.json"
+    description: "Project-relative path for the final machine-readable validation report"
+  - key: fix_mode
+    input_type: select
+    requirement: optional
+    default: "report-only"
+    options:
+      - "report-only"
+      - "fix-confirmed"
+    description: "Whether to report defects only or fix confirmed repository defects and rerun the failed check"
+  - key: active_checks
+    input_type: boolean
+    requirement: optional
+    default: "false"
+    description: "Allow bounded active scan, crawl, race, and inline-fuzzer checks against target_url"
+
+extensions:
+  - type: stdio
+    name: burp-mcp
+    cmd: "./target/debug/burp-mcp"
+    args:
+      - "serve"
+      - "--stdio"
+      - "--port"
+      - "{{ grpc_port }}"
+    timeout: 300
+    bundled: false
+    description: "Project-native Burp MCP stdio server backed by the Kotlin extension over loopback gRPC"
+  - type: platform
+    name: developer
+
+instructions: |
+  You are validating this repository's Burp MCP implementation, not performing an open-ended penetration test.
+
+  Resource and concurrency boundary:
+  - Run this recipe as exactly one Goose agent. Do not use sub-recipes, summon/delegate, orchestrator, scheduler, nested Goose sessions, or background agents/processes.
+  - Issue at most 4 tool calls in any single assistant turn. This is a hard ceiling across Burp MCP and developer tools combined, not 4 calls per extension.
+  - Wait for every call in the current batch to finish before issuing the next batch. A call that depends on another call's output must run in a later turn.
+  - Process the matrix in its written A, B, C, D, E order. Split any section requiring more than 4 calls into consecutive batches; never fan out the whole matrix at once.
+  - Prefer fewer than 4 concurrent calls when a response may be large. Never start parallel builds, tests, scans, or nested model prompts.
+
+  Hard safety boundary:
+  - The only authorized HTTP origin is {{ target_url }}. Never send traffic to another origin, redirect target, discovered host, Collaborator domain, or third-party service.
+  - Do not create users, change credentials, delete data, upload files, exploit findings, bypass authorization, persist access, or perform denial-of-service behavior.
+  - active_checks={{ active_checks }}. When false, do not invoke crawl, scan, race-condition, inline-fuzzer, parallel-send, or any other operation that emits multiple requests.
+  - When active checks are enabled, keep each bounded operation at no more than 5 requests/inputs, use harmless marker values, remain inside {{ target_url }}, and cancel a job that exceeds 60 seconds.
+  - Never enable Proxy interception automatically. Test burp_intercept_state as read-only unless it is already enabled; restore any state you deliberately change.
+  - Cookie mutation, issue creation, send-to-Repeater, and send-to-Intruder change Burp state. Do not invoke them during the default run. Validate their presence and schemas through tool discovery; invoke only if the user explicitly requests that state mutation after reviewing this report.
+
+  Preconditions:
+  1. Use the developer extension to verify ./target/debug/burp-mcp exists. If absent, run exactly `cargo build -p burp-mcp` from the repository root.
+  2. Call burp_burp_version. If it returns an offline, unavailable, or connection error, stop HTTP testing. Still test decoder, write a blocked report, and give the exact prerequisite: load the Kotlin Burp extension exposing 127.0.0.1:{{ grpc_port }}.
+  3. Call burp_extension_info and record the filename, BApp status, and command-line arguments. Treat arguments as sensitive: record only their count, never their values.
+
+  Test matrix:
+  A. Offline deterministic utilities; these do not need Burp or target traffic.
+     - decoder: search for base64 operations with `query="base64"` and required synthetic `input={"kind":"text","value":""}`; describe the selected encode operation with the same synthetic input; encode UTF-8 text `burp-mcp-smoke`, decode it, and require a byte-exact round trip.
+     - decoder: decode a synthetic unsigned JWT consisting only of locally generated header and payload; do not use a real token.
+     - decoder: exercise `regex.extract` against a synthetic string with a bounded literal-safe pattern and limit 5.
+  B. Read-only Burp state.
+     - burp_burp_version and burp_extension_info.
+     - burp_get_scope and burp_target_info for {{ target_url }}.
+     - burp_proxy_history_filtered with URL filter {{ target_url }}, limit 5; do not include full request/response bodies in the report.
+     - burp_sitemap with URL prefix {{ target_url }}, limit 5.
+     - burp_scan_issues with limit 5. If an issue exists for the target, call burp_scan_issue_detail for at most one issue; redact tokens, cookies, authorization headers, query values, and response bodies from evidence.
+     - burp_cookie_jar with domain derived from {{ target_url }}, limit 5; report cookie names and domains only, never values.
+     - burp_proxy_websocket_history with limit 5; report metadata only, never payload bytes.
+     - burp_intercept_state without enabled to read state only.
+     - burp_session_list_rules and burp_websocket_list; report counts/IDs only.
+  C. One bounded direct HTTP request.
+     - Call burp_get_scope for {{ target_url }} and use its in_scope result. Call burp_send_request only when the URL is in Burp scope. Send one GET to exactly {{ target_url }} with no body and no credentials. Record status and byte lengths, not body content.
+  D. Optional bounded active checks, only when active_checks=true and the target is in scope.
+     - Start at most one burp_crawl or burp_scan job for {{ target_url }}; prefer scan active=false unless active behavior is specifically necessary.
+     - Exercise at most one burp_race_condition with count <= 5 or one burp_inline_fuzzer with <= 5 harmless inputs, not both.
+     - Poll with burp_job_status, fetch a bounded first result page, and cancel after 60 seconds.
+  E. Contract/tool availability.
+     - Confirm these state-changing tools are exposed but do not call them by default: burp_cookie_jar_set, burp_add_issue, burp_send_to_intruder, burp_send_to_repeater.
+     - Confirm decoder remains the only utility/JWT/encoding tool rather than expecting legacy encode/decode/JWT aliases.
+
+  Evaluation rules:
+  - PASS: observed response satisfies the stated behavior.
+  - FAIL: tool invoked but returns wrong schema, wrong behavior, crash, protocol error, invalid bound handling, or violates the declared contract.
+  - BLOCKED: prerequisite absent, Burp offline, no in-scope target, no applicable history/issue/WebSocket item, or state-changing test intentionally skipped.
+  - SKIPPED: prohibited by active_checks=false or by the safety boundary.
+  - A lack of proxy history, cookies, issues, or WebSockets is BLOCKED/NOT_APPLICABLE, never FAIL.
+  - Do not claim a test passed unless the exact tool call and observable assertion were performed.
+
+  Fix workflow for fix_mode=fix-confirmed:
+  - Fix only a confirmed repository defect that directly caused a FAIL. Never modify Burp project state or weaken a test to obtain green output.
+  - Inspect the relevant Rust/Kotlin/protobuf call chain, implement the source fix, run the narrow affected check, then run `cargo test --workspace --offline` and `gradle test --no-daemon`.
+  - Do not fix BLOCKED, SKIPPED, NOT_APPLICABLE, target behavior, environmental configuration, or unrelated warnings.
+  - Record changed files, commands, and exact verification results. If no confirmed code defect exists, make no source changes.
+
+  Reporting:
+  - Create parent directories if needed and write one JSON object to {{ report_path }} using the response schema below.
+  - Redact secrets and application content. Evidence must contain tool name, safe inputs, status/error code, counts, hashes, or lengths only.
+  - The final assistant response must be the same JSON object written to {{ report_path }} with no markdown wrapper.
+
+prompt: |
+  Run the complete Burp MCP validation matrix against the explicitly authorized target {{ target_url }}. Respect active_checks={{ active_checks }} and fix_mode={{ fix_mode }}. Write the redacted report to {{ report_path }} and return the same structured JSON.
+
+response:
+  json_schema:
+    type: object
+    additionalProperties: false
+    properties:
+      target_url:
+        type: string
+      model:
+        type: string
+      fix_mode:
+        type: string
+        enum: ["report-only", "fix-confirmed"]
+      overall_status:
+        type: string
+        enum: ["PASS", "FAIL", "BLOCKED"]
+      summary:
+        type: object
+        additionalProperties: false
+        properties:
+          passed:
+            type: integer
+          failed:
+            type: integer
+          blocked:
+            type: integer
+          skipped:
+            type: integer
+        required: [passed, failed, blocked, skipped]
+      checks:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          properties:
+            id:
+              type: string
+            tool:
+              type: string
+            status:
+              type: string
+              enum: ["PASS", "FAIL", "BLOCKED", "SKIPPED", "NOT_APPLICABLE"]
+            assertion:
+              type: string
+            evidence:
+              type: string
+            error:
+              type: string
+          required: [id, tool, status, assertion, evidence, error]
+      confirmed_defects:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          properties:
+            title:
+              type: string
+            layer:
+              type: string
+              enum: ["rust-mcp", "rust-protocol", "protobuf", "kotlin-rpc", "kotlin-montoya", "build", "unknown"]
+            reproduction:
+              type: string
+            expected:
+              type: string
+            actual:
+              type: string
+            root_cause:
+              type: string
+            changed_files:
+              type: array
+              items:
+                type: string
+            verification:
+              type: string
+          required: [title, layer, reproduction, expected, actual, root_cause, changed_files, verification]
+      verification_commands:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          properties:
+            command:
+              type: string
+            status:
+              type: string
+            evidence:
+              type: string
+          required: [command, status, evidence]
+      blockers:
+        type: array
+        items:
+          type: string
+      recommended_next_actions:
+        type: array
+        items:
+          type: string
+      report_path:
+        type: string
+    required:
+      - target_url
+      - model
+      - fix_mode
+      - overall_status
+      - summary
+      - checks
+      - confirmed_defects
+      - verification_commands
+      - blockers
+      - recommended_next_actions
+      - report_path
