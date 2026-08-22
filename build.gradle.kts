@@ -32,6 +32,10 @@ java {
 sourceSets {
     main {
         proto.srcDir("proto")
+        java.srcDirs(
+            layout.buildDirectory.dir("generated/sources/proto/main/java"),
+            layout.buildDirectory.dir("generated/sources/proto/main/grpc"),
+        )
     }
 }
 

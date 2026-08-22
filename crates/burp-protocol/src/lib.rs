@@ -64,6 +64,34 @@ enum Command {
         request: proto::CookieJarRequest,
         response: oneshot::Sender<Result<proto::CookieJarResponse, ClientError>>,
     },
+    SetCookie {
+        request: proto::SetCookieRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
+    AddIssue {
+        request: proto::AddIssueRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
+    ScanIssueDetail {
+        request: proto::ScanIssueDetailRequest,
+        response: oneshot::Sender<Result<proto::ScanIssueEntry, ClientError>>,
+    },
+    InterceptState {
+        request: proto::InterceptStateRequest,
+        response: oneshot::Sender<Result<proto::InterceptStateResponse, ClientError>>,
+    },
+    ProxyWebSocketHistory {
+        request: proto::ProxyWebSocketHistoryRequest,
+        response: oneshot::Sender<Result<proto::ProxyWebSocketHistoryResponse, ClientError>>,
+    },
+    SendToIntruder {
+        request: proto::SendToIntruderRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
+    ExtensionInfo {
+        request: proto::ExtensionInfoRequest,
+        response: oneshot::Sender<Result<proto::ExtensionInfoResponse, ClientError>>,
+    },
     ServerInfo {
         request: proto::ServerInfoRequest,
         response: oneshot::Sender<Result<proto::ServerInfoResponse, ClientError>>,
@@ -264,6 +292,62 @@ impl BurpClient {
         request: proto::CookieJarRequest,
     ) -> Result<proto::CookieJarResponse, ClientError> {
         self.send(|response| Command::CookieJar { request, response })
+            .await
+    }
+
+    pub async fn set_cookie(
+        &self,
+        request: proto::SetCookieRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::SetCookie { request, response })
+            .await
+    }
+
+    pub async fn add_issue(
+        &self,
+        request: proto::AddIssueRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::AddIssue { request, response })
+            .await
+    }
+
+    pub async fn scan_issue_detail(
+        &self,
+        request: proto::ScanIssueDetailRequest,
+    ) -> Result<proto::ScanIssueEntry, ClientError> {
+        self.send(|response| Command::ScanIssueDetail { request, response })
+            .await
+    }
+
+    pub async fn intercept_state(
+        &self,
+        request: proto::InterceptStateRequest,
+    ) -> Result<proto::InterceptStateResponse, ClientError> {
+        self.send(|response| Command::InterceptState { request, response })
+            .await
+    }
+
+    pub async fn proxy_websocket_history(
+        &self,
+        request: proto::ProxyWebSocketHistoryRequest,
+    ) -> Result<proto::ProxyWebSocketHistoryResponse, ClientError> {
+        self.send(|response| Command::ProxyWebSocketHistory { request, response })
+            .await
+    }
+
+    pub async fn send_to_intruder(
+        &self,
+        request: proto::SendToIntruderRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::SendToIntruder { request, response })
+            .await
+    }
+
+    pub async fn extension_info(
+        &self,
+        request: proto::ExtensionInfoRequest,
+    ) -> Result<proto::ExtensionInfoResponse, ClientError> {
+        self.send(|response| Command::ExtensionInfo { request, response })
             .await
     }
 
@@ -703,6 +787,76 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::SetCookie { request, response } => {
+            let result = client
+                .set_cookie(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::AddIssue { request, response } => {
+            let result = client
+                .add_issue(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::ScanIssueDetail { request, response } => {
+            let result = client
+                .scan_issue_detail(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::InterceptState { request, response } => {
+            let result = client
+                .intercept_state(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::ProxyWebSocketHistory { request, response } => {
+            let result = client
+                .proxy_web_socket_history(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::SendToIntruder { request, response } => {
+            let result = client
+                .send_to_intruder(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::ExtensionInfo { request, response } => {
+            let result = client
+                .extension_info(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
         Command::ServerInfo { request, response } => {
             let result = client
                 .server_info(with_deadline(request, config.call_timeout))
@@ -1074,6 +1228,27 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::SendRequests { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::SetCookie { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::AddIssue { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ScanIssueDetail { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::InterceptState { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ProxyWebSocketHistory { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::SendToIntruder { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ExtensionInfo { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::SendToRepeater { response, .. } => {

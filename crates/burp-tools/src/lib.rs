@@ -1,17 +1,18 @@
 use burp_protocol::BurpClient;
 use burp_protocol::proto::{
-    CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest, CloseWebSocketRequest,
-    ConfigResponse, CookieJarRequest, CreateSessionRuleRequest, CreateWebSocketRequest,
-    ExportConfigRequest, GenerateCollaboratorPayloadsRequest, GetJobResultRequest,
-    GetJobStatusRequest, HttpHeaderEntry, ImportBCheckRequest, ImportBambdaRequest,
-    ImportConfigRequest, ListSessionRulesRequest, ListWebSocketsRequest, MutateScopeRequest,
-    PageRequest, PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
-    RegisterHttpHandlerRequest, RegisterProxyRuleRequest, RemoveSessionRulesRequest,
-    ScanIssuesRequest, ScopeCheckRequest, SendRequestRequest, SendRequestsRequest,
-    SendToRepeaterRequest, SendWebSocketBinaryRequest, SendWebSocketTextRequest,
-    SetHighlightRequest, SetNoteRequest, SitemapSnapshotRequest, StartAuditRequest,
-    StartBoundedInputMatrixRequest, StartConcurrentRequestCheckRequest, StartCrawlRequest,
-    TargetInfoRequest,
+    AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
+    CloseWebSocketRequest, ConfigResponse, CookieJarRequest, CreateSessionRuleRequest,
+    CreateWebSocketRequest, ExportConfigRequest, ExtensionInfoRequest,
+    GenerateCollaboratorPayloadsRequest, GetJobResultRequest, GetJobStatusRequest, HttpHeaderEntry,
+    ImportBCheckRequest, ImportBambdaRequest, ImportConfigRequest, InterceptStateRequest,
+    ListSessionRulesRequest, ListWebSocketsRequest, MutateScopeRequest, PageRequest,
+    PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
+    ProxyWebSocketHistoryRequest, RegisterHttpHandlerRequest, RegisterProxyRuleRequest,
+    RemoveSessionRulesRequest, ScanIssueDetailRequest, ScanIssuesRequest, ScopeCheckRequest,
+    SendRequestRequest, SendRequestsRequest, SendToIntruderRequest, SendToRepeaterRequest,
+    SendWebSocketBinaryRequest, SendWebSocketTextRequest, SetCookieRequest, SetHighlightRequest,
+    SetNoteRequest, SitemapSnapshotRequest, StartAuditRequest, StartBoundedInputMatrixRequest,
+    StartConcurrentRequestCheckRequest, StartCrawlRequest, TargetInfoRequest,
 };
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{schemars, tool, tool_router};
@@ -137,6 +138,41 @@ pub struct CookieJarInput {
     pub domain: Option<String>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SetCookieInput {
+    pub name: String,
+    pub value: String,
+    pub domain: String,
+    pub path: Option<String>,
+    pub expiration: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AddIssueInput {
+    pub name: String,
+    pub url: String,
+    pub detail: Option<String>,
+    pub remediation: Option<String>,
+    pub severity: Option<String>,
+    pub confidence: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ScanIssueDetailInput {
+    pub index: u32,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct InterceptStateInput {
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ProxyWebSocketHistoryInput {
+    pub limit: Option<u32>,
+    pub cursor: Option<String>,
+}
+
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 struct CookieOutput {
     name: String,
@@ -182,6 +218,15 @@ struct SendResponseOutput {
 }
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SendToRepeaterInput {
+    pub request: String,
+    pub host: String,
+    pub port: Option<u32>,
+    pub https: Option<bool>,
+    pub tab_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SendToIntruderInput {
     pub request: String,
     pub host: String,
     pub port: Option<u32>,
@@ -1306,6 +1351,51 @@ impl BurpTools {
     }
 
     #[tool(
+        name = "burp_scan_issue_detail",
+        description = "Get complete details for one Burp scanner issue index"
+    )]
+    async fn scan_issue_detail(
+        &self,
+        Parameters(input): Parameters<ScanIssueDetailInput>,
+    ) -> String {
+        match self
+            .client
+            .scan_issue_detail(ScanIssueDetailRequest { index: input.index })
+            .await
+        {
+            Ok(item) => serde_json::to_string(&ScanIssueOutput {
+                index: item.index,
+                name: item.name,
+                severity: item.severity,
+                confidence: item.confidence,
+                url: item.url,
+                detail: item.detail,
+            })
+            .expect("scan issue detail must serialize"),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_add_issue",
+        description = "Add one typed issue to the Burp site map"
+    )]
+    async fn add_issue(&self, Parameters(input): Parameters<AddIssueInput>) -> String {
+        action_json(
+            self.client
+                .add_issue(AddIssueRequest {
+                    name: input.name,
+                    url: input.url,
+                    detail: input.detail.unwrap_or_default(),
+                    remediation: input.remediation.unwrap_or_default(),
+                    severity: input.severity.unwrap_or_else(|| "INFORMATION".to_owned()),
+                    confidence: input.confidence.unwrap_or_else(|| "TENTATIVE".to_owned()),
+                })
+                .await,
+        )
+    }
+
+    #[tool(
         name = "decoder",
         description = "One bounded offline decoder tool with many operations. Supply operation for one transform, steps for a recipe, query to search the operation catalog, describe for one operation's metadata, or magic=true for deterministic decode suggestions."
     )]
@@ -1595,6 +1685,105 @@ impl BurpTools {
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
+
+    #[tool(
+        name = "burp_cookie_jar_set",
+        description = "Set one cookie in Burp's cookie jar"
+    )]
+    async fn set_cookie(&self, Parameters(input): Parameters<SetCookieInput>) -> String {
+        action_json(
+            self.client
+                .set_cookie(SetCookieRequest {
+                    name: input.name,
+                    value: input.value,
+                    domain: input.domain,
+                    path: input.path.unwrap_or_else(|| "/".to_owned()),
+                    expiration: input.expiration.unwrap_or_default(),
+                })
+                .await,
+        )
+    }
+
+    #[tool(
+        name = "burp_intercept_state",
+        description = "Read or set Burp Proxy interception state"
+    )]
+    async fn intercept_state(&self, Parameters(input): Parameters<InterceptStateInput>) -> String {
+        match self
+            .client
+            .intercept_state(InterceptStateRequest {
+                enabled: input.enabled,
+            })
+            .await
+        {
+            Ok(response) => serde_json::json!({"enabled": response.enabled}).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_proxy_websocket_history",
+        description = "Get a bounded page of Burp Proxy WebSocket history"
+    )]
+    async fn proxy_websocket_history(
+        &self,
+        Parameters(input): Parameters<ProxyWebSocketHistoryInput>,
+    ) -> String {
+        let limit = input.limit.unwrap_or(50).min(MAX_PAGE_SIZE);
+        match self.client.proxy_websocket_history(ProxyWebSocketHistoryRequest {
+            page: Some(PageRequest { limit, cursor: input.cursor.unwrap_or_default() }),
+        }).await {
+            Ok(response) => serde_json::json!({
+                "items": response.items.into_iter().map(|item| serde_json::json!({
+                    "index": item.index,
+                    "id": item.id,
+                    "websocket_id": item.web_socket_id,
+                    "direction": item.direction,
+                    "payload_base64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, item.payload),
+                    "edited_payload_base64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, item.edited_payload),
+                    "time": item.time,
+                    "listener_port": item.listener_port,
+                    "upgrade_url": item.upgrade_url,
+                })).collect::<Vec<_>>(),
+                "page": response.page.map(|page| serde_json::json!({"total": page.total, "truncated": page.truncated, "next_cursor": page.next_cursor})),
+            }).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_send_to_intruder",
+        description = "Open one request in Burp Intruder"
+    )]
+    async fn send_to_intruder(&self, Parameters(input): Parameters<SendToIntruderInput>) -> String {
+        action_json(
+            self.client
+                .send_to_intruder(SendToIntruderRequest {
+                    request: input.request.into_bytes(),
+                    host: input.host,
+                    port: input.port.unwrap_or(80),
+                    https: input.https.unwrap_or(false),
+                    tab_name: input.tab_name.unwrap_or_default(),
+                })
+                .await,
+        )
+    }
+
+    #[tool(
+        name = "burp_extension_info",
+        description = "Get current Burp extension and process configuration metadata"
+    )]
+    async fn extension_info(&self) -> String {
+        match self.client.extension_info(ExtensionInfoRequest {}).await {
+            Ok(response) => serde_json::json!({
+                "filename": response.filename,
+                "is_bapp": response.is_bapp,
+                "command_line_arguments": response.command_line_arguments,
+            })
+            .to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1836,8 +2025,23 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod contract_tests {
     use super::BurpTools;
+    use serde::Deserialize;
     use serde_json::Value;
     use std::collections::BTreeSet;
+
+    #[derive(Deserialize)]
+    struct ParityManifest {
+        statuses: BTreeSet<String>,
+        tools: Vec<ParityEntry>,
+    }
+
+    #[derive(Deserialize)]
+    struct ParityEntry {
+        tool: String,
+        status: String,
+        local: Option<String>,
+        reason: Option<String>,
+    }
 
     #[test]
     fn native_burp_tools_match_the_v3_ported_contract() {
@@ -1851,23 +2055,103 @@ mod contract_tests {
             .iter()
             .filter_map(|tool| tool["name"].as_str())
             .collect();
-        let actual: BTreeSet<String> = BurpTools::tool_router()
+        let actual = actual_tool_names();
+        let parity: ParityManifest = serde_json::from_str(include_str!(
+            "../../../test-fixtures/contracts/reference-tool-parity.json"
+        ))
+        .expect("reference parity manifest must be valid JSON");
+        let classified_local = parity
+            .tools
+            .iter()
+            .filter_map(|entry| entry.local.as_deref())
+            .collect::<BTreeSet<_>>();
+        assert!(actual.iter().all(|name| {
+            legacy.contains(name.as_str())
+                || classified_local.contains(name.as_str())
+                || matches!(
+                    name.as_str(),
+                    "burp_job_cancel"
+                        | "burp_job_result"
+                        | "burp_job_status"
+                        | "burp_scan_issues"
+                        | "decoder"
+                )
+                || name.starts_with("sitegraph_")
+        }));
+    }
+
+    #[test]
+    fn every_reference_tool_is_classified_and_every_claimed_local_tool_exists() {
+        let manifest: ParityManifest = serde_json::from_str(include_str!(
+            "../../../test-fixtures/contracts/reference-tool-parity.json"
+        ))
+        .expect("reference parity manifest must be valid JSON");
+        let expected_statuses = BTreeSet::from([
+            "implemented".to_owned(),
+            "intentionally_removed".to_owned(),
+            "replaced_by".to_owned(),
+        ]);
+        assert_eq!(manifest.statuses, expected_statuses);
+
+        let actual = actual_tool_names();
+        let mut reference_names = BTreeSet::new();
+        for entry in manifest.tools {
+            assert!(
+                reference_names.insert(entry.tool.clone()),
+                "duplicate reference tool {}",
+                entry.tool
+            );
+            assert!(
+                expected_statuses.contains(&entry.status),
+                "unclassified reference tool {}",
+                entry.tool
+            );
+            match entry.status.as_str() {
+                "implemented" | "replaced_by" => {
+                    let local = entry
+                        .local
+                        .expect("implemented/replaced tool requires local");
+                    assert!(
+                        actual.contains(&local),
+                        "{} claims missing local tool {local}",
+                        entry.tool
+                    );
+                    assert!(
+                        entry.reason.is_none(),
+                        "{} must not carry removal reason",
+                        entry.tool
+                    );
+                }
+                "intentionally_removed" => {
+                    assert!(
+                        entry.local.is_none(),
+                        "removed tool {} must not claim a local tool",
+                        entry.tool
+                    );
+                    assert!(
+                        entry
+                            .reason
+                            .as_deref()
+                            .is_some_and(|reason| !reason.trim().is_empty()),
+                        "removed tool {} requires a reason",
+                        entry.tool
+                    );
+                }
+                _ => unreachable!(),
+            }
+        }
+        assert_eq!(
+            reference_names.len(),
+            78,
+            "reference advertised tool count changed; update the manifest explicitly"
+        );
+    }
+
+    fn actual_tool_names() -> BTreeSet<String> {
+        BurpTools::tool_router()
             .map
             .keys()
-            .map(|name| name.to_string())
-            .filter(|name| name.starts_with("burp_"))
-            .collect();
-        let v3_additions = BTreeSet::from([
-            "burp_job_cancel".to_owned(),
-            "burp_job_result".to_owned(),
-            "burp_job_status".to_owned(),
-            "burp_scan_issues".to_owned(),
-        ]);
-        let retained: BTreeSet<String> = actual.difference(&v3_additions).cloned().collect();
-        assert!(retained.iter().all(|name| legacy.contains(name.as_str())));
-        assert_eq!(
-            v3_additions,
-            actual.intersection(&v3_additions).cloned().collect()
-        );
+            .map(ToString::to_string)
+            .collect()
     }
 }

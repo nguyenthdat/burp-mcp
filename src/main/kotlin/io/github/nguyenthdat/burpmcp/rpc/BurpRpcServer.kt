@@ -27,6 +27,18 @@ import io.github.nguyenthdat.burpmcp.LongOperationFacade
 import io.github.nguyenthdat.burpmcp.TaskJobOutput
 import io.github.nguyenthdat.burpmcp.CollaboratorFacade
 import io.github.nguyenthdat.burpmcp.WebSocketFacade
+import io.github.nguyenthdat.burpmcp.BurpCapabilityFacade
+import io.github.nguyenthdat.burpmcp.grpc.v1.AddIssueRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ExtensionInfoRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ExtensionInfoResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptStateRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptStateResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketHistoryRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketHistoryResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ScanIssueDetailRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.SetCookieRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.SendToIntruderRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.CookieEntry
 import io.github.nguyenthdat.burpmcp.grpc.v1.CookieJarRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.CookieJarResponse
@@ -288,6 +300,7 @@ internal class BurpRpcService(
     private val sessionRuleFacade: SessionRuleFacade = SessionRuleFacade(api),
     private val jobFacade: JobFacade = JobFacade(),
     private val longOperationFacade: LongOperationFacade = LongOperationFacade(api, jobFacade),
+    private val capabilityFacade: BurpCapabilityFacade = BurpCapabilityFacade(api),
 ) : BurpServiceGrpc.BurpServiceImplBase() {
     override fun ping(
         @Suppress("UNUSED_PARAMETER") request: PingRequest,
@@ -551,6 +564,40 @@ internal class BurpRpcService(
         responseObserver.onCompleted()
     }
 
+    override fun scanIssueDetail(
+        request: ScanIssueDetailRequest,
+        responseObserver: StreamObserver<ScanIssueEntry>,
+    ) {
+        val item = scannerFacade.issueDetail(request.index.toInt())
+        responseObserver.onNext(
+            ScanIssueEntry.newBuilder()
+                .setIndex(item.index)
+                .setName(item.name)
+                .setSeverity(item.severity)
+                .setConfidence(item.confidence)
+                .setUrl(item.url)
+                .setDetail(item.detail)
+                .build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun addIssue(
+        request: AddIssueRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        scannerFacade.addIssue(
+            request.name,
+            request.url,
+            request.detail,
+            request.remediation,
+            request.severity,
+            request.confidence,
+        )
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("issue added").build())
+        responseObserver.onCompleted()
+    }
+
     override fun cookieJar(
         request: CookieJarRequest,
         responseObserver: StreamObserver<CookieJarResponse>,
@@ -582,6 +629,95 @@ internal class BurpRpcService(
                             .build()
                     },
                 ).build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun setCookie(
+        request: SetCookieRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        cookieFacade.setCookie(
+            request.name,
+            request.value,
+            request.domain,
+            request.path.ifBlank { "/" },
+            request.expiration.ifBlank { null },
+        )
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("cookie updated").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun interceptState(
+        request: InterceptStateRequest,
+        responseObserver: StreamObserver<InterceptStateResponse>,
+    ) {
+        val enabled = proxyFacade.interceptState(if (request.hasEnabled()) request.enabled else null)
+        responseObserver.onNext(InterceptStateResponse.newBuilder().setEnabled(enabled).build())
+        responseObserver.onCompleted()
+    }
+
+    override fun proxyWebSocketHistory(
+        request: ProxyWebSocketHistoryRequest,
+        responseObserver: StreamObserver<ProxyWebSocketHistoryResponse>,
+    ) {
+        val limit = if (!request.hasPage() || request.page.limit == 0) 50 else request.page.limit.coerceAtMost(GRPC_MAX_PAGE_SIZE)
+        val offset = if (request.hasPage()) request.page.cursor.toIntOrNull() ?: 0 else 0
+        val page = proxyFacade.webSocketHistory(limit, offset)
+        val end = page.offset + page.items.size
+        responseObserver.onNext(
+            ProxyWebSocketHistoryResponse.newBuilder()
+                .addAllItems(page.items.map { item ->
+                    ProxyWebSocketEntry.newBuilder()
+                        .setIndex(item.index)
+                        .setId(item.id)
+                        .setWebSocketId(item.webSocketId)
+                        .setDirection(item.direction)
+                        .setPayload(com.google.protobuf.ByteString.copyFrom(item.payload))
+                        .setEditedPayload(com.google.protobuf.ByteString.copyFrom(item.editedPayload))
+                        .setTime(item.time)
+                        .setListenerPort(item.listenerPort)
+                        .setUpgradeUrl(item.upgradeUrl)
+                        .build()
+                })
+                .setPage(
+                    PageInfo.newBuilder()
+                        .setTotal(page.total)
+                        .setTruncated(end < page.total)
+                        .setNextCursor(if (end < page.total) end.toString() else "")
+                        .build(),
+                )
+                .build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun sendToIntruder(
+        request: SendToIntruderRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) {
+        capabilityFacade.sendToIntruder(
+            request.request.toByteArray(),
+            request.host,
+            request.port.toInt(),
+            request.https,
+            request.tabName.ifBlank { null },
+        )
+        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("request opened in Intruder").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun extensionInfo(
+        @Suppress("UNUSED_PARAMETER") request: ExtensionInfoRequest,
+        responseObserver: StreamObserver<ExtensionInfoResponse>,
+    ) {
+        val info = capabilityFacade.extensionInfo()
+        responseObserver.onNext(
+            ExtensionInfoResponse.newBuilder()
+                .setFilename(info.filename)
+                .setIsBapp(info.isBapp)
+                .addAllCommandLineArguments(info.commandLineArguments)
+                .build(),
         )
         responseObserver.onCompleted()
     }
@@ -1055,4 +1191,3 @@ internal class BurpRpcService(
         }
         return builder.build()
     }
-

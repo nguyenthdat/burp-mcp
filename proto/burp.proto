@@ -18,6 +18,13 @@ service BurpService {
   rpc TargetInfo(TargetInfoRequest) returns (TargetInfoResponse);
   rpc ScopeCheck(ScopeCheckRequest) returns (ScopeCheckResponse);
   rpc CookieJar(CookieJarRequest) returns (CookieJarResponse);
+  rpc SetCookie(SetCookieRequest) returns (ActionResponse);
+  rpc AddIssue(AddIssueRequest) returns (ActionResponse);
+  rpc ScanIssueDetail(ScanIssueDetailRequest) returns (ScanIssueEntry);
+  rpc InterceptState(InterceptStateRequest) returns (InterceptStateResponse);
+  rpc ProxyWebSocketHistory(ProxyWebSocketHistoryRequest) returns (ProxyWebSocketHistoryResponse);
+  rpc SendToIntruder(SendToIntruderRequest) returns (ActionResponse);
+  rpc ExtensionInfo(ExtensionInfoRequest) returns (ExtensionInfoResponse);
   rpc SendRequest(SendRequestRequest) returns (SendRequestResponse);
   rpc SendRequests(SendRequestsRequest) returns (SendRequestsResponse);
   rpc SendToRepeater(SendToRepeaterRequest) returns (ActionResponse);
@@ -143,6 +150,53 @@ message CookieEntry {
   string domain = 3;
   string path = 4;
   string expiration = 5;
+}
+message SetCookieRequest {
+  string name = 1;
+  string value = 2;
+  string domain = 3;
+  string path = 4;
+  string expiration = 5;
+}
+message AddIssueRequest {
+  string name = 1;
+  string url = 2;
+  string detail = 3;
+  string remediation = 4;
+  string severity = 5;
+  string confidence = 6;
+}
+message ScanIssueDetailRequest { uint32 index = 1; }
+message InterceptStateRequest { optional bool enabled = 1; }
+message InterceptStateResponse { bool enabled = 1; }
+message ProxyWebSocketHistoryRequest { PageRequest page = 1; }
+message ProxyWebSocketEntry {
+  uint32 index = 1;
+  uint32 id = 2;
+  uint32 web_socket_id = 3;
+  string direction = 4;
+  bytes payload = 5;
+  bytes edited_payload = 6;
+  string time = 7;
+  uint32 listener_port = 8;
+  string upgrade_url = 9;
+}
+message ProxyWebSocketHistoryResponse {
+  repeated ProxyWebSocketEntry items = 1;
+  PageInfo page = 2;
+}
+message SendToIntruderRequest {
+  bytes request = 1;
+  string host = 2;
+  uint32 port = 3;
+  bool https = 4;
+  string tab_name = 5;
+}
+message ExtensionInfoRequest {}
+message ExtensionInfoResponse {
+  string filename = 1;
+  bool is_bapp = 2;
+  repeated string command_line_arguments = 3;
 }
 message ScanIssueEntry {
   uint32 index = 1;

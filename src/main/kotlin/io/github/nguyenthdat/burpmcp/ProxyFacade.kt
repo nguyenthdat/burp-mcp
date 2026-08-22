@@ -38,6 +38,24 @@ internal data class ProxyDetail(
     val highlight: String?,
 )
 
+internal data class ProxyWebSocketItem(
+    val index: Int,
+    val id: Int,
+    val webSocketId: Int,
+    val direction: String,
+    val payload: ByteArray,
+    val editedPayload: ByteArray,
+    val time: String,
+    val listenerPort: Int,
+    val upgradeUrl: String,
+)
+
+internal data class ProxyWebSocketPage(
+    val items: List<ProxyWebSocketItem>,
+    val total: Int,
+    val offset: Int,
+)
+
 /** Typed Montoya seam shared by the compatibility HTTP and gRPC adapters. */
 internal class ProxyFacade(
     private val api: MontoyaApi,
@@ -87,5 +105,36 @@ internal class ProxyFacade(
             notes = entry.annotations().notes(),
             highlight = entry.annotations().highlightColor().name,
         )
+    }
+
+    fun interceptState(enabled: Boolean?): Boolean {
+        when (enabled) {
+            true -> api.proxy().enableIntercept()
+            false -> api.proxy().disableIntercept()
+            null -> Unit
+        }
+        return api.proxy().isInterceptEnabled
+    }
+
+    fun webSocketHistory(limit: Int, offset: Int): ProxyWebSocketPage {
+        require(limit in 0..500) { "limit must be between 0 and 500" }
+        require(offset >= 0) { "offset must be non-negative" }
+        val history = api.proxy().webSocketHistory()
+        val start = offset.coerceAtMost(history.size)
+        val end = min(start + limit, history.size)
+        val items = history.subList(start, end).mapIndexed { position, message ->
+            ProxyWebSocketItem(
+                index = start + position,
+                id = message.id(),
+                webSocketId = message.webSocketId(),
+                direction = message.direction().name,
+                payload = message.payload().getBytes(),
+                editedPayload = message.editedPayload().getBytes(),
+                time = message.time().toString(),
+                listenerPort = message.listenerPort(),
+                upgradeUrl = message.upgradeRequest().url(),
+            )
+        }
+        return ProxyWebSocketPage(items, history.size, start)
     }
 }
