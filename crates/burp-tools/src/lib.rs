@@ -14,8 +14,11 @@ use burp_protocol::proto::{
     SetNoteRequest, SitemapSnapshotRequest, StartAuditRequest, StartBoundedInputMatrixRequest,
     StartConcurrentRequestCheckRequest, StartCrawlRequest, TargetInfoRequest,
 };
+use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::{schemars, tool, tool_router};
+use rmcp::model::{CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock};
+use rmcp::service::RequestContext;
+use rmcp::{RoleServer, schemars, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
 use sitegraph::{IssueObservation, SitemapObservation, SqliteGraph, SyncBatch};
 use std::path::Path;
@@ -23,6 +26,25 @@ use std::sync::Arc;
 use utility_tools::{self as utility, DataValue};
 
 const MAX_PAGE_SIZE: u32 = 500;
+const MAX_KOTLIN_INDEX: u32 = i32::MAX as u32;
+const MAX_TRAVERSAL_DEPTH: u32 = 8;
+
+fn validated_index(index: u32) -> Result<u32, &'static str> {
+    if index > MAX_KOTLIN_INDEX {
+        Err("index must be at most 2147483647")
+    } else {
+        Ok(index)
+    }
+}
+
+fn validated_graph_limit(limit: Option<u32>) -> Result<u32, &'static str> {
+    let limit = limit.unwrap_or(100);
+    if (1..=MAX_PAGE_SIZE).contains(&limit) {
+        Ok(limit)
+    } else {
+        Err("limit must be between 1 and 500")
+    }
+}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ProxyHistoryInput {
@@ -474,7 +496,7 @@ pub struct BurpTools {
     sitegraph: Arc<SqliteGraph>,
 }
 
-#[tool_router(server_handler)]
+#[tool_router]
 impl BurpTools {
     pub async fn new(client: BurpClient, graph_path: &Path) -> Result<Self, String> {
         Ok(Self {
@@ -577,11 +599,11 @@ impl BurpTools {
         description = "Get full request and response details for one Burp proxy history index"
     )]
     async fn proxy_detail(&self, Parameters(input): Parameters<ProxyDetailInput>) -> String {
-        match self
-            .client
-            .proxy_detail(ProxyDetailRequest { index: input.index })
-            .await
-        {
+        let index = match validated_index(input.index) {
+            Ok(index) => index,
+            Err(error) => return serde_json::json!({"error": error}).to_string(),
+        };
+        match self.client.proxy_detail(ProxyDetailRequest { index }).await {
             Ok(detail) => serde_json::to_string(&ProxyDetailOutput {
                 index: detail.index,
                 request: String::from_utf8_lossy(&detail.request).into_owned(),
@@ -749,10 +771,14 @@ impl BurpTools {
         description = "Set the highlight color on an item in the current Burp Proxy HTTP history."
     )]
     async fn highlight(&self, Parameters(input): Parameters<HighlightInput>) -> String {
+        let index = match validated_index(input.index) {
+            Ok(index) => index,
+            Err(error) => return serde_json::json!({"error": error}).to_string(),
+        };
         match self
             .client
             .set_highlight(SetHighlightRequest {
-                index: input.index,
+                index,
                 color: input.color.unwrap_or_default(),
             })
             .await
@@ -770,10 +796,14 @@ impl BurpTools {
         description = "Set notes on an item in the current Burp Proxy HTTP history."
     )]
     async fn annotate(&self, Parameters(input): Parameters<AnnotateInput>) -> String {
+        let index = match validated_index(input.index) {
+            Ok(index) => index,
+            Err(error) => return serde_json::json!({"error": error}).to_string(),
+        };
         match self
             .client
             .set_note(SetNoteRequest {
-                index: input.index,
+                index,
                 note: input.note,
             })
             .await
@@ -1291,11 +1321,11 @@ impl BurpTools {
         if limit > 500 {
             return serde_json::json!({"error": "limit must be at most 500"}).to_string();
         }
-        match self
-            .client
-            .proxy_detail(ProxyDetailRequest { index: input.index })
-            .await
-        {
+        let index = match validated_index(input.index) {
+            Ok(index) => index,
+            Err(error) => return serde_json::json!({"error": error}).to_string(),
+        };
+        match self.client.proxy_detail(ProxyDetailRequest { index }).await {
             Ok(detail) if !detail.response.is_empty() => {
                 let response = String::from_utf8_lossy(&detail.response);
                 match regex::Regex::new(&input.regex) {
@@ -1360,9 +1390,13 @@ impl BurpTools {
         &self,
         Parameters(input): Parameters<ScanIssueDetailInput>,
     ) -> String {
+        let index = match validated_index(input.index) {
+            Ok(index) => index,
+            Err(error) => return serde_json::json!({"error": error}).to_string(),
+        };
         match self
             .client
-            .scan_issue_detail(ScanIssueDetailRequest { index: input.index })
+            .scan_issue_detail(ScanIssueDetailRequest { index })
             .await
         {
             Ok(item) => serde_json::to_string(&ScanIssueOutput {
@@ -1454,6 +1488,7 @@ impl BurpTools {
                 response
                     .items
                     .into_iter()
+                    .filter(|issue| prefix.is_empty() || issue.url.starts_with(&prefix))
                     .map(|issue| IssueObservation {
                         name: issue.name,
                         severity: issue.severity,
@@ -1550,13 +1585,13 @@ impl BurpTools {
         &self,
         Parameters(input): Parameters<SiteGraphNeighborsInput>,
     ) -> String {
+        let limit = match validated_graph_limit(input.limit) {
+            Ok(limit) => limit,
+            Err(error) => return serde_json::json!({"error": error}).to_string(),
+        };
         match self
             .sitegraph
-            .neighbors(
-                &input.id,
-                input.cursor.unwrap_or(0) as u64,
-                input.limit.unwrap_or(100) as u64,
-            )
+            .neighbors(&input.id, input.cursor.unwrap_or(0) as u64, limit as u64)
             .await
         {
             Ok(page) => serde_json::to_string(&page).expect("neighbor page serializes"),
@@ -1569,15 +1604,15 @@ impl BurpTools {
         description = "Trace bounded graph relationships using recursive SQLite traversal"
     )]
     async fn sitegraph_trace(&self, Parameters(input): Parameters<SiteGraphTraceInput>) -> String {
-        match self
-            .sitegraph
-            .trace(
-                &input.id,
-                input.max_depth.unwrap_or(4),
-                input.limit.unwrap_or(100),
-            )
-            .await
-        {
+        let limit = match validated_graph_limit(input.limit) {
+            Ok(limit) => limit,
+            Err(error) => return serde_json::json!({"error": error}).to_string(),
+        };
+        let max_depth = input.max_depth.unwrap_or(4);
+        if max_depth == 0 || max_depth > MAX_TRAVERSAL_DEPTH {
+            return serde_json::json!({"error": "max_depth must be between 1 and 8"}).to_string();
+        }
+        match self.sitegraph.trace(&input.id, max_depth, limit).await {
             Ok(page) => serde_json::to_string(&page).expect("trace page serializes"),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
@@ -1588,13 +1623,13 @@ impl BurpTools {
         description = "List a bounded deterministic page of graph nodes changed since a timestamp"
     )]
     async fn sitegraph_diff(&self, Parameters(input): Parameters<SiteGraphDiffInput>) -> String {
+        let limit = match validated_graph_limit(input.limit) {
+            Ok(limit) => limit,
+            Err(error) => return serde_json::json!({"error": error}).to_string(),
+        };
         match self
             .sitegraph
-            .diff(
-                input.since,
-                input.cursor.unwrap_or(0) as u64,
-                input.limit.unwrap_or(100) as u64,
-            )
+            .diff(input.since, input.cursor.unwrap_or(0) as u64, limit as u64)
             .await
         {
             Ok(diff) => serde_json::to_string(&diff).expect("graph diff serializes"),
@@ -1611,7 +1646,10 @@ impl BurpTools {
         Parameters(input): Parameters<SiteGraphExportInput>,
     ) -> String {
         let cursor = input.cursor.unwrap_or(0) as u64;
-        let limit = input.limit.unwrap_or(100) as u64;
+        let limit = match validated_graph_limit(input.limit) {
+            Ok(limit) => limit as u64,
+            Err(error) => return serde_json::json!({"error": error}).to_string(),
+        };
         match input.format.as_deref().unwrap_or("json") {
             "json" => match self.sitegraph.export_json(cursor, limit).await {
                 Ok(export) => serde_json::to_string(&export).expect("JSON graph export serializes"),
@@ -1786,6 +1824,46 @@ impl BurpTools {
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
+}
+
+#[tool_handler(name = "burp-mcp", version = "3.0.0-alpha.1")]
+impl rmcp::ServerHandler for BurpTools {
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, rmcp::ErrorData> {
+        let tool_context = ToolCallContext::new(self, request, context);
+        let response = Self::tool_router().call(tool_context).await?;
+        Ok(mark_embedded_error(response))
+    }
+}
+
+fn mark_embedded_error(response: CallToolResponse) -> CallToolResponse {
+    let CallToolResponse::Complete(result) = response else {
+        return response;
+    };
+    if result.is_error == Some(true) {
+        return CallToolResponse::Complete(result);
+    }
+    let Some(error) = result.content.iter().find_map(|content| {
+        let ContentBlock::Text(text) = content else {
+            return None;
+        };
+        let value: serde_json::Value = serde_json::from_str(&text.text).ok()?;
+        value
+            .get("error")
+            .filter(|error| match error {
+                serde_json::Value::Null => false,
+                serde_json::Value::String(message) => !message.is_empty(),
+                _ => true,
+            })
+            .cloned()
+    }) else {
+        return CallToolResponse::Complete(result);
+    };
+    let value = serde_json::json!({"error": error});
+    CallToolResponse::Complete(CallToolResult::structured_error(value))
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2202,6 +2280,80 @@ mod contract_tests {
         assert!(
             true_paths.is_empty(),
             "true subschemas are unsupported by LM Studio: {true_paths:?}"
+        );
+    }
+
+    #[test]
+    fn embedded_error_json_becomes_mcp_error_result() {
+        let response =
+            rmcp::model::CallToolResponse::Complete(rmcp::model::CallToolResult::success(vec![
+                rmcp::model::ContentBlock::text(serde_json::json!({"error": "boom"}).to_string()),
+            ]));
+
+        let rmcp::model::CallToolResponse::Complete(result) = super::mark_embedded_error(response)
+        else {
+            panic!("expected complete result");
+        };
+
+        assert_eq!(Some(true), result.is_error);
+        assert_eq!(
+            Some(&serde_json::json!({"error": "boom"})),
+            result.structured_content.as_ref()
+        );
+    }
+
+    #[test]
+    fn nullable_error_field_remains_successful() {
+        let response =
+            rmcp::model::CallToolResponse::Complete(rmcp::model::CallToolResult::success(vec![
+                rmcp::model::ContentBlock::text(
+                    serde_json::json!({"error": null, "state": "queued"}).to_string(),
+                ),
+            ]));
+
+        let rmcp::model::CallToolResponse::Complete(result) = super::mark_embedded_error(response)
+        else {
+            panic!("expected complete result");
+        };
+        assert_eq!(Some(false), result.is_error);
+    }
+
+    #[test]
+    fn empty_error_field_remains_successful() {
+        let response =
+            rmcp::model::CallToolResponse::Complete(rmcp::model::CallToolResult::success(vec![
+                rmcp::model::ContentBlock::text(
+                    serde_json::json!({"error": "", "state": "running"}).to_string(),
+                ),
+            ]));
+
+        let rmcp::model::CallToolResponse::Complete(result) = super::mark_embedded_error(response)
+        else {
+            panic!("expected complete result");
+        };
+        assert_eq!(Some(false), result.is_error);
+    }
+
+    #[test]
+    fn kotlin_indices_reject_unsigned_overflow() {
+        assert_eq!(Ok(i32::MAX as u32), super::validated_index(i32::MAX as u32));
+        assert_eq!(
+            Err("index must be at most 2147483647"),
+            super::validated_index(u32::MAX)
+        );
+    }
+
+    #[test]
+    fn graph_limits_are_validated_before_storage_clamping() {
+        assert_eq!(Ok(100), super::validated_graph_limit(None));
+        assert_eq!(Ok(500), super::validated_graph_limit(Some(500)));
+        assert_eq!(
+            Err("limit must be between 1 and 500"),
+            super::validated_graph_limit(Some(0))
+        );
+        assert_eq!(
+            Err("limit must be between 1 and 500"),
+            super::validated_graph_limit(Some(501))
         );
     }
 

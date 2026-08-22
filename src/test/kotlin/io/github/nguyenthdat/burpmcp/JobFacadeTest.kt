@@ -40,6 +40,65 @@ class JobFacadeTest {
         }
     }
 
+    @Test
+    fun `scanner jobs fail instead of completing with zero requests`() {
+        JobFacade().use { jobs ->
+            val started = jobs.start("crawl") {
+                awaitTaskCompletion(
+                    operation = "crawl",
+                    snapshot = { TaskJobOutput(0, 0) },
+                    status = { "" },
+                    timeoutMillis = 10,
+                    stableMillis = 0,
+                    pollMillis = 1,
+                )
+            }
+
+            val finished = awaitTerminal(jobs, started.id)
+
+            assertEquals(JobState.FAILED, finished.state)
+            assertEquals("crawl issued no requests before timeout", finished.error)
+        }
+    }
+
+    @Test
+    fun `scanner jobs preserve unsupported errors`() {
+        JobFacade().use { jobs ->
+            val started = jobs.start("scanner_audit") {
+                awaitAuditCompletion(
+                    snapshot = { AuditJobOutput(0, 0, 0) },
+                    status = { "Currently unsupported." },
+                    timeoutMillis = 100,
+                    stableMillis = 0,
+                    pollMillis = 1,
+                )
+            }
+
+            val finished = awaitTerminal(jobs, started.id)
+
+            assertEquals(JobState.FAILED, finished.state)
+            assertEquals("Currently unsupported.", finished.error)
+        }
+    }
+
+    @Test
+    fun `scanner jobs return settled nonzero results`() {
+        val startedAt = System.nanoTime()
+        val result =
+            awaitTaskCompletion(
+                operation = "crawl",
+                snapshot = {
+                    if (System.nanoTime() - startedAt > TimeUnit.MILLISECONDS.toNanos(5)) TaskJobOutput(3, 0) else TaskJobOutput(0, 0)
+                },
+                status = { "running" },
+                timeoutMillis = 100,
+                stableMillis = 5,
+                pollMillis = 1,
+            )
+
+        assertEquals(TaskJobOutput(3, 0), result)
+    }
+
     private fun awaitTerminal(jobs: JobFacade, id: String): JobSnapshot {
         repeat(100) {
             val snapshot = assertNotNull(jobs.status(id))

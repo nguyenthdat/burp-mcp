@@ -7,6 +7,9 @@ import burp.api.montoya.http.message.requests.HttpRequest
 internal class LongOperationFacade(
     private val api: MontoyaApi,
     private val jobs: JobFacade,
+    private val taskTimeoutMillis: Long = 30_000,
+    private val taskStableMillis: Long = 2_000,
+    private val taskPollMillis: Long = 100,
 ) {
     fun startRace(request: String, host: String, port: Int, https: Boolean, count: Int): JobSnapshot {
         require(count in 1..100) { "count must be between 1 and 100" }
@@ -51,7 +54,14 @@ internal class LongOperationFacade(
                 api.scanner().startCrawl(
                     burp.api.montoya.scanner.CrawlConfiguration.crawlConfiguration(url),
                 )
-            TaskJobOutput(crawl.requestCount(), crawl.errorCount())
+            awaitTaskCompletion(
+                operation = "crawl",
+                snapshot = { TaskJobOutput(crawl.requestCount(), crawl.errorCount()) },
+                status = { null },
+                timeoutMillis = taskTimeoutMillis,
+                stableMillis = taskStableMillis,
+                pollMillis = taskPollMillis,
+            )
         }
     }
     fun startAudit(url: String, active: Boolean): JobSnapshot {
@@ -69,7 +79,64 @@ internal class LongOperationFacade(
                     burp.api.montoya.scanner.AuditConfiguration.auditConfiguration(mode),
                 )
             audit.addRequest(HttpRequest.httpRequestFromUrl(url))
-            AuditJobOutput(audit.requestCount(), audit.errorCount(), audit.issues().size)
+            awaitAuditCompletion(
+                snapshot = { AuditJobOutput(audit.requestCount(), audit.errorCount(), audit.issues().size) },
+                status = { runCatching { audit.statusMessage() }.getOrNull() },
+                timeoutMillis = taskTimeoutMillis,
+                stableMillis = taskStableMillis,
+                pollMillis = taskPollMillis,
+            )
         }
+    }
+}
+
+internal fun awaitTaskCompletion(
+    operation: String,
+    snapshot: () -> TaskJobOutput,
+    status: () -> String?,
+    timeoutMillis: Long,
+    stableMillis: Long,
+    pollMillis: Long,
+): TaskJobOutput =
+    awaitScannerProgress(operation, snapshot, TaskJobOutput::requestCount, status, timeoutMillis, stableMillis, pollMillis)
+
+internal fun awaitAuditCompletion(
+    snapshot: () -> AuditJobOutput,
+    status: () -> String?,
+    timeoutMillis: Long,
+    stableMillis: Long,
+    pollMillis: Long,
+): AuditJobOutput =
+    awaitScannerProgress("scanner audit", snapshot, AuditJobOutput::requestCount, status, timeoutMillis, stableMillis, pollMillis)
+
+private fun <T> awaitScannerProgress(
+    operation: String,
+    snapshot: () -> T,
+    requestCount: (T) -> Int,
+    status: () -> String?,
+    timeoutMillis: Long,
+    stableMillis: Long,
+    pollMillis: Long,
+): T {
+    require(timeoutMillis > 0 && stableMillis >= 0 && pollMillis > 0)
+    val started = System.nanoTime()
+    val timeoutNanos = java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+    val stableNanos = java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(stableMillis)
+    var last = snapshot()
+    var changedAt = started
+    while (true) {
+        val message = status()?.trim().orEmpty()
+        if (message.contains("unsupported", ignoreCase = true)) error(message)
+        val now = System.nanoTime()
+        val current = snapshot()
+        if (current != last) {
+            last = current
+            changedAt = now
+        }
+        if (requestCount(current) > 0 && now - changedAt >= stableNanos) return current
+        if (now - started >= timeoutNanos) {
+            error(if (requestCount(current) == 0) "$operation issued no requests before timeout" else "$operation did not settle before timeout")
+        }
+        Thread.sleep(pollMillis)
     }
 }

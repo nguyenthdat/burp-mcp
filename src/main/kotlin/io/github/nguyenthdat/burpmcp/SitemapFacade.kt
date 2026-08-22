@@ -33,21 +33,26 @@ internal class SitemapFacade(
     fun snapshot(query: SitemapQuery): SitemapPage {
         require(query.limit >= 0) { "limit must be non-negative" }
         require(query.offset >= 0) { "offset must be non-negative" }
-        val entries = api.siteMap().requestResponses(SiteMapFilter.prefixFilter(query.urlPrefix))
+        val entries = if (query.urlPrefix.isEmpty()) {
+            api.siteMap().requestResponses()
+        } else {
+            api.siteMap().requestResponses(SiteMapFilter.prefixFilter(query.urlPrefix))
+        }
         val total = entries.size
         val items =
             entries
                 .drop(query.offset)
                 .take(query.limit)
                 .map { entry ->
-                    val response = entry.response()
+                    val request = runCatching { entry.request() }.getOrNull()
+                    val response = runCatching { entry.response() }.getOrNull()
                     SitemapItem(
-                        url = entry.request().url(),
-                        method = entry.request().method(),
-                        status = response?.statusCode()?.toInt() ?: 0,
-                        contentType = response?.headerValue("Content-Type").orEmpty().take(256),
-                        responseBody = response?.body()?.let { it.subArray(0, minOf(it.length(), MAX_GRAPH_BODY_BYTES)).bytes } ?: byteArrayOf(),
-                        redirectUrl = response?.headerValue("Location").orEmpty().take(MAX_GRAPH_URL_BYTES),
+                        url = runCatching { request?.url() }.getOrNull().orEmpty(),
+                        method = runCatching { request?.method() }.getOrNull().orEmpty(),
+                        status = runCatching { response?.statusCode()?.toInt() }.getOrNull() ?: 0,
+                        contentType = runCatching { response?.headerValue("Content-Type") }.getOrNull().orEmpty().take(256),
+                        responseBody = boundedBody(response),
+                        redirectUrl = runCatching { response?.headerValue("Location") }.getOrNull().orEmpty().take(MAX_GRAPH_URL_BYTES),
                         responseLinks = emptyList(),
                         formActions = emptyList(),
                         scriptSources = emptyList(),
@@ -55,6 +60,13 @@ internal class SitemapFacade(
                 }
         return SitemapPage(items, total, query.offset.coerceAtMost(total))
     }
+
+    private fun boundedBody(response: burp.api.montoya.http.message.responses.HttpResponse?): ByteArray =
+        runCatching {
+            response?.body()?.let { body ->
+                body.subArray(0, minOf(body.length(), MAX_GRAPH_BODY_BYTES)).bytes
+            } ?: byteArrayOf()
+        }.getOrElse { byteArrayOf() }
 
     private companion object {
         const val MAX_GRAPH_BODY_BYTES = 1024 * 1024

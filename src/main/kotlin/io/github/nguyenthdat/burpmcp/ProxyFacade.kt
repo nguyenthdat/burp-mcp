@@ -125,16 +125,24 @@ internal class ProxyFacade(
         val items = history.subList(start, end).mapIndexed { position, message ->
             ProxyWebSocketItem(
                 index = start + position,
-                id = message.id(),
-                webSocketId = message.webSocketId(),
-                direction = message.direction().name,
-                payload = message.payload().getBytes(),
-                editedPayload = message.editedPayload().getBytes(),
-                time = message.time().toString(),
-                listenerPort = message.listenerPort(),
-                upgradeUrl = message.upgradeRequest().url(),
+                id = runCatching { message.id() }.getOrDefault(start + position),
+                webSocketId = runCatching { message.webSocketId() }.getOrDefault(0),
+                direction = runCatching { message.direction().name }.getOrDefault(""),
+                payload = boundedPayload { message.payload()?.bytes },
+                editedPayload = boundedPayload { message.editedPayload()?.bytes },
+                time = runCatching { message.time().toString() }.getOrDefault(""),
+                listenerPort = runCatching { message.listenerPort() }.getOrDefault(0),
+                upgradeUrl = runCatching { message.upgradeRequest()?.url() }.getOrNull().orEmpty(),
             )
         }
         return ProxyWebSocketPage(items, history.size, start)
+    }
+
+    private fun boundedPayload(payload: () -> ByteArray?): ByteArray =
+        runCatching { payload()?.let { if (it.size <= MAX_WEBSOCKET_PAYLOAD_BYTES) it else it.copyOf(MAX_WEBSOCKET_PAYLOAD_BYTES) } ?: byteArrayOf() }
+            .getOrElse { byteArrayOf() }
+
+    private companion object {
+        const val MAX_WEBSOCKET_PAYLOAD_BYTES = 1024 * 1024
     }
 }

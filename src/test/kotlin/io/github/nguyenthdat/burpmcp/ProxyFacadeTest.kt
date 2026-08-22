@@ -67,13 +67,42 @@ class ProxyFacadeTest {
         )
     }
 
+    @Test
+    fun `websocket history isolates unavailable optional fields`() {
+        val payload = fake<burp.api.montoya.core.ByteArray>(mapOf("getBytes" to { "hello".toByteArray() }))
+        val message =
+            fake<burp.api.montoya.proxy.ProxyWebSocketMessage>(
+                mapOf(
+                    "id" to { 7 },
+                    "webSocketId" to { 3 },
+                    "direction" to { burp.api.montoya.websocket.Direction.CLIENT_TO_SERVER },
+                    "payload" to { payload },
+                    "editedPayload" to { null },
+                    "time" to { throw IllegalStateException("stale time") },
+                    "listenerPort" to { throw IllegalStateException("listener removed") },
+                    "upgradeRequest" to { throw IllegalStateException("upgrade request unavailable") },
+                ),
+            )
+        val proxy = fake<Proxy>(mapOf("webSocketHistory" to { listOf(message) }))
+        val facade = ProxyFacade(fake(mapOf("proxy" to { proxy })))
+
+        val item = facade.webSocketHistory(5, 0).items.single()
+
+        assertEquals(7, item.id)
+        assertEquals("hello", item.payload.decodeToString())
+        assertEquals(0, item.editedPayload.size)
+        assertEquals("", item.time)
+        assertEquals(0, item.listenerPort)
+        assertEquals("", item.upgradeUrl)
+    }
+
     @Suppress("UNCHECKED_CAST")
     private inline fun <reified T> fake(methods: Map<String, () -> Any?>): T =
-        ReflectionProxy.newProxyInstance(T::class.java.classLoader, arrayOf(T::class.java)) { proxy, method, _ ->
+        ReflectionProxy.newProxyInstance(T::class.java.classLoader, arrayOf(T::class.java)) { proxy, method, args ->
             when (method.name) {
                 "toString" -> methods[method.name]?.invoke() ?: "Fake${T::class.simpleName}"
                 "hashCode" -> System.identityHashCode(proxy)
-                "equals" -> proxy === null
+                "equals" -> proxy === args?.firstOrNull()
                 else -> methods[method.name]?.invoke() ?: defaultValue(method.returnType)
             }
         } as T

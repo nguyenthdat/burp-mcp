@@ -252,7 +252,22 @@ impl SqliteGraph {
                 upserted_edges += 1;
             }
         }
+        let synced_origins = batch
+            .sitemap
+            .iter()
+            .filter_map(|observation| {
+                url::normalize(&observation.url)
+                    .ok()
+                    .map(|normalized| normalized.origin)
+            })
+            .collect::<std::collections::HashSet<_>>();
         for issue in &batch.issues {
+            let issue_origin = url::normalize(&issue.url)
+                .map_err(StorageError::InvalidInput)?
+                .origin;
+            if !synced_origins.is_empty() && !synced_origins.contains(&issue_origin) {
+                continue;
+            }
             let normalized = url::normalize(&issue.url).map_err(StorageError::InvalidInput)?;
             let endpoint_hash =
                 fingerprint::stable_id("endpoint", &[&normalized.origin, "GET", &normalized.path]);
@@ -460,14 +475,23 @@ impl SqliteGraph {
         limit: u64,
     ) -> Result<EndpointPage, StorageError> {
         let limit = limit.clamp(1, 500);
-        let pattern = format!("{}*", query.replace('"', ""));
-        let total =
-            sqlx::query("SELECT count(*) AS count FROM node_search WHERE node_search MATCH ?1")
-                .bind(&pattern)
-                .fetch_one(&self.pool)
-                .await?
-                .get::<i64, _>("count") as u64;
-        let rows = sqlx::query("SELECT n.id, n.metadata, n.updated_at FROM node_search JOIN nodes n ON n.id=node_search.node_id WHERE node_search MATCH ?1 ORDER BY n.id LIMIT ?2 OFFSET ?3")
+        let pattern = literal_prefix_pattern(query);
+        if pattern.is_empty() {
+            return Ok(EndpointPage {
+                items: Vec::new(),
+                total: 0,
+                truncated: false,
+                next_cursor: None,
+                last_synced_at: self.status().await?.last_synced_at,
+                evidence: json!({}),
+            });
+        }
+        let total = sqlx::query("SELECT count(*) AS count FROM node_search JOIN nodes n ON n.id=node_search.node_id WHERE node_search MATCH ?1 AND n.kind='endpoint'")
+            .bind(&pattern)
+            .fetch_one(&self.pool)
+            .await?
+            .get::<i64, _>("count") as u64;
+        let rows = sqlx::query("SELECT n.id, n.metadata, n.updated_at FROM node_search JOIN nodes n ON n.id=node_search.node_id WHERE node_search MATCH ?1 AND n.kind='endpoint' ORDER BY n.id LIMIT ?2 OFFSET ?3")
             .bind(&pattern).bind(limit as i64).bind(cursor as i64).fetch_all(&self.pool).await?;
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
@@ -662,6 +686,15 @@ impl SqliteGraph {
     }
 }
 
+fn literal_prefix_pattern(query: &str) -> String {
+    query
+        .split_whitespace()
+        .filter(|token| !token.is_empty())
+        .map(|token| format!("\"{}\"*", token.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" AND ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -763,6 +796,73 @@ mod tests {
                 .iter()
                 .all(|left| second.items.iter().all(|right| left.id != right.id))
         );
+    }
+
+    #[tokio::test]
+    async fn fts_literal_queries_are_safe_and_endpoint_only() {
+        let graph = graph().await;
+        graph
+            .sync(&SyncBatch {
+                sitemap: vec![observation("products/search", b"{}")],
+                ..SyncBatch::default()
+            })
+            .await
+            .unwrap();
+
+        for query in [
+            "products/search",
+            "products-search",
+            "https://example.test:443",
+            "products\"search",
+            "products*",
+            "検索",
+        ] {
+            let page = graph.search(query, 0, 20).await.unwrap();
+            assert!(page.items.iter().all(|item| !item.origin.is_empty()));
+            assert!(page.items.iter().all(|item| !item.method.is_empty()));
+        }
+
+        assert!(graph.search("   ", 0, 20).await.unwrap().items.is_empty());
+        let matching = graph.search("products/search", 0, 20).await.unwrap();
+        assert_eq!(1, matching.items.len());
+        assert_eq!("/products/search", matching.items[0].path);
+    }
+
+    #[tokio::test]
+    async fn prefix_scoped_sync_excludes_unrelated_issues() {
+        let graph = graph().await;
+        graph
+            .sync(&SyncBatch {
+                sitemap: vec![observation("products/search", b"{}")],
+                issues: vec![
+                    crate::model::IssueObservation {
+                        name: "local".to_owned(),
+                        severity: "low".to_owned(),
+                        confidence: "firm".to_owned(),
+                        url: "https://example.test/products/search".to_owned(),
+                    },
+                    crate::model::IssueObservation {
+                        name: "external".to_owned(),
+                        severity: "low".to_owned(),
+                        confidence: "firm".to_owned(),
+                        url: "https://external.test/".to_owned(),
+                    },
+                ],
+                ..SyncBatch::default()
+            })
+            .await
+            .unwrap();
+
+        let issue_names = sqlx::query(
+            "SELECT metadata ->> '$.name' AS name FROM nodes WHERE kind='issue' ORDER BY name",
+        )
+        .fetch_all(graph.pool())
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| row.get::<String, _>("name"))
+        .collect::<Vec<_>>();
+        assert_eq!(vec!["local"], issue_names);
     }
 
     #[tokio::test]
