@@ -18,6 +18,18 @@ class JobFacadeTest {
             assertEquals(TaskJobOutput(3, 1), finished.result)
         }
     }
+    @Test
+    fun `starting a new job retains completed results`() {
+        JobFacade().use { jobs ->
+            val first = jobs.start("first") { TaskJobOutput(1, 0) }
+            val completed = awaitTerminal(jobs, first.id)
+
+            jobs.start("second") { TaskJobOutput(1, 0) }
+
+            assertEquals(completed, jobs.result(first.id))
+        }
+    }
+
 
     @Test
     fun `cancels a running job and ignores late completion`() {
@@ -126,6 +138,24 @@ class JobFacadeTest {
             )
 
         assertEquals(2, output.requestCount)
+    }
+
+    @Test
+    fun `scanner audits use observed traffic when Montoya accessors fail`() {
+        val startedAt = System.nanoTime()
+        val result =
+            awaitAuditCompletion(
+                snapshot = { AuditJobOutput(0, 0, 0) },
+                observedRequestCount = {
+                    if (System.nanoTime() - startedAt > TimeUnit.MILLISECONDS.toNanos(5)) 2 else 0
+                },
+                status = { null },
+                timeoutMillis = 100,
+                stableMillis = 5,
+                pollMillis = 1,
+            )
+
+        assertEquals(AuditJobOutput(2, 0, 0), result)
     }
 
 

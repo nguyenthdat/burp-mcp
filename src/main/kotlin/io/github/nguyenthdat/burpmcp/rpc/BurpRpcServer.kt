@@ -49,6 +49,9 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptStateResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketEntry
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketHistoryRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketHistoryResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ManagedWebSocketHistoryRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ManagedWebSocketHistoryResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ManagedWebSocketMessageEntry
 import io.github.nguyenthdat.burpmcp.grpc.v1.ScanIssueDetailRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.SetCookieRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.SendToIntruderRequest
@@ -310,8 +313,8 @@ internal class BurpRpcService(
     private val configFacade: ConfigFacade = ConfigFacade(api),
     private val httpHandlerFacade: HttpHandlerFacade = HttpHandlerFacade(api),
     private val proxyRuleFacade: ProxyRuleFacade = ProxyRuleFacade(api),
-    private val sessionRuleFacade: SessionRuleFacade = SessionRuleFacade(api),
     private val macroFacade: io.github.nguyenthdat.burpmcp.MacroFacade = io.github.nguyenthdat.burpmcp.MacroFacade(api),
+    private val sessionRuleFacade: SessionRuleFacade = SessionRuleFacade(api) { description -> macroFacade.run(description) },
     private val jobFacade: JobFacade = JobFacade(),
     private val longOperationFacade: LongOperationFacade = LongOperationFacade(api, jobFacade),
     private val capabilityFacade: BurpCapabilityFacade = BurpCapabilityFacade(api),
@@ -871,7 +874,20 @@ internal class BurpRpcService(
         request: CreateSessionRuleRequest,
         responseObserver: StreamObserver<ActionResponse>,
     ) {
-        sessionRuleFacade.create(SessionRule(request.find, request.replacement))
+        sessionRuleFacade.create(
+            SessionRule(
+                description = request.description.ifBlank { "Burp MCP session rule" },
+                actionType = request.actionType.ifBlank { "replace_text" },
+                find = request.find,
+                replacement = request.replacement,
+                headerName = request.headerName,
+                parameterName = request.parameterName,
+                macroDescription = request.macroDescription,
+                urlContains = request.urlContains,
+                tools = request.toolsList.map(String::lowercase).toSet(),
+                enabled = request.enabled,
+            ),
+        )
         responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("session rule created").build())
         responseObserver.onCompleted()
     }
@@ -885,7 +901,18 @@ internal class BurpRpcService(
                 .newBuilder()
                 .addAllItems(
                     sessionRuleFacade.list().map { rule ->
-                        SessionRuleEntry.newBuilder().setFind(rule.find).setReplacement(rule.replacement).build()
+                        SessionRuleEntry.newBuilder()
+                            .setFind(rule.find)
+                            .setReplacement(rule.replacement)
+                            .setDescription(rule.description)
+                            .setActionType(rule.actionType)
+                            .setHeaderName(rule.headerName)
+                            .setParameterName(rule.parameterName)
+                            .setMacroDescription(rule.macroDescription)
+                            .setUrlContains(rule.urlContains)
+                            .addAllTools(rule.tools)
+                            .setEnabled(rule.enabled)
+                            .build()
                     },
                 ).build()
         responseObserver.onNext(response)
@@ -1103,6 +1130,37 @@ internal class BurpRpcService(
     ) {
         webSocketFacade.sendText(request.id, request.text)
         responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("message sent").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun managedWebSocketHistory(
+        request: ManagedWebSocketHistoryRequest,
+        responseObserver: StreamObserver<ManagedWebSocketHistoryResponse>,
+    ) {
+        val limit = request.page.limit.toInt().takeIf { it > 0 }?.coerceAtMost(GRPC_MAX_PAGE_SIZE) ?: GRPC_DEFAULT_PAGE_SIZE
+        val offset = request.page.cursor.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val page = webSocketFacade.history(request.id.takeIf(String::isNotEmpty), offset, limit)
+        val end = page.offset + page.items.size
+        responseObserver.onNext(
+            ManagedWebSocketHistoryResponse.newBuilder()
+                .addAllItems(
+                    page.items.map { item ->
+                        ManagedWebSocketMessageEntry.newBuilder()
+                            .setIndex(item.index)
+                            .setWebsocketId(item.webSocketId)
+                            .setDirection(item.direction)
+                            .setType(item.type)
+                            .setPayload(com.google.protobuf.ByteString.copyFrom(item.payload))
+                            .build()
+                    },
+                ).setPage(
+                    PageInfo.newBuilder()
+                        .setTotal(page.total)
+                        .setTruncated(end < page.total)
+                        .setNextCursor(if (end < page.total) end.toString() else "")
+                        .build(),
+                ).build(),
+        )
         responseObserver.onCompleted()
     }
 

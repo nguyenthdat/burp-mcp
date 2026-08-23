@@ -5,10 +5,11 @@ use burp_protocol::proto::{
     CreateWebSocketRequest, ExportConfigRequest, ExtensionInfoRequest,
     GenerateCollaboratorPayloadsRequest, GetJobResultRequest, GetJobStatusRequest, HttpHeaderEntry,
     ImportBCheckRequest, ImportBambdaRequest, ImportConfigRequest, InterceptStateRequest,
-    ListMacrosRequest, ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition,
+    ListMacrosRequest, ListSessionRulesRequest, ListWebSocketsRequest, ManagedWebSocketHistoryRequest,
+    MacroDefinition,
     MacroItem, MacroParameter, MutateScopeRequest, PageRequest, PollCollaboratorInteractionsRequest,
-    ProxyDetailRequest, ProxyHistoryRequest, ProxyWebSocketHistoryRequest,
-    RegisterHttpHandlerRequest, RegisterProxyRuleRequest, RemoveMacroRequest,
+    ProxyDetailRequest, ProxyHistoryRequest, ProxyWebSocketHistoryRequest, RegisterHttpHandlerRequest,
+    RegisterProxyRuleRequest, RemoveMacroRequest,
     RemoveSessionRulesRequest, RunMacroRequest, ScanIssueDetailRequest, ScanIssuesRequest,
     ScopeCheckRequest, SendRequestRequest, SendRequestsRequest, SendToIntruderRequest,
     SendToRepeaterRequest, SendWebSocketBinaryRequest, SendWebSocketTextRequest,
@@ -314,8 +315,16 @@ pub struct RegisterProxyRuleInput {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CreateSessionRuleInput {
-    pub find: String,
-    pub replace: String,
+    pub description: Option<String>,
+    pub action_type: Option<String>,
+    pub find: Option<String>,
+    pub replace: Option<String>,
+    pub header_name: Option<String>,
+    pub parameter_name: Option<String>,
+    pub macro_description: Option<String>,
+    pub url_contains: Option<String>,
+    pub tools: Option<Vec<String>>,
+    pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -425,6 +434,13 @@ pub struct WebSocketBinaryInput {
 pub struct WebSocketIdInput {
     pub id: String,
 }
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ManagedWebSocketHistoryInput {
+    pub id: Option<String>,
+    pub limit: Option<u32>,
+    pub cursor: Option<String>,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct BambdaImportInput {
     pub script: String,
@@ -969,7 +985,6 @@ impl BurpTools {
                 .await,
         )
     }
-
     #[tool(
         name = "burp_remove_proxy_rule",
         description = "Remove/clear proxy intercept rules"
@@ -982,9 +997,10 @@ impl BurpTools {
         )
     }
 
+
     #[tool(
         name = "burp_session_create_rule",
-        description = "Create session handling rule"
+        description = "Register a scoped MCP session action: replace_text, set_header, set_parameter, or run_macro"
     )]
     async fn session_create_rule(
         &self,
@@ -993,22 +1009,43 @@ impl BurpTools {
         action_json(
             self.client
                 .create_session_rule(CreateSessionRuleRequest {
-                    find: input.find,
-                    replacement: input.replace,
+                    find: input.find.unwrap_or_default(),
+                    replacement: input.replace.unwrap_or_default(),
+                    description: input
+                        .description
+                        .unwrap_or_else(|| "Burp MCP session rule".to_owned()),
+                    action_type: input.action_type.unwrap_or_else(|| "replace_text".to_owned()),
+                    header_name: input.header_name.unwrap_or_default(),
+                    parameter_name: input.parameter_name.unwrap_or_default(),
+                    macro_description: input.macro_description.unwrap_or_default(),
+                    url_contains: input.url_contains.unwrap_or_default(),
+                    tools: input.tools.unwrap_or_default(),
+                    enabled: input.enabled.unwrap_or(true),
                 })
                 .await,
         )
     }
 
-    #[tool(name = "burp_session_list_rules", description = "List session rules")]
+    #[tool(name = "burp_session_list_rules", description = "List registered MCP session actions and scope")]
     async fn session_list_rules(&self) -> String {
         match self.client.list_session_rules(ListSessionRulesRequest {}).await {
-            Ok(response) => serde_json::json!({"rules": response.items.into_iter().map(|rule| serde_json::json!({"find": rule.find, "replace": rule.replacement})).collect::<Vec<_>>()}).to_string(),
+            Ok(response) => serde_json::json!({"rules": response.items.into_iter().map(|rule| serde_json::json!({
+                "description": rule.description,
+                "action_type": rule.action_type,
+                "find": rule.find,
+                "replace": rule.replacement,
+                "header_name": rule.header_name,
+                "parameter_name": rule.parameter_name,
+                "macro_description": rule.macro_description,
+                "url_contains": rule.url_contains,
+                "tools": rule.tools,
+                "enabled": rule.enabled,
+            })).collect::<Vec<_>>()}).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
 
-    #[tool(name = "burp_session_remove_rule", description = "Remove session rule")]
+    #[tool(name = "burp_session_remove_rule", description = "Remove the registered MCP session action")]
     async fn session_remove_rule(&self) -> String {
         action_json(
             self.client
@@ -1122,11 +1159,26 @@ impl BurpTools {
             "active" => true,
             _ => return serde_json::json!({"error": "mode must be passive or active"}).to_string(),
         };
-        job_status_json(
-            self.client
-                .start_audit(StartAuditRequest { url: input.url, active })
-                .await,
-        )
+        let started = self
+            .client
+            .start_audit(StartAuditRequest { url: input.url, active })
+            .await;
+        match started {
+            Ok(status) if !status.error.is_empty() => serde_json::json!({
+                "error": status.error,
+                "operation": status.operation,
+                "state": status.state,
+            })
+            .to_string(),
+            Ok(status) => serde_json::json!({
+                "job_id": status.id,
+                "operation": status.operation,
+                "state": status.state,
+                "error": null,
+            })
+            .to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
     }
 
     #[tool(name = "burp_crawl", description = "Start a bounded Burp crawl job")]
@@ -1201,6 +1253,42 @@ impl BurpTools {
                 })
                 .await,
         )
+    }
+
+    #[tool(
+        name = "burp_websocket_history",
+        description = "Read messages sent to or received from managed WebSocket connections"
+    )]
+    async fn websocket_history(&self, Parameters(input): Parameters<ManagedWebSocketHistoryInput>) -> String {
+        let limit = input.limit.unwrap_or(100);
+        if limit > MAX_PAGE_SIZE {
+            return serde_json::json!({"error": "limit must be at most 500"}).to_string();
+        }
+        match self
+            .client
+            .managed_websocket_history(ManagedWebSocketHistoryRequest {
+                id: input.id.unwrap_or_default(),
+                page: Some(PageRequest { limit, cursor: input.cursor.unwrap_or_default() }),
+            })
+            .await
+        {
+            Ok(response) => {
+                let page = response.page.unwrap_or_default();
+                serde_json::json!({
+                    "items": response.items.into_iter().map(|item| serde_json::json!({
+                        "index": item.index,
+                        "websocket_id": item.websocket_id,
+                        "direction": item.direction,
+                        "type": item.r#type,
+                        "payload": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, item.payload),
+                    })).collect::<Vec<_>>(),
+                    "total": page.total,
+                    "truncated": page.truncated,
+                    "next_cursor": (!page.next_cursor.is_empty()).then_some(page.next_cursor),
+                }).to_string()
+            }
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
     }
 
     #[tool(
@@ -2289,6 +2377,7 @@ mod contract_tests {
                         | "burp_macro_remove"
                         | "burp_macro_run"
                         | "burp_scan_issues"
+                        | "burp_websocket_history"
                         | "decoder"
                 )
                 || name.starts_with("sitegraph_")

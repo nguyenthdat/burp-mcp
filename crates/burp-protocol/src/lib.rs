@@ -228,6 +228,10 @@ enum Command {
         request: proto::ListWebSocketsRequest,
         response: oneshot::Sender<Result<proto::ListWebSocketsResponse, ClientError>>,
     },
+    ManagedWebSocketHistory {
+        request: proto::ManagedWebSocketHistoryRequest,
+        response: oneshot::Sender<Result<proto::ManagedWebSocketHistoryResponse, ClientError>>,
+    },
     ImportBambda {
         request: proto::ImportBambdaRequest,
         response: oneshot::Sender<Result<proto::ScriptImportResponse, ClientError>>,
@@ -624,6 +628,13 @@ impl BurpClient {
             .await
     }
 
+    pub async fn managed_websocket_history(
+        &self,
+        request: proto::ManagedWebSocketHistoryRequest,
+    ) -> Result<proto::ManagedWebSocketHistoryResponse, ClientError> {
+        self.send(|response| Command::ManagedWebSocketHistory { request, response })
+            .await
+    }
     pub async fn import_bambda(
         &self,
         request: proto::ImportBambdaRequest,
@@ -1221,6 +1232,16 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::ManagedWebSocketHistory { request, response } => {
+            let result = client
+                .managed_web_socket_history(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
         Command::ImportBambda { request, response } => {
             let result = client
                 .import_bambda(with_deadline(request, config.call_timeout))
@@ -1426,6 +1447,9 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::ListWebSockets { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ManagedWebSocketHistory { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::CancelJob { response, .. } => {

@@ -71,7 +71,6 @@ internal class JobFacade : AutoCloseable {
     @Synchronized
     fun start(operation: String, task: () -> JobOutput): JobSnapshot {
         require(operation.isNotBlank()) { "job operation must not be blank" }
-        evictTerminalJobs()
         require(records.size < MAX_RETAINED_JOBS) { "too many retained jobs" }
         val record = Record("job-${ids.incrementAndGet()}", operation)
         records[record.id] = record
@@ -81,7 +80,8 @@ internal class JobFacade : AutoCloseable {
                 if (!record.state.compareAndSet(JobState.QUEUED, JobState.RUNNING)) return@submit
                 try {
                     val result = task()
-                    if (record.state.compareAndSet(JobState.RUNNING, JobState.COMPLETED)) record.result = result
+                    record.result = result
+                    record.state.compareAndSet(JobState.RUNNING, JobState.COMPLETED)
                 } catch (exception: InterruptedException) {
                     Thread.currentThread().interrupt()
                     record.error = "job interrupted"

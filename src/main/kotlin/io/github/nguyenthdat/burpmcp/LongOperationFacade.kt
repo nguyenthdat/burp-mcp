@@ -1,5 +1,6 @@
 package io.github.nguyenthdat.burpmcp
 
+import java.net.URI
 import burp.api.montoya.MontoyaApi
 import burp.api.montoya.http.HttpService
 import burp.api.montoya.http.message.requests.HttpRequest
@@ -9,7 +10,7 @@ import burp.api.montoya.http.handler.HttpRequestToBeSent
 import burp.api.montoya.http.handler.HttpResponseReceived
 import burp.api.montoya.http.handler.RequestToBeSentAction
 import burp.api.montoya.http.handler.ResponseReceivedAction
-import java.net.URI
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 internal class LongOperationFacade(
@@ -19,6 +20,8 @@ internal class LongOperationFacade(
     private val taskStableMillis: Long = 2_000,
     private val taskPollMillis: Long = 100,
 ) {
+    private val auditRunning = AtomicBoolean()
+
     fun startRace(request: String, host: String, port: Int, https: Boolean, count: Int): JobSnapshot {
         require(count in 1..100) { "count must be between 1 and 100" }
         return jobs.start("concurrent_request_check") {
@@ -101,25 +104,53 @@ internal class LongOperationFacade(
     fun startAudit(url: String, active: Boolean): JobSnapshot {
         require(url.isNotBlank()) { "url must not be blank" }
         return jobs.start("scanner_audit") {
-            api.scope().includeInScope(url)
-            val mode =
-                if (active) {
-                    burp.api.montoya.scanner.BuiltInAuditConfiguration.LEGACY_ACTIVE_AUDIT_CHECKS
-                } else {
-                    burp.api.montoya.scanner.BuiltInAuditConfiguration.LEGACY_PASSIVE_AUDIT_CHECKS
-                }
-            val audit =
-                api.scanner().startAudit(
-                    burp.api.montoya.scanner.AuditConfiguration.auditConfiguration(mode),
+            check(auditRunning.compareAndSet(false, true)) { "another scanner audit is already running" }
+            val observedRequestCount = AtomicInteger()
+            val origin = crawlOrigin(url)
+            val registration =
+                api.http().registerHttpHandler(
+                    object : HttpHandler {
+                        override fun handleHttpRequestToBeSent(requestToBeSent: HttpRequestToBeSent): RequestToBeSentAction {
+                            if (requestToBeSent.toolSource().isFromTool(ToolType.SCANNER) && requestToBeSent.url().startsWith(origin)) {
+                                observedRequestCount.incrementAndGet()
+                            }
+                            return RequestToBeSentAction.continueWith(requestToBeSent)
+                        }
+
+                        override fun handleHttpResponseReceived(responseReceived: HttpResponseReceived): ResponseReceivedAction =
+                            ResponseReceivedAction.continueWith(responseReceived)
+                    },
                 )
-            audit.addRequest(HttpRequest.httpRequestFromUrl(url))
-            awaitAuditCompletion(
-                snapshot = { AuditJobOutput(audit.requestCount(), audit.errorCount(), audit.issues().size) },
-                status = { runCatching { audit.statusMessage() }.getOrNull() },
-                timeoutMillis = taskTimeoutMillis,
-                stableMillis = taskStableMillis,
-                pollMillis = taskPollMillis,
-            )
+            try {
+                val mode =
+                    if (active) {
+                        burp.api.montoya.scanner.BuiltInAuditConfiguration.LEGACY_ACTIVE_AUDIT_CHECKS
+                    } else {
+                        burp.api.montoya.scanner.BuiltInAuditConfiguration.LEGACY_PASSIVE_AUDIT_CHECKS
+                    }
+                val audit =
+                    api.scanner().startAudit(
+                        burp.api.montoya.scanner.AuditConfiguration.auditConfiguration(mode),
+                    )
+                audit.addRequest(HttpRequest.httpRequestFromUrl(url))
+                awaitAuditCompletion(
+                    snapshot = {
+                        AuditJobOutput(
+                            requestCount = runCatching { audit.requestCount() }.getOrDefault(observedRequestCount.get()),
+                            errorCount = runCatching { audit.errorCount() }.getOrDefault(0),
+                            issueCount = runCatching { audit.issues().size }.getOrDefault(0),
+                        )
+                    },
+                    observedRequestCount = observedRequestCount::get,
+                    status = { runCatching { audit.statusMessage() }.getOrNull() },
+                    timeoutMillis = taskTimeoutMillis,
+                    stableMillis = taskStableMillis,
+                    pollMillis = taskPollMillis,
+                )
+            } finally {
+                registration.deregister()
+                auditRunning.set(false)
+            }
         }
     }
 }
@@ -146,6 +177,7 @@ internal fun awaitTaskCompletion(
 
 internal fun awaitAuditCompletion(
     snapshot: () -> AuditJobOutput,
+    observedRequestCount: () -> Int = { 0 },
     status: () -> String?,
     timeoutMillis: Long,
     stableMillis: Long,
@@ -154,8 +186,8 @@ internal fun awaitAuditCompletion(
     awaitScannerProgress(
         "scanner audit",
         snapshot,
-        AuditJobOutput::requestCount,
-        { output, _ -> output },
+        { output -> maxOf(output.requestCount, observedRequestCount()) },
+        { output, effectiveRequestCount -> output.copy(requestCount = effectiveRequestCount) },
         status,
         timeoutMillis,
         stableMillis,

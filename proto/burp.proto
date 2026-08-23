@@ -58,6 +58,7 @@ service BurpService {
   rpc SendWebSocketBinary(SendWebSocketBinaryRequest) returns (ActionResponse);
   rpc CloseWebSocket(CloseWebSocketRequest) returns (ActionResponse);
   rpc ListWebSockets(ListWebSocketsRequest) returns (ListWebSocketsResponse);
+  rpc ManagedWebSocketHistory(ManagedWebSocketHistoryRequest) returns (ManagedWebSocketHistoryResponse);
   rpc ImportBambda(ImportBambdaRequest) returns (ScriptImportResponse);
   rpc ImportBCheck(ImportBCheckRequest) returns (ScriptImportResponse);
   rpc ServerInfo(ServerInfoRequest) returns (ServerInfoResponse);
@@ -269,11 +270,27 @@ message ClearProxyRulesRequest {}
 message CreateSessionRuleRequest {
   string find = 1;
   string replacement = 2;
+  string description = 3;
+  string action_type = 4;
+  string header_name = 5;
+  string parameter_name = 6;
+  string macro_description = 7;
+  string url_contains = 8;
+  repeated string tools = 9;
+  bool enabled = 10;
 }
 message ListSessionRulesRequest {}
 message SessionRuleEntry {
   string find = 1;
   string replacement = 2;
+  string description = 3;
+  string action_type = 4;
+  string header_name = 5;
+  string parameter_name = 6;
+  string macro_description = 7;
+  string url_contains = 8;
+  repeated string tools = 9;
+  bool enabled = 10;
 }
 message ListSessionRulesResponse { repeated SessionRuleEntry items = 1; }
 message RemoveSessionRulesRequest {}
@@ -397,6 +414,21 @@ message SendWebSocketBinaryRequest {
 message CloseWebSocketRequest { string id = 1; }
 message ListWebSocketsRequest {}
 message ListWebSocketsResponse { repeated string ids = 1; }
+message ManagedWebSocketHistoryRequest {
+  string id = 1;
+  PageRequest page = 2;
+}
+message ManagedWebSocketMessageEntry {
+  uint64 index = 1;
+  string websocket_id = 2;
+  string direction = 3;
+  string type = 4;
+  bytes payload = 5;
+}
+message ManagedWebSocketHistoryResponse {
+  repeated ManagedWebSocketMessageEntry items = 1;
+  PageInfo page = 2;
+}
 message ImportBambdaRequest { string script = 1; }
 message ImportBCheckRequest {
   string script = 1;
