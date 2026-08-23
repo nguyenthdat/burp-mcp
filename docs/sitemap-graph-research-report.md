@@ -398,6 +398,8 @@ service SitemapService {
   rpc Snapshot(SitemapSnapshotRequest) returns (SitemapSnapshotResponse);
   rpc EventsSince(SitemapEventsSinceRequest) returns (SitemapEventsSinceResponse);
 }
+```
+
 ### 4.5 Cấu hình đề xuất
 
 **Default an toàn:** auto-index tắt; graph query cũ vẫn hoạt động.
