@@ -2,21 +2,26 @@ use burp_protocol::BurpClient;
 use burp_protocol::proto::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
     CloseWebSocketRequest, ConfigResponse, CookieJarRequest, CreateMacroRequest,
-    CreateSessionRuleRequest, CreateWebSocketRequest, ExportConfigRequest, ExtensionInfoRequest,
+    CreatePayloadListRequest, CreateSessionRuleRequest, CreateWebSocketRequest,
+    DeletePayloadListRequest, ExportConfigRequest, ExtensionInfoRequest,
     GenerateCollaboratorPayloadsRequest, GenerateScannerReportRequest, GetJobResultRequest,
-    GetJobStatusRequest, HttpHeaderEntry, ImportBCheckRequest, ImportBambdaRequest,
-    ImportConfigRequest, InterceptStateRequest, ListMacrosRequest, ListProxyRulesRequest,
-    ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition, MacroItem, MacroParameter,
+    GetJobStatusRequest, GetPayloadListRequest, HttpHeaderEntry, ImportBCheckRequest,
+    ImportBambdaRequest, ImportConfigRequest, ImportPayloadListRequest, InterceptStateRequest,
+    ListMacrosRequest, ListPayloadGeneratorsRequest, ListPayloadListsRequest,
+    ListPayloadProcessorsRequest, ListProxyRulesRequest, ListSessionRulesRequest,
+    ListWebSocketsRequest, MacroDefinition, MacroItem, MacroParameter,
     ManagedWebSocketHistoryRequest, MutateScopeRequest, PageRequest,
     PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
     ProxyInterceptConfigRequest, ProxyInterceptRule, ProxyWebSocketHistoryRequest,
-    RegisterHttpHandlerRequest, RegisterProxyRuleRequest, RemoveMacroRequest,
-    RemoveSessionRulesRequest, RunMacroRequest, ScanIssueDetailRequest, ScanIssuesRequest,
-    ScopeCheckRequest, SendRequestRequest, SendRequestsRequest, SendToIntruderRequest,
-    SendToRepeaterRequest, SendWebSocketBinaryRequest, SendWebSocketTextRequest, SetCookieRequest,
-    SetHighlightRequest, SetNoteRequest, SitemapSnapshotRequest, StartAuditRequest,
-    StartBoundedInputMatrixRequest, StartConcurrentRequestCheckRequest, StartCrawlRequest,
-    TargetInfoRequest,
+    RegisterHttpHandlerRequest, RegisterPayloadGeneratorRequest, RegisterPayloadProcessorRequest,
+    RegisterProxyRuleRequest, RemoveMacroRequest, RemovePayloadGeneratorRequest,
+    RemovePayloadProcessorRequest, RemoveSessionRulesRequest, RunMacroRequest,
+    ScanIssueDetailRequest, ScanIssuesRequest, ScopeCheckRequest, SendRequestRequest,
+    SendRequestsRequest, SendToIntruderRequest, SendToRepeaterRequest, SendWebSocketBinaryRequest,
+    SendWebSocketTextRequest, SetCookieRequest, SetHighlightRequest, SetNoteRequest,
+    SitemapSnapshotRequest, StartAuditRequest, StartBoundedInputMatrixRequest,
+    StartConcurrentRequestCheckRequest, StartCrawlRequest, TargetInfoRequest,
+    UpdatePayloadListRequest,
 };
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
@@ -257,7 +262,7 @@ struct ServerInfoOutput {
     burp_name: String,
     burp_version: String,
     burp_edition: String,
-    burp_build_number: u64,
+    burp_build_number: String,
     capabilities: Vec<String>,
     max_message_bytes: u32,
     max_page_size: u32,
@@ -368,7 +373,6 @@ pub struct RegisterProxyRuleInput {
     pub url_contains: String,
     pub phase: Option<String>,
     pub action: Option<String>,
-    pub intercept: Option<bool>,
     #[serde(rename = "match")]
     pub match_text: Option<String>,
     pub replace: Option<String>,
@@ -380,6 +384,65 @@ pub struct RegisterProxyRuleInput {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RemoveProxyRuleInput {
     pub id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct RegisterPayloadProcessorInput {
+    pub id: String,
+    pub display_name: String,
+    pub operation: String,
+    pub argument: Option<String>,
+    pub replacement: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct PayloadRegistrationInput {
+    pub id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct RegisterPayloadGeneratorInput {
+    pub id: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub payloads: Vec<String>,
+    pub max_output_count: Option<u32>,
+    pub payload_list_id: Option<String>,
+    pub payload_offset: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CreatePayloadListInput {
+    pub id: String,
+    pub display_name: String,
+    pub payloads: Vec<String>,
+}
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ImportPayloadListInput {
+    pub id: String,
+    pub display_name: String,
+    pub content: String,
+    pub format: Option<String>,
+    pub keep_empty: Option<bool>,
+}
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct PayloadListIdInput {
+    pub id: String,
+}
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetPayloadListInput {
+    pub id: String,
+    pub offset: Option<u32>,
+    pub limit: Option<u32>,
+}
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct UpdatePayloadListInput {
+    pub id: String,
+    pub operation: String,
+    pub payloads: Option<Vec<String>>,
+    pub index: Option<u32>,
+    pub indexes: Option<Vec<u32>>,
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -445,6 +508,8 @@ pub struct BoundedInputMatrixInput {
     pub https: Option<bool>,
     pub marker: Option<String>,
     pub wordlist: Vec<String>,
+    pub payload_list_id: Option<String>,
+    pub payload_offset: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1067,18 +1132,7 @@ impl BurpTools {
         &self,
         Parameters(input): Parameters<RegisterProxyRuleInput>,
     ) -> String {
-        let action = input
-            .action
-            .or_else(|| {
-                input.intercept.map(|value| {
-                    if value {
-                        "intercept".to_owned()
-                    } else {
-                        "forward".to_owned()
-                    }
-                })
-            })
-            .unwrap_or_else(|| "forward".to_owned());
+        let action = input.action.unwrap_or_else(|| "forward".to_owned());
         action_json(
             self.client
                 .register_proxy_rule(RegisterProxyRuleRequest {
@@ -1305,7 +1359,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_inline_fuzzer",
-        description = "Start a bounded input matrix job against an authorized test target"
+        description = "Start a bounded raw HTTP request matrix; template must be a complete raw request containing the nonblank marker"
     )]
     async fn inline_fuzzer(
         &self,
@@ -1322,7 +1376,203 @@ impl BurpTools {
                     https,
                     marker: input.marker.unwrap_or_else(|| "FUZZ".to_owned()),
                     inputs: input.wordlist,
+                    payload_list_id: input.payload_list_id.unwrap_or_default(),
+                    payload_offset: input.payload_offset.unwrap_or(0),
                 })
+                .await,
+        )
+    }
+    #[tool(
+        name = "burp_intruder_payload_processor_register",
+        description = "Register one bounded declarative Intruder payload processor"
+    )]
+    async fn intruder_payload_processor_register(
+        &self,
+        Parameters(input): Parameters<RegisterPayloadProcessorInput>,
+    ) -> String {
+        action_json(
+            self.client
+                .register_payload_processor(RegisterPayloadProcessorRequest {
+                    id: input.id,
+                    display_name: input.display_name,
+                    operation: input.operation,
+                    argument: input.argument.unwrap_or_default(),
+                    replacement: input.replacement.unwrap_or_default(),
+                })
+                .await,
+        )
+    }
+
+    #[tool(
+        name = "burp_intruder_payload_processor_list",
+        description = "List registered declarative Intruder payload processors"
+    )]
+    async fn intruder_payload_processor_list(&self) -> String {
+        match self.client.list_payload_processors(ListPayloadProcessorsRequest {}).await {
+            Ok(response) => serde_json::json!({"items": response.items.iter().map(|item| serde_json::json!({"id": item.id, "display_name": item.display_name, "operation": item.operation, "registered": item.registered})).collect::<Vec<_>>()}).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_intruder_payload_processor_remove",
+        description = "Deregister one declarative Intruder payload processor"
+    )]
+    async fn intruder_payload_processor_remove(
+        &self,
+        Parameters(input): Parameters<PayloadRegistrationInput>,
+    ) -> String {
+        action_json(
+            self.client
+                .remove_payload_processor(RemovePayloadProcessorRequest { id: input.id })
+                .await,
+        )
+    }
+
+    #[tool(
+        name = "burp_intruder_payload_generator_register",
+        description = "Register one bounded declarative Intruder payload generator"
+    )]
+    async fn intruder_payload_generator_register(
+        &self,
+        Parameters(input): Parameters<RegisterPayloadGeneratorInput>,
+    ) -> String {
+        action_json(
+            self.client
+                .register_payload_generator(RegisterPayloadGeneratorRequest {
+                    id: input.id,
+                    display_name: input.display_name,
+                    payloads: input.payloads,
+                    max_output_count: input.max_output_count.unwrap_or(0),
+                    payload_list_id: input.payload_list_id.unwrap_or_default(),
+                    payload_offset: input.payload_offset.unwrap_or(0),
+                })
+                .await,
+        )
+    }
+
+    #[tool(
+        name = "burp_intruder_payload_generator_list",
+        description = "List registered declarative Intruder payload generators"
+    )]
+    async fn intruder_payload_generator_list(&self) -> String {
+        match self.client.list_payload_generators(ListPayloadGeneratorsRequest {}).await {
+            Ok(response) => serde_json::json!({"items": response.items.iter().map(|item| serde_json::json!({"id": item.id, "display_name": item.display_name, "payload_count": item.payload_count, "max_output_count": item.max_output_count, "registered": item.registered})).collect::<Vec<_>>()}).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_intruder_payload_generator_remove",
+        description = "Deregister one declarative Intruder payload generator"
+    )]
+    async fn intruder_payload_generator_remove(
+        &self,
+        Parameters(input): Parameters<PayloadRegistrationInput>,
+    ) -> String {
+        action_json(
+            self.client
+                .remove_payload_generator(RemovePayloadGeneratorRequest { id: input.id })
+                .await,
+        )
+    }
+    #[tool(
+        name = "burp_payload_list_create",
+        description = "Create one bounded in-memory payload list"
+    )]
+    async fn payload_list_create(
+        &self,
+        Parameters(input): Parameters<CreatePayloadListInput>,
+    ) -> String {
+        payload_list_entry_json(
+            self.client
+                .create_payload_list(CreatePayloadListRequest {
+                    id: input.id,
+                    display_name: input.display_name,
+                    payloads: input.payloads,
+                })
+                .await,
+        )
+    }
+
+    #[tool(
+        name = "burp_payload_list_import",
+        description = "Import a bounded payload list from newline text or a JSON string array"
+    )]
+    async fn payload_list_import(
+        &self,
+        Parameters(input): Parameters<ImportPayloadListInput>,
+    ) -> String {
+        payload_list_entry_json(
+            self.client
+                .import_payload_list(ImportPayloadListRequest {
+                    id: input.id,
+                    display_name: input.display_name,
+                    content: input.content,
+                    format: input.format.unwrap_or_else(|| "lines".to_owned()),
+                    keep_empty: input.keep_empty.unwrap_or(false),
+                })
+                .await,
+        )
+    }
+    #[tool(
+        name = "burp_payload_list_list",
+        description = "List bounded in-memory payload lists"
+    )]
+    async fn payload_list_list(&self) -> String {
+        match self.client.list_payload_lists(ListPayloadListsRequest {}).await {
+            Ok(response) => serde_json::json!({"items": response.items.iter().map(payload_list_proto_json).collect::<Vec<_>>()}).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_payload_list_get",
+        description = "Read one bounded page from a payload list"
+    )]
+    async fn payload_list_get(&self, Parameters(input): Parameters<GetPayloadListInput>) -> String {
+        match self.client.get_payload_list(GetPayloadListRequest {
+            id: input.id,
+            page: Some(PageRequest { limit: input.limit.unwrap_or(100).min(MAX_PAGE_SIZE), cursor: input.offset.unwrap_or(0).to_string() }),
+        }).await {
+            Ok(response) => serde_json::json!({"list": response.list.map(|item| payload_list_proto_json(&item)), "payloads": response.payloads, "page": response.page.map(|page| serde_json::json!({"total": page.total, "truncated": page.truncated, "next_cursor": page.next_cursor}))}).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_payload_list_update",
+        description = "Append, prepend, insert, replace, remove, clear, or rename a payload list"
+    )]
+    async fn payload_list_update(
+        &self,
+        Parameters(input): Parameters<UpdatePayloadListInput>,
+    ) -> String {
+        payload_list_entry_json(
+            self.client
+                .update_payload_list(UpdatePayloadListRequest {
+                    id: input.id,
+                    operation: input.operation,
+                    payloads: input.payloads.unwrap_or_default(),
+                    index: input.index.unwrap_or(0),
+                    indexes: input.indexes.unwrap_or_default(),
+                    display_name: input.display_name,
+                })
+                .await,
+        )
+    }
+
+    #[tool(
+        name = "burp_payload_list_delete",
+        description = "Delete one payload list"
+    )]
+    async fn payload_list_delete(
+        &self,
+        Parameters(input): Parameters<PayloadListIdInput>,
+    ) -> String {
+        action_json(
+            self.client
+                .delete_payload_list(DeletePayloadListRequest { id: input.id })
                 .await,
         )
     }
@@ -1640,6 +1890,8 @@ impl BurpTools {
                     "next_cursor": (!page.next_cursor.is_empty()).then_some(page.next_cursor),
                     "unique_lengths": result.unique_lengths, "verdict": result.verdict,
                     "request_count": result.request_count, "error_count": result.error_count, "error": result.error,
+                    "substitution_count": result.substitution_count,
+                    "request_fingerprint": result.request_fingerprint,
                 }).to_string()
             }
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
@@ -2103,7 +2355,7 @@ impl BurpTools {
                 burp_name: info.burp_name,
                 burp_version: info.burp_version,
                 burp_edition: info.burp_edition,
-                burp_build_number: info.burp_build_number,
+                burp_build_number: info.burp_build_number.to_string(),
                 capabilities: info.capabilities,
                 max_message_bytes: info.max_message_bytes,
                 max_page_size: info.max_page_size,
@@ -2420,10 +2672,13 @@ fn decoder_json(input: DecoderInput) -> String {
         (None, false) => {
             let steps = input
                 .steps
-                .into_iter()
-                .map(|step| (step.op, step.args))
+                .iter()
+                .map(|step| utility_core::RecipeStep {
+                    operation: step.op.clone(),
+                    args: step.args.clone(),
+                })
                 .collect::<Vec<_>>();
-            utility::run_recipe(value, &steps)
+            utility_core::run_recipe(value, &steps, utility::run)
         }
         (Some(_), false) => Err("provide either operation or steps, not both".to_owned()),
         (None, true) => {
@@ -2437,6 +2692,24 @@ fn decoder_result_json(result: Result<DataValue, String>) -> String {
     match result {
         Ok(value) => utility_value_json(value).to_string(),
         Err(error) => serde_json::json!({"error": error}).to_string(),
+    }
+}
+fn payload_list_proto_json(item: &burp_protocol::proto::PayloadListEntry) -> serde_json::Value {
+    serde_json::json!({
+        "id": item.id,
+        "display_name": item.display_name,
+        "payload_count": item.payload_count,
+        "size_bytes": item.size_bytes,
+        "fingerprint": item.fingerprint,
+    })
+}
+
+fn payload_list_entry_json(
+    result: Result<burp_protocol::proto::PayloadListEntry, burp_protocol::ClientError>,
+) -> String {
+    match result {
+        Ok(item) => payload_list_proto_json(&item).to_string(),
+        Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
     }
 }
 
@@ -2612,7 +2885,8 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod contract_tests {
     use super::{
-        BurpTools, DecoderInput, ProxyHistoryFilteredInput, to_filtered_proxy_history_request,
+        BurpTools, DecoderInput, ProxyHistoryFilteredInput, RegisterProxyRuleInput,
+        to_filtered_proxy_history_request,
     };
     use serde::Deserialize;
     use serde_json::Value;
@@ -2673,6 +2947,18 @@ mod contract_tests {
                         | "burp_scan_issues"
                         | "burp_websocket_history"
                         | "decoder"
+                        | "burp_intruder_payload_processor_register"
+                        | "burp_intruder_payload_processor_list"
+                        | "burp_intruder_payload_processor_remove"
+                        | "burp_intruder_payload_generator_register"
+                        | "burp_intruder_payload_generator_list"
+                        | "burp_intruder_payload_generator_remove"
+                        | "burp_payload_list_create"
+                        | "burp_payload_list_import"
+                        | "burp_payload_list_list"
+                        | "burp_payload_list_get"
+                        | "burp_payload_list_update"
+                        | "burp_payload_list_delete"
                 )
                 || name.starts_with("sitegraph_")
         }));
@@ -2838,6 +3124,28 @@ mod contract_tests {
             Err("index must be at most 2147483647"),
             super::validated_index(u32::MAX)
         );
+    }
+    #[test]
+    fn proxy_rule_schema_has_no_deprecated_intercept_field() {
+        let schema = serde_json::to_value(schemars::schema_for!(RegisterProxyRuleInput))
+            .expect("proxy rule schema must serialize");
+        assert!(schema.pointer("/properties/intercept").is_none());
+        assert!(schema.pointer("/properties/action").is_some());
+    }
+
+    #[test]
+    fn intruder_payload_lifecycle_tools_are_mounted() {
+        let tools = actual_tool_names();
+        for name in [
+            "burp_intruder_payload_processor_register",
+            "burp_intruder_payload_processor_list",
+            "burp_intruder_payload_processor_remove",
+            "burp_intruder_payload_generator_register",
+            "burp_intruder_payload_generator_list",
+            "burp_intruder_payload_generator_remove",
+        ] {
+            assert!(tools.contains(name), "missing {name}");
+        }
     }
 
     #[test]

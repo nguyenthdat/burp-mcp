@@ -22,12 +22,18 @@ import io.github.nguyenthdat.burpmcp.SitemapFacade
 import io.github.nguyenthdat.burpmcp.SitemapQuery
 import io.github.nguyenthdat.burpmcp.TargetFacade
 import io.github.nguyenthdat.burpmcp.SessionRule
+import io.github.nguyenthdat.burpmcp.IntruderPayloadFacade
+import io.github.nguyenthdat.burpmcp.PayloadGeneratorSpec
+import io.github.nguyenthdat.burpmcp.PayloadProcessorOperation
+import io.github.nguyenthdat.burpmcp.PayloadProcessorSpec
 import io.github.nguyenthdat.burpmcp.SessionRuleFacade
 import io.github.nguyenthdat.burpmcp.HttpBatchJobOutput
 import io.github.nguyenthdat.burpmcp.JobFacade
 import io.github.nguyenthdat.burpmcp.JobSnapshot
 import io.github.nguyenthdat.burpmcp.AuditJobOutput
 import io.github.nguyenthdat.burpmcp.LongOperationFacade
+import io.github.nguyenthdat.burpmcp.PayloadListFacade
+import io.github.nguyenthdat.burpmcp.PayloadListDefinition
 import io.github.nguyenthdat.burpmcp.TaskJobOutput
 import io.github.nguyenthdat.burpmcp.CollaboratorFacade
 import io.github.nguyenthdat.burpmcp.WebSocketFacade
@@ -68,6 +74,25 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyRuleEntry
 import io.github.nguyenthdat.burpmcp.grpc.v1.ScanIssueDetailRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.SetCookieRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.SendToIntruderRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListPayloadGeneratorsRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListPayloadGeneratorsResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListPayloadProcessorsRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListPayloadProcessorsResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.PayloadGeneratorEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.PayloadProcessorEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.RegisterPayloadGeneratorRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.RegisterPayloadProcessorRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.CreatePayloadListRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.DeletePayloadListRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.GetPayloadListRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.GetPayloadListResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ImportPayloadListRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListPayloadListsRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListPayloadListsResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.PayloadListEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.UpdatePayloadListRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.RemovePayloadGeneratorRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.RemovePayloadProcessorRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.CookieEntry
 import io.github.nguyenthdat.burpmcp.grpc.v1.CookieJarRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.CookieJarResponse
@@ -309,6 +334,28 @@ private fun structuredStatus(
             .build()
     return StatusProto.toStatusRuntimeException(rpcStatus)
 }
+private inline fun <T> StreamObserver<T>.respond(block: () -> T) {
+    try {
+        onNext(block())
+        onCompleted()
+    } catch (exception: IllegalArgumentException) {
+        onError(
+            structuredStatus(
+                Status.INVALID_ARGUMENT,
+                ErrorCode.ERROR_CODE_INVALID_ARGUMENT,
+                exception.message ?: "invalid argument",
+            ),
+        )
+    } catch (exception: IllegalStateException) {
+        onError(
+            structuredStatus(
+                Status.FAILED_PRECONDITION,
+                ErrorCode.ERROR_CODE_INTERNAL,
+                exception.message ?: "operation cannot be completed in the current state",
+            ),
+        )
+    }
+}
 
 internal class BurpRpcService(
     private val api: MontoyaApi,
@@ -329,9 +376,11 @@ internal class BurpRpcService(
     private val proxyInterceptConfigFacade: ProxyInterceptConfigFacade = ProxyInterceptConfigFacade(api),
     private val macroFacade: io.github.nguyenthdat.burpmcp.MacroFacade = io.github.nguyenthdat.burpmcp.MacroFacade(api),
     private val sessionRuleFacade: SessionRuleFacade = SessionRuleFacade(api) { description -> macroFacade.run(description) },
+    private val payloadListFacade: PayloadListFacade = PayloadListFacade(),
     private val jobFacade: JobFacade = JobFacade(),
     private val longOperationFacade: LongOperationFacade = LongOperationFacade(api, jobFacade),
     private val capabilityFacade: BurpCapabilityFacade = BurpCapabilityFacade(api),
+    private val intruderPayloadFacade: IntruderPayloadFacade = IntruderPayloadFacade(api),
 ) : BurpServiceGrpc.BurpServiceImplBase() {
     override fun ping(
         @Suppress("UNUSED_PARAMETER") request: PingRequest,
@@ -554,45 +603,35 @@ internal class BurpRpcService(
     override fun scanIssues(
         request: ScanIssuesRequest,
         responseObserver: StreamObserver<ScanIssuesResponse>,
-    ) {
+    ) = responseObserver.respond {
         val limit =
             when {
                 !request.hasPage() || request.page.limit == 0 -> 50
-                request.page.limit > GRPC_MAX_PAGE_SIZE -> {
-                    responseObserver.onError(
-                        structuredStatus(Status.INVALID_ARGUMENT, ErrorCode.ERROR_CODE_INVALID_ARGUMENT, "page limit must be at most $GRPC_MAX_PAGE_SIZE"),
-                    )
-                    return
-                }
+                request.page.limit > GRPC_MAX_PAGE_SIZE -> throw IllegalArgumentException("page limit must be at most $GRPC_MAX_PAGE_SIZE")
                 else -> request.page.limit.toInt()
             }
         val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "scanner cursor")
         val page = scannerFacade.issues(ScanIssueQuery(limit, offset))
-        val response =
-            ScanIssuesResponse
-                .newBuilder()
-                .addAllItems(
-                    page.items.map { item ->
-                        ScanIssueEntry
-                            .newBuilder()
-                            .setIndex(item.index)
-                            .setName(item.name)
-                            .setSeverity(item.severity)
-                            .setConfidence(item.confidence)
-                            .setUrl(item.url)
-                            .setDetail(item.detail)
-                            .build()
-                    },
-                ).setPage(
-                    PageInfo
-                        .newBuilder()
-                        .setTotal(page.total)
-                        .setTruncated(page.offset + page.items.size < page.total)
-                        .setNextCursor(if (page.offset + page.items.size < page.total) (page.offset + page.items.size).toString() else "")
-                        .build(),
-                ).build()
-        responseObserver.onNext(response)
-        responseObserver.onCompleted()
+        ScanIssuesResponse
+            .newBuilder()
+            .addAllItems(
+                page.items.map { item ->
+                    ScanIssueEntry.newBuilder()
+                        .setIndex(item.index)
+                        .setName(item.name)
+                        .setSeverity(item.severity)
+                        .setConfidence(item.confidence)
+                        .setUrl(item.url)
+                        .setDetail(item.detail)
+                        .build()
+                },
+            ).setPage(
+                PageInfo.newBuilder()
+                    .setTotal(page.total)
+                    .setTruncated(page.offset + page.items.size < page.total)
+                    .setNextCursor(if (page.offset + page.items.size < page.total) (page.offset + page.items.size).toString() else "")
+                    .build(),
+            ).build()
     }
 
     override fun scanIssueDetail(
@@ -616,7 +655,7 @@ internal class BurpRpcService(
     override fun addIssue(
         request: AddIssueRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         scannerFacade.addIssue(
             request.name,
             request.url,
@@ -625,8 +664,7 @@ internal class BurpRpcService(
             request.severity,
             request.confidence,
         )
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("issue added").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("issue added").build()
     }
 
     override fun generateScannerReport(
@@ -711,7 +749,7 @@ internal class BurpRpcService(
     override fun proxyInterceptConfig(
         request: ProxyInterceptConfigRequest,
         responseObserver: StreamObserver<ProxyInterceptConfigResponse>,
-    ) {
+    ) = responseObserver.respond {
         val config =
             proxyInterceptConfigFacade.update(
                 ProxyInterceptConfigPatch(
@@ -735,26 +773,24 @@ internal class BurpRpcService(
                     responseRemoveAllJavaScript = request.responseRemoveAllJavascript.takeIf { request.hasResponseRemoveAllJavascript() },
                 ),
             )
-        responseObserver.onNext(
-            ProxyInterceptConfigResponse.newBuilder()
-                .setMasterInterceptEnabled(config.masterInterceptEnabled)
-                .setRequestDoIntercept(config.requestDoIntercept)
-                .setRequestFixMissingNewLines(config.requestFixMissingNewLines)
-                .setResponseDoIntercept(config.responseDoIntercept)
-                .setResponseAutoContentLength(config.responseAutoContentLength)
-                .setWebsocketClientToServer(config.websocketClientToServer)
-                .setWebsocketServerToClient(config.websocketServerToClient)
-                .setWebsocketInScopeOnly(config.websocketInScopeOnly)
-                .addAllRequestRules(config.requestRules.map { it.toProto() })
-                .addAllResponseRules(config.responseRules.map { it.toProto() })
-                .setResponseUnhideHiddenFields(config.responseUnhideHiddenFields)
-                .setResponseEnableDisabledFields(config.responseEnableDisabledFields)
-                .setResponseRemoveInputLengthLimits(config.responseRemoveInputLengthLimits)
-                .setResponseRemoveJavascriptValidation(config.responseRemoveJavaScriptValidation)
-                .setResponseRemoveAllJavascript(config.responseRemoveAllJavaScript)
-                .build(),
-        )
-        responseObserver.onCompleted()
+        ProxyInterceptConfigResponse.newBuilder()
+            .setMasterInterceptEnabled(config.masterInterceptEnabled)
+            .setRequestDoIntercept(config.requestDoIntercept)
+            .setRequestAutoContentLength(config.requestAutoContentLength)
+            .setRequestFixMissingNewLines(config.requestFixMissingNewLines)
+            .setResponseDoIntercept(config.responseDoIntercept)
+            .setResponseAutoContentLength(config.responseAutoContentLength)
+            .setWebsocketClientToServer(config.websocketClientToServer)
+            .setWebsocketServerToClient(config.websocketServerToClient)
+            .setWebsocketInScopeOnly(config.websocketInScopeOnly)
+            .addAllRequestRules(config.requestRules.map { it.toProto() })
+            .addAllResponseRules(config.responseRules.map { it.toProto() })
+            .setResponseUnhideHiddenFields(config.responseUnhideHiddenFields)
+            .setResponseEnableDisabledFields(config.responseEnableDisabledFields)
+            .setResponseRemoveInputLengthLimits(config.responseRemoveInputLengthLimits)
+            .setResponseRemoveJavascriptValidation(config.responseRemoveJavaScriptValidation)
+            .setResponseRemoveAllJavascript(config.responseRemoveAllJavaScript)
+            .build()
     }
 
     override fun proxyWebSocketHistory(
@@ -806,6 +842,99 @@ internal class BurpRpcService(
         responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("request opened in Intruder").build())
         responseObserver.onCompleted()
     }
+    override fun registerPayloadProcessor(
+        request: RegisterPayloadProcessorRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) = responseObserver.respond {
+        val registration =
+            intruderPayloadFacade.registerProcessor(
+                PayloadProcessorSpec(
+                    id = request.id,
+                    displayName = request.displayName,
+                    operation = PayloadProcessorOperation.parse(request.operation),
+                    argument = request.argument,
+                    replacement = request.replacement,
+                ),
+            )
+        ActionResponse.newBuilder().setSuccess(true).setMessage(registration.id).build()
+    }
+
+    override fun listPayloadProcessors(
+        @Suppress("UNUSED_PARAMETER") request: ListPayloadProcessorsRequest,
+        responseObserver: StreamObserver<ListPayloadProcessorsResponse>,
+    ) {
+        responseObserver.onNext(
+            ListPayloadProcessorsResponse.newBuilder().addAllItems(
+                intruderPayloadFacade.listProcessors().map { item ->
+                    PayloadProcessorEntry.newBuilder()
+                        .setId(item.id)
+                        .setDisplayName(item.displayName)
+                        .setOperation(item.operation)
+                        .setRegistered(item.registered)
+                        .build()
+                },
+            ).build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun removePayloadProcessor(
+        request: RemovePayloadProcessorRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) = responseObserver.respond {
+        val removed = intruderPayloadFacade.removeProcessor(request.id)
+        ActionResponse.newBuilder().setSuccess(removed).setMessage(if (removed) "payload processor removed" else "payload processor not found").build()
+    }
+
+    override fun registerPayloadGenerator(
+        request: RegisterPayloadGeneratorRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) = responseObserver.respond {
+        val payloads = when {
+            request.payloadListId.isNotBlank() && request.payloadsCount > 0 -> throw IllegalArgumentException("provide payloads or payload_list_id, not both")
+            request.payloadListId.isNotBlank() -> payloadListFacade.boundedSlice(request.payloadListId, request.payloadOffset.toInt())
+            else -> request.payloadsList
+        }
+        val registration =
+            intruderPayloadFacade.registerGenerator(
+                PayloadGeneratorSpec(
+                    id = request.id,
+                    displayName = request.displayName,
+                    payloads = payloads,
+                    maxOutputCount = request.maxOutputCount.toInt().takeIf { it > 0 } ?: payloads.size,
+                ),
+            )
+        ActionResponse.newBuilder().setSuccess(true).setMessage(registration.id).build()
+    }
+
+    override fun listPayloadGenerators(
+        @Suppress("UNUSED_PARAMETER") request: ListPayloadGeneratorsRequest,
+        responseObserver: StreamObserver<ListPayloadGeneratorsResponse>,
+    ) {
+        responseObserver.onNext(
+            ListPayloadGeneratorsResponse.newBuilder().addAllItems(
+                intruderPayloadFacade.listGenerators().map { item ->
+                    PayloadGeneratorEntry.newBuilder()
+                        .setId(item.id)
+                        .setDisplayName(item.displayName)
+                        .setPayloadCount(item.payloadCount)
+                        .setMaxOutputCount(item.maxOutputCount)
+                        .setRegistered(item.registered)
+                        .build()
+                },
+            ).build(),
+        )
+        responseObserver.onCompleted()
+    }
+
+    override fun removePayloadGenerator(
+        request: RemovePayloadGeneratorRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) = responseObserver.respond {
+        val removed = intruderPayloadFacade.removeGenerator(request.id)
+        ActionResponse.newBuilder().setSuccess(removed).setMessage(if (removed) "payload generator removed" else "payload generator not found").build()
+    }
+
 
     override fun extensionInfo(
         @Suppress("UNUSED_PARAMETER") request: ExtensionInfoRequest,
@@ -820,6 +949,35 @@ internal class BurpRpcService(
                 .build(),
         )
         responseObserver.onCompleted()
+    }
+
+    override fun createPayloadList(request: CreatePayloadListRequest, responseObserver: StreamObserver<PayloadListEntry>) = responseObserver.respond {
+        payloadListFacade.create(request.id, request.displayName, request.payloadsList).toProto()
+    }
+
+    override fun importPayloadList(request: ImportPayloadListRequest, responseObserver: StreamObserver<PayloadListEntry>) = responseObserver.respond {
+        payloadListFacade.import(request.id, request.displayName, request.content, request.format, request.keepEmpty).toProto()
+    }
+
+    override fun listPayloadLists(request: ListPayloadListsRequest, responseObserver: StreamObserver<ListPayloadListsResponse>) {
+        responseObserver.onNext(ListPayloadListsResponse.newBuilder().addAllItems(payloadListFacade.list().map { it.toProto() }).build())
+        responseObserver.onCompleted()
+    }
+
+    override fun getPayloadList(request: GetPayloadListRequest, responseObserver: StreamObserver<GetPayloadListResponse>) = responseObserver.respond {
+        val limit = request.page.limit.toInt().takeIf { it > 0 } ?: 100
+        val page = payloadListFacade.page(request.id, request.page.cursor.toIntOrNull() ?: 0, limit)
+        GetPayloadListResponse.newBuilder().setList(page.list.toProto()).addAllPayloads(page.payloads)
+            .setPage(PageInfo.newBuilder().setTotal(page.total).setTruncated(page.nextOffset != null).setNextCursor(page.nextOffset?.toString() ?: "").build()).build()
+    }
+
+    override fun updatePayloadList(request: UpdatePayloadListRequest, responseObserver: StreamObserver<PayloadListEntry>) = responseObserver.respond {
+        payloadListFacade.update(request.id, request.operation, request.payloadsList, request.index.toInt(), request.indexesList.map { it.toInt() }, request.displayName.takeIf { request.hasDisplayName() }).toProto()
+    }
+
+    override fun deletePayloadList(request: DeletePayloadListRequest, responseObserver: StreamObserver<ActionResponse>) = responseObserver.respond {
+        val deleted = payloadListFacade.delete(request.id)
+        ActionResponse.newBuilder().setSuccess(deleted).setMessage(if (deleted) "payload list deleted" else "payload list not found").build()
     }
 
     override fun sendRequest(
@@ -959,7 +1117,7 @@ internal class BurpRpcService(
                 id = request.id.ifBlank { "default" },
                 urlContains = request.urlContains,
                 phase = request.phase.ifBlank { "request" },
-                action = request.action.ifBlank { "intercept" },
+                action = request.action.ifBlank { "forward" },
                 match = request.match,
                 replacement = request.replacement,
                 headerName = request.headerName,
@@ -1134,29 +1292,22 @@ internal class BurpRpcService(
     override fun startBoundedInputMatrix(
         request: StartBoundedInputMatrixRequest,
         responseObserver: StreamObserver<JobStatusResponse>,
-    ) {
+    ) = responseObserver.respond {
         val port = request.port.toInt().takeIf { it > 0 } ?: if (request.https) 443 else 80
-        val snapshot =
-            longOperationFacade.startInlineFuzzer(
-                request.template.toStringUtf8(),
-                request.host,
-                port,
-                request.https,
-                request.marker.ifEmpty { "FUZZ" },
-                request.inputsList,
-            )
-        responseObserver.onNext(snapshot.toStatusProto())
-        responseObserver.onCompleted()
+        val inputs = when {
+            request.payloadListId.isNotBlank() && request.inputsCount > 0 -> throw IllegalArgumentException("provide inputs or payload_list_id, not both")
+            request.payloadListId.isNotBlank() -> payloadListFacade.boundedSlice(request.payloadListId, request.payloadOffset.toInt())
+            else -> request.inputsList
+        }
+        longOperationFacade.startInlineFuzzer(
+            request.template.toStringUtf8(),
+            request.host,
+            port,
+            request.https,
+            request.marker.ifEmpty { "FUZZ" },
+            inputs,
+        ).toStatusProto()
     }
-
-    override fun startAudit(
-        request: StartAuditRequest,
-        responseObserver: StreamObserver<JobStatusResponse>,
-    ) {
-        responseObserver.onNext(longOperationFacade.startAudit(request.url, request.active).toStatusProto())
-        responseObserver.onCompleted()
-    }
-
     override fun startCrawl(
         request: StartCrawlRequest,
         responseObserver: StreamObserver<JobStatusResponse>,
@@ -1324,6 +1475,9 @@ internal class BurpRpcService(
         responseObserver.onNext(ScriptImportResponse.newBuilder().setSuccess(result.success).setStatus(result.status).addAllErrors(result.errors).build())
         responseObserver.onCompleted()
     }
+    private fun PayloadListDefinition.toProto(): PayloadListEntry = PayloadListEntry.newBuilder()
+        .setId(id).setDisplayName(displayName).setPayloadCount(payloads.size).setSizeBytes(sizeBytes).setFingerprint(fingerprint).build()
+
 
     override fun importBCheck(
         request: ImportBCheckRequest,
@@ -1397,6 +1551,7 @@ internal class BurpRpcService(
         proxyRuleFacade.close()
         sessionRuleFacade.remove()
         webSocketFacade.close()
+        intruderPayloadFacade.close()
     }
 
 
@@ -1515,6 +1670,8 @@ internal class BurpRpcService(
                     ).setRequestCount(output.requestCount)
                     .setUniqueLengths(output.uniqueLengths)
                     .setVerdict(output.verdict)
+                    .setSubstitutionCount(output.substitutionCount)
+                    .setRequestFingerprint(output.requestFingerprint)
             }
 
             is TaskJobOutput -> builder.setRequestCount(output.requestCount).setErrorCount(output.errorCount)

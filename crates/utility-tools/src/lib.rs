@@ -9,8 +9,8 @@ use regex::Regex;
 use serde_json::Value;
 use std::io::{Cursor, Read};
 use url::form_urlencoded;
+use utility_core::MAX_UTILITY_INPUT_BYTES;
 pub use utility_core::{DataValue, MAX_BATCH_ITEMS, OperationInfo};
-use utility_core::{MAX_UTILITY_INPUT_BYTES, RecipeStep};
 
 const MAX_REGEX_MATCHES: usize = 1_000;
 const MAX_SPLIT_PARTS: usize = 10_000;
@@ -56,6 +56,20 @@ const OPERATIONS: &[OperationInfo] = &[
         "bytes"
     ),
     operation!(
+        "base64.mime.encode",
+        "MIME Base64 Encode",
+        "Encode bytes as MIME Base64 with CRLF line wrapping",
+        "any",
+        "text"
+    ),
+    operation!(
+        "base64.mime.decode",
+        "MIME Base64 Decode",
+        "Decode MIME Base64 while ignoring ASCII whitespace",
+        "text",
+        "bytes"
+    ),
+    operation!(
         "hex.encode",
         "Hex Encode",
         "Encode bytes as lowercase hexadecimal",
@@ -84,6 +98,34 @@ const OPERATIONS: &[OperationInfo] = &[
         "text"
     ),
     operation!(
+        "url.encode.key",
+        "URL Encode Key",
+        "Encode a URL key while preserving Burp-style safe characters",
+        "text",
+        "text"
+    ),
+    operation!(
+        "url.encode.value",
+        "URL Encode Value",
+        "Encode a URL value while preserving Burp-style safe characters",
+        "text",
+        "text"
+    ),
+    operation!(
+        "url.encode.all",
+        "URL Encode All",
+        "Percent encode every UTF-8 byte",
+        "text",
+        "text"
+    ),
+    operation!(
+        "url.encode.java",
+        "URL Encode Java",
+        "Form URL encode text using plus for spaces",
+        "text",
+        "text"
+    ),
+    operation!(
         "html.encode",
         "HTML Encode",
         "Encode HTML special characters",
@@ -94,6 +136,20 @@ const OPERATIONS: &[OperationInfo] = &[
         "html.decode",
         "HTML Decode",
         "Decode HTML named and numeric entities",
+        "text",
+        "text"
+    ),
+    operation!(
+        "html.encode.decimal",
+        "HTML Decimal Encode",
+        "Encode each Unicode scalar as a decimal HTML entity",
+        "text",
+        "text"
+    ),
+    operation!(
+        "html.encode.hex",
+        "HTML Hex Encode",
+        "Encode each Unicode scalar as a hexadecimal HTML entity",
         "text",
         "text"
     ),
@@ -196,11 +252,90 @@ const OPERATIONS: &[OperationInfo] = &[
         "json"
     ),
     operation!("length", "Length", "Return byte length", "any", "json"),
+    operation!(
+        "bytes.index_of",
+        "Byte Index Of",
+        "Find the first bounded byte or text search term",
+        "any",
+        "json"
+    ),
+    operation!(
+        "bytes.count",
+        "Byte Match Count",
+        "Count non-overlapping byte or text search terms",
+        "any",
+        "json"
+    ),
+    operation!(
+        "bytes.to_latin1",
+        "Bytes To Latin-1",
+        "Map each byte losslessly to the same Unicode code point",
+        "any",
+        "text"
+    ),
+    operation!(
+        "bytes.from_latin1",
+        "Latin-1 To Bytes",
+        "Map each Unicode code point low byte to bytes",
+        "text",
+        "bytes"
+    ),
+    operation!(
+        "number.convert",
+        "Number Base Convert",
+        "Convert an arbitrary-width unsigned integer between bases 2, 8, 10, and 16",
+        "text",
+        "text"
+    ),
     operation!("md5", "MD5", "Compute MD5 digest", "any", "text", weak),
     operation!("sha1", "SHA-1", "Compute SHA-1 digest", "any", "text", weak),
     operation!("sha256", "SHA-256", "Compute SHA-256 digest", "any", "text"),
     operation!("sha512", "SHA-512", "Compute SHA-512 digest", "any", "text"),
     operation!("blake3", "BLAKE3", "Compute BLAKE3 digest", "any", "text"),
+    operation!("sha224", "SHA-224", "Compute SHA-224 digest", "any", "text"),
+    operation!("sha384", "SHA-384", "Compute SHA-384 digest", "any", "text"),
+    operation!(
+        "sha512_224",
+        "SHA-512/224",
+        "Compute SHA-512/224 digest",
+        "any",
+        "text"
+    ),
+    operation!(
+        "sha512_256",
+        "SHA-512/256",
+        "Compute SHA-512/256 digest",
+        "any",
+        "text"
+    ),
+    operation!(
+        "sha3_224",
+        "SHA3-224",
+        "Compute SHA3-224 digest",
+        "any",
+        "text"
+    ),
+    operation!(
+        "sha3_256",
+        "SHA3-256",
+        "Compute SHA3-256 digest",
+        "any",
+        "text"
+    ),
+    operation!(
+        "sha3_384",
+        "SHA3-384",
+        "Compute SHA3-384 digest",
+        "any",
+        "text"
+    ),
+    operation!(
+        "sha3_512",
+        "SHA3-512",
+        "Compute SHA3-512 digest",
+        "any",
+        "text"
+    ),
     operation!(
         "hmac.sha256",
         "HMAC SHA-256",
@@ -382,10 +517,28 @@ pub fn run(id: &str, input: DataValue, args: &Value) -> Result<DataValue, String
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(input.as_bytes()?),
         ),
         "base64url.decode" => decode_base64_url(input.as_text()?)?,
+        "base64.mime.encode" => DataValue::Text(mime_base64_encode(input.as_bytes()?)),
+        "base64.mime.decode" => DataValue::Bytes(
+            base64::engine::general_purpose::STANDARD
+                .decode(
+                    input
+                        .as_text()?
+                        .bytes()
+                        .filter(|byte| !byte.is_ascii_whitespace())
+                        .collect::<Vec<_>>(),
+                )
+                .map_err(|error| error.to_string())?,
+        ),
         "hex.encode" => DataValue::Text(hex_encode(input.as_bytes()?)),
         "hex.decode" => DataValue::Bytes(hex_decode(input.as_text()?)?),
         "url.encode" => {
             DataValue::Text(utf8_percent_encode(input.as_text()?, NON_ALPHANUMERIC).to_string())
+        }
+        "url.encode.key" => DataValue::Text(url_encode_selected(input.as_text()?, false)),
+        "url.encode.value" => DataValue::Text(url_encode_selected(input.as_text()?, true)),
+        "url.encode.all" => DataValue::Text(percent_encode_all(input.as_text()?.as_bytes())),
+        "url.encode.java" => {
+            DataValue::Text(form_urlencoded::byte_serialize(input.as_text()?.as_bytes()).collect())
         }
         "url.decode" => DataValue::Text(
             percent_decode_str(input.as_text()?)
@@ -397,6 +550,20 @@ pub fn run(id: &str, input: DataValue, args: &Value) -> Result<DataValue, String
         "html.decode" => {
             DataValue::Text(html_escape::decode_html_entities(input.as_text()?).into_owned())
         }
+        "html.encode.decimal" => DataValue::Text(
+            input
+                .as_text()?
+                .chars()
+                .map(|value| format!("&#{};", value as u32))
+                .collect(),
+        ),
+        "html.encode.hex" => DataValue::Text(
+            input
+                .as_text()?
+                .chars()
+                .map(|value| format!("&#x{:x};", value as u32))
+                .collect(),
+        ),
         "unicode.escape" => DataValue::Text(unicode_escape(input.as_text()?)),
         "unicode.unescape" => DataValue::Text(unicode_unescape(input.as_text()?)?),
         "json.pretty" => DataValue::Text(
@@ -420,10 +587,35 @@ pub fn run(id: &str, input: DataValue, args: &Value) -> Result<DataValue, String
         "entropy" => entropy(input.as_bytes()?),
         "strings.extract" => printable_strings(input.as_bytes()?, args)?,
         "length" => DataValue::Json(serde_json::json!({"bytes": input.as_bytes()?.len()})),
+        "bytes.index_of" => byte_index_of(input.as_bytes()?, args)?,
+        "bytes.count" => byte_count(input.as_bytes()?, args)?,
+        "bytes.to_latin1" => DataValue::Text(
+            input
+                .as_bytes()?
+                .iter()
+                .map(|byte| char::from(*byte))
+                .collect(),
+        ),
+        "bytes.from_latin1" => DataValue::Bytes(
+            input
+                .as_text()?
+                .chars()
+                .map(|value| (value as u32 & 0xff) as u8)
+                .collect(),
+        ),
+        "number.convert" => number_convert(input.as_text()?, args)?,
         "md5" => DataValue::Text(digest::<md5::Md5>(input.as_bytes()?)),
         "sha1" => DataValue::Text(digest::<sha1::Sha1>(input.as_bytes()?)),
+        "sha224" => DataValue::Text(digest::<sha2::Sha224>(input.as_bytes()?)),
         "sha256" => DataValue::Text(digest::<sha2::Sha256>(input.as_bytes()?)),
+        "sha384" => DataValue::Text(digest::<sha2::Sha384>(input.as_bytes()?)),
         "sha512" => DataValue::Text(digest::<sha2::Sha512>(input.as_bytes()?)),
+        "sha512_224" => DataValue::Text(digest::<sha2::Sha512_224>(input.as_bytes()?)),
+        "sha512_256" => DataValue::Text(digest::<sha2::Sha512_256>(input.as_bytes()?)),
+        "sha3_224" => DataValue::Text(digest::<sha3::Sha3_224>(input.as_bytes()?)),
+        "sha3_256" => DataValue::Text(digest::<sha3::Sha3_256>(input.as_bytes()?)),
+        "sha3_384" => DataValue::Text(digest::<sha3::Sha3_384>(input.as_bytes()?)),
+        "sha3_512" => DataValue::Text(digest::<sha3::Sha3_512>(input.as_bytes()?)),
         "blake3" => DataValue::Text(blake3::hash(input.as_bytes()?).to_hex().to_string()),
         "hmac.sha256" => hmac_sha256(input.as_bytes()?, key(args)?)?,
         "hmac.sha512" => hmac_sha512(input.as_bytes()?, key(args)?)?,
@@ -457,21 +649,97 @@ pub fn run(id: &str, input: DataValue, args: &Value) -> Result<DataValue, String
         "http.parse" => http_parse(input.as_bytes()?)?,
         "http.set_body" => http_set_body(input.as_bytes()?, args)?,
         "http.update_content_length" => http_update_content_length(input.as_bytes()?)?,
-        _ => return Err(format!("unknown utility operation: {id}")),
+        _ => return Err(format!("unknown operation: {id}")),
     };
     output.ensure_bounded("output")?;
     Ok(output)
 }
 
-pub fn run_recipe(value: DataValue, steps: &[(String, Value)]) -> Result<DataValue, String> {
-    let steps = steps
-        .iter()
-        .map(|(operation, args)| RecipeStep {
-            operation: operation.clone(),
-            args: args.clone(),
+fn mime_base64_encode(input: &[u8]) -> String {
+    let encoded = base64::engine::general_purpose::STANDARD.encode(input);
+    encoded
+        .as_bytes()
+        .chunks(76)
+        .map(String::from_utf8_lossy)
+        .collect::<Vec<_>>()
+        .join("\r\n")
+}
+
+fn percent_encode_all(input: &[u8]) -> String {
+    input.iter().map(|byte| format!("%{byte:02X}")).collect()
+}
+
+fn url_encode_selected(value: &str, preserve_slash: bool) -> String {
+    value
+        .bytes()
+        .map(|byte| {
+            let safe = byte.is_ascii_alphanumeric()
+                || b"-_.~".contains(&byte)
+                || (preserve_slash && byte == b'/');
+            if safe {
+                (byte as char).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
         })
-        .collect::<Vec<_>>();
-    utility_core::run_recipe(value, &steps, run)
+        .collect()
+}
+
+fn byte_search_term(args: &Value) -> Result<Vec<u8>, String> {
+    if let Some(value) = args.get("term").and_then(Value::as_str) {
+        return Ok(value.as_bytes().to_vec());
+    }
+    args.get("term_base64")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "operation requires 'term' or 'term_base64'".to_owned())
+        .and_then(|value| {
+            base64::engine::general_purpose::STANDARD
+                .decode(value)
+                .map_err(|error| error.to_string())
+        })
+}
+
+fn byte_index_of(data: &[u8], args: &Value) -> Result<DataValue, String> {
+    let term = byte_search_term(args)?;
+    let index = data
+        .windows(term.len())
+        .position(|window| window == term)
+        .map(|value| value as i64)
+        .unwrap_or(-1);
+    Ok(DataValue::Json(serde_json::json!({"index": index})))
+}
+
+fn byte_count(data: &[u8], args: &Value) -> Result<DataValue, String> {
+    let term = byte_search_term(args)?;
+    require_nonempty_bytes(&term)?;
+    Ok(DataValue::Json(
+        serde_json::json!({"count": data.windows(term.len()).filter(|window| *window == term.as_slice()).count()}),
+    ))
+}
+
+fn require_nonempty_bytes(value: &[u8]) -> Result<(), String> {
+    if value.is_empty() {
+        Err("search term must not be empty".to_owned())
+    } else {
+        Ok(())
+    }
+}
+
+fn number_convert(value: &str, args: &Value) -> Result<DataValue, String> {
+    let from = args
+        .get("from")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "number.convert requires 'from'".to_owned())?;
+    let to = args
+        .get("to")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "number.convert requires 'to'".to_owned())?;
+    if !matches!(from, 2 | 8 | 10 | 16) || !matches!(to, 2 | 8 | 10 | 16) {
+        return Err("number bases must be one of 2, 8, 10, or 16".to_owned());
+    }
+    let number = num_bigint::BigUint::parse_bytes(value.trim().as_bytes(), from as u32)
+        .ok_or_else(|| "invalid unsigned number".to_owned())?;
+    Ok(DataValue::Text(number.to_str_radix(to as u32)))
 }
 
 fn required_str<'a>(args: &'a Value, name: &str) -> Result<&'a str, String> {
@@ -1053,16 +1321,34 @@ mod tests {
         run(id, DataValue::Text(input.to_owned()), &args).unwrap()
     }
 
+    fn text_value(id: &str, input: &str, args: Value) -> String {
+        match run_text(id, input, args) {
+            DataValue::Text(value) => value,
+            other => panic!("expected text, got {other:?}"),
+        }
+    }
+
+    fn json_value(id: &str, input: &str, args: Value) -> Value {
+        match run_text(id, input, args) {
+            DataValue::Json(value) => value,
+            other => panic!("expected JSON, got {other:?}"),
+        }
+    }
+
     #[test]
     fn recipe_preserves_binary_without_utf8_loss() {
-        let value = run_recipe(
-            DataValue::Text("AP8=".to_owned()),
-            &[
-                ("base64.decode".to_owned(), Value::Null),
-                ("hex.encode".to_owned(), Value::Null),
-            ],
-        )
-        .unwrap();
+        let steps = [
+            utility_core::RecipeStep {
+                operation: "base64.decode".to_owned(),
+                args: Value::Null,
+            },
+            utility_core::RecipeStep {
+                operation: "hex.encode".to_owned(),
+                args: Value::Null,
+            },
+        ];
+        let value =
+            utility_core::run_recipe(DataValue::Text("AP8=".to_owned()), &steps, run).unwrap();
         assert_eq!(value, DataValue::Text("00ff".to_owned()));
     }
 
@@ -1077,6 +1363,38 @@ mod tests {
         assert_eq!(
             format!("output exceeds {MAX_UTILITY_INPUT_BYTES} bytes"),
             error
+        );
+    }
+    #[test]
+    fn montoya_style_utility_operations_cover_mime_bytes_and_number_bases() {
+        assert_eq!(
+            text_value("base64.mime.encode", "hello", Value::Null),
+            "aGVsbG8="
+        );
+        assert_eq!(
+            text_value("url.encode.all", "A B", Value::Null),
+            "%41%20%42"
+        );
+        assert_eq!(text_value("html.encode.hex", "A", Value::Null), "&#x41;");
+        assert_eq!(
+            text_value(
+                "number.convert",
+                "ff",
+                serde_json::json!({"from": 16, "to": 10})
+            ),
+            "255"
+        );
+        assert_eq!(
+            json_value(
+                "bytes.index_of",
+                "abcabc",
+                serde_json::json!({"term": "bc"})
+            )["index"],
+            1
+        );
+        assert_eq!(
+            json_value("bytes.count", "abcabc", serde_json::json!({"term": "bc"}))["count"],
+            2
         );
     }
 

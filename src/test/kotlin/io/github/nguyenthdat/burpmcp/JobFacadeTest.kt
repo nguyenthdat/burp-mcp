@@ -159,6 +159,29 @@ class JobFacadeTest {
         assertEquals(AuditJobOutput(2, 0, 0), result)
     }
     @Test
+    fun `inline fuzzer rejects malformed templates and absent markers`() {
+        assertFailsWith<IllegalArgumentException> {
+            validateInlineFuzzerInput("/only-a-path", "FUZZ", listOf("one"))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            validateInlineFuzzerInput("GET / HTTP/1.1\r\n\r\n", "FUZZ", listOf("one"))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            validateInlineFuzzerInput("GET /FUZZ HTTP/1.1\r\n\r\n", "", listOf("one"))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            validateInlineFuzzerInput("GET /unused HTTP/1.1\r\n\r\n", "FUZZ", listOf("one"))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            validateInlineFuzzerInput("GET /FUZZ HTTP/1.1\r\n\r\n", "FUZZ", emptyList())
+        }
+    }
+
+    @Test
+    fun `inline fuzzer counts every non-overlapping marker occurrence`() {
+        assertEquals(2, validateInlineFuzzerInput("GET /FUZZ?q=FUZZ HTTP/1.1\r\n\r\n", "FUZZ", listOf("one")))
+    }
+    @Test
     fun `proxy rule validation rejects invalid phase and action`() {
         assertFailsWith<IllegalArgumentException> {
             validateProxyRule(ProxyRule("r", "marker", "other", "forward", "", "", "", "", true))

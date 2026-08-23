@@ -96,6 +96,54 @@ enum Command {
         request: proto::SendToIntruderRequest,
         response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
     },
+    RegisterPayloadProcessor {
+        request: proto::RegisterPayloadProcessorRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
+    ListPayloadProcessors {
+        request: proto::ListPayloadProcessorsRequest,
+        response: oneshot::Sender<Result<proto::ListPayloadProcessorsResponse, ClientError>>,
+    },
+    RemovePayloadProcessor {
+        request: proto::RemovePayloadProcessorRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
+    RegisterPayloadGenerator {
+        request: proto::RegisterPayloadGeneratorRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
+    ListPayloadGenerators {
+        request: proto::ListPayloadGeneratorsRequest,
+        response: oneshot::Sender<Result<proto::ListPayloadGeneratorsResponse, ClientError>>,
+    },
+    RemovePayloadGenerator {
+        request: proto::RemovePayloadGeneratorRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
+    CreatePayloadList {
+        request: proto::CreatePayloadListRequest,
+        response: oneshot::Sender<Result<proto::PayloadListEntry, ClientError>>,
+    },
+    ImportPayloadList {
+        request: proto::ImportPayloadListRequest,
+        response: oneshot::Sender<Result<proto::PayloadListEntry, ClientError>>,
+    },
+    ListPayloadLists {
+        request: proto::ListPayloadListsRequest,
+        response: oneshot::Sender<Result<proto::ListPayloadListsResponse, ClientError>>,
+    },
+    GetPayloadList {
+        request: proto::GetPayloadListRequest,
+        response: oneshot::Sender<Result<proto::GetPayloadListResponse, ClientError>>,
+    },
+    UpdatePayloadList {
+        request: proto::UpdatePayloadListRequest,
+        response: oneshot::Sender<Result<proto::PayloadListEntry, ClientError>>,
+    },
+    DeletePayloadList {
+        request: proto::DeletePayloadListRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
     ExtensionInfo {
         request: proto::ExtensionInfoRequest,
         response: oneshot::Sender<Result<proto::ExtensionInfoResponse, ClientError>>,
@@ -390,6 +438,95 @@ impl BurpClient {
         request: proto::SendToIntruderRequest,
     ) -> Result<proto::ActionResponse, ClientError> {
         self.send(|response| Command::SendToIntruder { request, response })
+            .await
+    }
+    pub async fn register_payload_processor(
+        &self,
+        request: proto::RegisterPayloadProcessorRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::RegisterPayloadProcessor { request, response })
+            .await
+    }
+
+    pub async fn list_payload_processors(
+        &self,
+        request: proto::ListPayloadProcessorsRequest,
+    ) -> Result<proto::ListPayloadProcessorsResponse, ClientError> {
+        self.send(|response| Command::ListPayloadProcessors { request, response })
+            .await
+    }
+
+    pub async fn remove_payload_processor(
+        &self,
+        request: proto::RemovePayloadProcessorRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::RemovePayloadProcessor { request, response })
+            .await
+    }
+
+    pub async fn register_payload_generator(
+        &self,
+        request: proto::RegisterPayloadGeneratorRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::RegisterPayloadGenerator { request, response })
+            .await
+    }
+
+    pub async fn list_payload_generators(
+        &self,
+        request: proto::ListPayloadGeneratorsRequest,
+    ) -> Result<proto::ListPayloadGeneratorsResponse, ClientError> {
+        self.send(|response| Command::ListPayloadGenerators { request, response })
+            .await
+    }
+
+    pub async fn remove_payload_generator(
+        &self,
+        request: proto::RemovePayloadGeneratorRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::RemovePayloadGenerator { request, response })
+            .await
+    }
+    pub async fn create_payload_list(
+        &self,
+        request: proto::CreatePayloadListRequest,
+    ) -> Result<proto::PayloadListEntry, ClientError> {
+        self.send(|response| Command::CreatePayloadList { request, response })
+            .await
+    }
+    pub async fn import_payload_list(
+        &self,
+        request: proto::ImportPayloadListRequest,
+    ) -> Result<proto::PayloadListEntry, ClientError> {
+        self.send(|response| Command::ImportPayloadList { request, response })
+            .await
+    }
+    pub async fn list_payload_lists(
+        &self,
+        request: proto::ListPayloadListsRequest,
+    ) -> Result<proto::ListPayloadListsResponse, ClientError> {
+        self.send(|response| Command::ListPayloadLists { request, response })
+            .await
+    }
+    pub async fn get_payload_list(
+        &self,
+        request: proto::GetPayloadListRequest,
+    ) -> Result<proto::GetPayloadListResponse, ClientError> {
+        self.send(|response| Command::GetPayloadList { request, response })
+            .await
+    }
+    pub async fn update_payload_list(
+        &self,
+        request: proto::UpdatePayloadListRequest,
+    ) -> Result<proto::PayloadListEntry, ClientError> {
+        self.send(|response| Command::UpdatePayloadList { request, response })
+            .await
+    }
+    pub async fn delete_payload_list(
+        &self,
+        request: proto::DeletePayloadListRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::DeletePayloadList { request, response })
             .await
     }
 
@@ -970,6 +1107,126 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::RegisterPayloadProcessor { request, response } => {
+            let result = client
+                .register_payload_processor(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::ListPayloadProcessors { request, response } => {
+            let result = client
+                .list_payload_processors(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::RemovePayloadProcessor { request, response } => {
+            let result = client
+                .remove_payload_processor(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::RegisterPayloadGenerator { request, response } => {
+            let result = client
+                .register_payload_generator(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::ListPayloadGenerators { request, response } => {
+            let result = client
+                .list_payload_generators(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::RemovePayloadGenerator { request, response } => {
+            let result = client
+                .remove_payload_generator(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::CreatePayloadList { request, response } => {
+            let result = client
+                .create_payload_list(with_deadline(request, config.call_timeout))
+                .await
+                .map(|value| value.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::ImportPayloadList { request, response } => {
+            let result = client
+                .import_payload_list(with_deadline(request, config.call_timeout))
+                .await
+                .map(|value| value.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::ListPayloadLists { request, response } => {
+            let result = client
+                .list_payload_lists(with_deadline(request, config.call_timeout))
+                .await
+                .map(|value| value.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::GetPayloadList { request, response } => {
+            let result = client
+                .get_payload_list(with_deadline(request, config.call_timeout))
+                .await
+                .map(|value| value.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::UpdatePayloadList { request, response } => {
+            let result = client
+                .update_payload_list(with_deadline(request, config.call_timeout))
+                .await
+                .map(|value| value.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::DeletePayloadList { request, response } => {
+            let result = client
+                .delete_payload_list(with_deadline(request, config.call_timeout))
+                .await
+                .map(|value| value.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
         Command::ExtensionInfo { request, response } => {
             let result = client
                 .extension_info(with_deadline(request, config.call_timeout))
@@ -1445,6 +1702,42 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::SendToIntruder { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::RegisterPayloadProcessor { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ListPayloadProcessors { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::RemovePayloadProcessor { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::RegisterPayloadGenerator { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::CreatePayloadList { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ImportPayloadList { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ListPayloadLists { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::GetPayloadList { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::UpdatePayloadList { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::DeletePayloadList { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ListPayloadGenerators { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::RemovePayloadGenerator { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::ExtensionInfo { response, .. } => {

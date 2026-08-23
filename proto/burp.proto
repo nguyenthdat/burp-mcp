@@ -26,6 +26,18 @@ service BurpService {
   rpc ProxyInterceptConfig(ProxyInterceptConfigRequest) returns (ProxyInterceptConfigResponse);
   rpc ProxyWebSocketHistory(ProxyWebSocketHistoryRequest) returns (ProxyWebSocketHistoryResponse);
   rpc SendToIntruder(SendToIntruderRequest) returns (ActionResponse);
+  rpc RegisterPayloadProcessor(RegisterPayloadProcessorRequest) returns (ActionResponse);
+  rpc ListPayloadProcessors(ListPayloadProcessorsRequest) returns (ListPayloadProcessorsResponse);
+  rpc RemovePayloadProcessor(RemovePayloadProcessorRequest) returns (ActionResponse);
+  rpc RegisterPayloadGenerator(RegisterPayloadGeneratorRequest) returns (ActionResponse);
+  rpc ListPayloadGenerators(ListPayloadGeneratorsRequest) returns (ListPayloadGeneratorsResponse);
+  rpc RemovePayloadGenerator(RemovePayloadGeneratorRequest) returns (ActionResponse);
+  rpc CreatePayloadList(CreatePayloadListRequest) returns (PayloadListEntry);
+  rpc ImportPayloadList(ImportPayloadListRequest) returns (PayloadListEntry);
+  rpc ListPayloadLists(ListPayloadListsRequest) returns (ListPayloadListsResponse);
+  rpc GetPayloadList(GetPayloadListRequest) returns (GetPayloadListResponse);
+  rpc UpdatePayloadList(UpdatePayloadListRequest) returns (PayloadListEntry);
+  rpc DeletePayloadList(DeletePayloadListRequest) returns (ActionResponse);
   rpc ExtensionInfo(ExtensionInfoRequest) returns (ExtensionInfoResponse);
   rpc SendRequest(SendRequestRequest) returns (SendRequestResponse);
   rpc SendRequests(SendRequestsRequest) returns (SendRequestsResponse);
@@ -352,6 +364,79 @@ message ProxyRuleEntry {
 message ListProxyRulesRequest {}
 message ListProxyRulesResponse { repeated ProxyRuleEntry items = 1; }
 message ClearProxyRulesRequest { string id = 1; }
+message RegisterPayloadProcessorRequest {
+  string id = 1;
+  string display_name = 2;
+  string operation = 3;
+  string argument = 4;
+  string replacement = 5;
+}
+message ListPayloadProcessorsRequest {}
+message PayloadProcessorEntry {
+  string id = 1;
+  string display_name = 2;
+  string operation = 3;
+  bool registered = 4;
+}
+message ListPayloadProcessorsResponse { repeated PayloadProcessorEntry items = 1; }
+message RemovePayloadProcessorRequest { string id = 1; }
+message RegisterPayloadGeneratorRequest {
+  string id = 1;
+  string display_name = 2;
+  repeated string payloads = 3;
+  uint32 max_output_count = 4;
+  string payload_list_id = 5;
+  uint32 payload_offset = 6;
+}
+message ListPayloadGeneratorsRequest {}
+message PayloadGeneratorEntry {
+  string id = 1;
+  string display_name = 2;
+  uint32 payload_count = 3;
+  uint32 max_output_count = 4;
+  bool registered = 5;
+}
+message ListPayloadGeneratorsResponse { repeated PayloadGeneratorEntry items = 1; }
+message RemovePayloadGeneratorRequest { string id = 1; }
+message CreatePayloadListRequest {
+  string id = 1;
+  string display_name = 2;
+  repeated string payloads = 3;
+}
+message ImportPayloadListRequest {
+  string id = 1;
+  string display_name = 2;
+  string content = 3;
+  string format = 4;
+  bool keep_empty = 5;
+}
+message ListPayloadListsRequest {}
+message PayloadListEntry {
+  string id = 1;
+  string display_name = 2;
+  uint32 payload_count = 3;
+  uint64 size_bytes = 4;
+  string fingerprint = 5;
+}
+message ListPayloadListsResponse { repeated PayloadListEntry items = 1; }
+message GetPayloadListRequest {
+  string id = 1;
+  PageRequest page = 2;
+}
+message GetPayloadListResponse {
+  PayloadListEntry list = 1;
+  repeated string payloads = 2;
+  PageInfo page = 3;
+}
+message UpdatePayloadListRequest {
+  string id = 1;
+  string operation = 2;
+  repeated string payloads = 3;
+  uint32 index = 4;
+  repeated uint32 indexes = 5;
+  optional string display_name = 6;
+}
+message DeletePayloadListRequest { string id = 1; }
 message CreateSessionRuleRequest {
   string find = 1;
   string replacement = 2;
@@ -427,6 +512,8 @@ message StartBoundedInputMatrixRequest {
   bool https = 4;
   string marker = 5;
   repeated string inputs = 6;
+  string payload_list_id = 7;
+  uint32 payload_offset = 8;
 }
 message StartCrawlRequest { string url = 1; }
 message StartAuditRequest {
@@ -463,6 +550,8 @@ message JobResultResponse {
   uint32 error_count = 9;
   string error = 10;
   uint32 issue_count = 11;
+  uint32 substitution_count = 12;
+  string request_fingerprint = 13;
 }
 message GenerateCollaboratorPayloadsRequest { uint32 count = 1; }
 message GenerateCollaboratorPayloadsResponse { repeated string payloads = 1; }

@@ -153,6 +153,39 @@ class BurpRpcServerTest {
             }
         assertEquals(io.grpc.Status.Code.RESOURCE_EXHAUSTED, exception.status.code)
     }
+    @Test
+    fun `validation failures are returned as invalid argument`() {
+        val port = availablePort()
+        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server?.start()
+        channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
+        val client = BurpServiceGrpc.newBlockingStub(channel).withDeadlineAfter(5, TimeUnit.SECONDS)
+
+        val malformedCursor =
+            assertFailsWith<io.grpc.StatusRuntimeException> {
+                client.scanIssues(
+                    io.github.nguyenthdat.burpmcp.grpc.v1.ScanIssuesRequest.newBuilder()
+                        .setPage(io.github.nguyenthdat.burpmcp.grpc.v1.PageRequest.newBuilder().setCursor("invalid"))
+                        .build(),
+                )
+            }
+        assertEquals(io.grpc.Status.Code.INVALID_ARGUMENT, malformedCursor.status.code)
+        assertTrue(malformedCursor.status.description.orEmpty().contains("scanner cursor"))
+
+        val invalidIssue =
+            assertFailsWith<io.grpc.StatusRuntimeException> {
+                client.addIssue(
+                    io.github.nguyenthdat.burpmcp.grpc.v1.AddIssueRequest.newBuilder()
+                        .setName("probe")
+                        .setUrl("http://example.test/")
+                        .setSeverity("invalid")
+                        .setConfidence("certain")
+                        .build(),
+                )
+            }
+        assertEquals(io.grpc.Status.Code.INVALID_ARGUMENT, invalidIssue.status.code)
+        assertTrue(invalidIssue.status.description.orEmpty().contains("severity"))
+    }
 
     @Test
     fun `close releases listener and is idempotent`() {

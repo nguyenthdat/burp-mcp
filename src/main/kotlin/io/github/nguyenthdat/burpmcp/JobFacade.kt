@@ -29,6 +29,8 @@ internal data class HttpBatchJobOutput(
     val items: List<HttpJobItem>,
     val uniqueLengths: Int,
     val verdict: String,
+    val substitutionCount: Int = 0,
+    val requestFingerprint: String = "",
 ) : JobOutput {
     val requestCount: Int get() = items.size
 }

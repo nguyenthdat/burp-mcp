@@ -13,6 +13,8 @@ import burp.api.montoya.scanner.AuditConfiguration
 import burp.api.montoya.scanner.BuiltInAuditConfiguration
 import burp.api.montoya.scanner.CrawlConfiguration
 import java.net.URI
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -42,14 +44,21 @@ internal class LongOperationFacade(
     }
 
     fun startInlineFuzzer(template: String, host: String, port: Int, https: Boolean, marker: String, wordlist: List<String>): JobSnapshot {
-        require(wordlist.size <= 500) { "wordlist must contain at most 500 entries" }
+        val substitutionCount = validateInlineFuzzerInput(template, marker, wordlist)
+        val requestFingerprint = sha256(template.toByteArray(StandardCharsets.UTF_8))
         return jobs.start("bounded_input_matrix") {
             val service = HttpService.httpService(host, port, https)
             val items = wordlist.map { value ->
                 val response = api.http().sendRequest(HttpRequest.httpRequest(service, template.replace(marker, value))).response()
                 HttpJobItem(value, response?.statusCode()?.toInt(), response?.body()?.length()?.toInt())
             }
-            HttpBatchJobOutput(items, items.mapNotNull(HttpJobItem::length).toSet().size, "completed")
+            HttpBatchJobOutput(
+                items = items,
+                uniqueLengths = items.mapNotNull(HttpJobItem::length).toSet().size,
+                verdict = "completed",
+                substitutionCount = substitutionCount,
+                requestFingerprint = requestFingerprint,
+            )
         }
     }
 
@@ -122,6 +131,33 @@ internal class LongOperationFacade(
         return "${parsed.scheme}://${parsed.rawAuthority}"
     }
 }
+internal fun validateInlineFuzzerInput(template: String, marker: String, wordlist: List<String>): Int {
+    require(template.isNotBlank()) { "template must be a complete raw HTTP request" }
+    require(template.lineSequence().firstOrNull()?.matches(Regex("^[A-Z]+\\s+\\S+\\s+HTTP/\\d(?:\\.\\d)?$")) == true) {
+        "template must be a complete raw HTTP request with a request line such as GET / HTTP/1.1"
+    }
+    require(marker.isNotBlank()) { "marker must not be blank" }
+    require(wordlist.isNotEmpty()) { "wordlist must contain at least one entry" }
+    require(wordlist.size <= 500) { "wordlist must contain at most 500 entries" }
+    val substitutionCount = countMarkerOccurrences(template, marker)
+    require(substitutionCount > 0) { "template must contain marker at least once" }
+    return substitutionCount
+}
+private fun countMarkerOccurrences(template: String, marker: String): Int {
+    var count = 0
+    var start = 0
+    while (true) {
+        val index = template.indexOf(marker, start)
+        if (index < 0) return count
+        count++
+        start = index + marker.length
+    }
+}
+
+
+internal fun sha256(value: ByteArray): String =
+    MessageDigest.getInstance("SHA-256").digest(value).joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+
 
 internal fun awaitTaskCompletion(operation: String, snapshot: () -> TaskJobOutput, observedRequestCount: () -> Int = { 0 }, status: () -> String?, timeoutMillis: Long, stableMillis: Long, pollMillis: Long): TaskJobOutput =
     awaitScannerProgress(operation, snapshot, { output -> maxOf(output.requestCount, observedRequestCount()) }, { output, count -> output.copy(requestCount = count) }, status, timeoutMillis, stableMillis, pollMillis)
