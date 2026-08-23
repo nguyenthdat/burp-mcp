@@ -1293,7 +1293,8 @@ internal class BurpRpcService(
                             .setTruncated(end < output.items.size)
                             .setNextCursor(if (end < output.items.size) end.toString() else "")
                             .build(),
-                    ).setUniqueLengths(output.uniqueLengths)
+                    ).setRequestCount(output.requestCount)
+                    .setUniqueLengths(output.uniqueLengths)
                     .setVerdict(output.verdict)
             }
 

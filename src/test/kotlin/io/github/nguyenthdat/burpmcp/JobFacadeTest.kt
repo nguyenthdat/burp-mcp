@@ -98,6 +98,37 @@ class JobFacadeTest {
 
         assertEquals(TaskJobOutput(3, 0), result)
     }
+    @Test
+    fun `crawl falls back to observed scanner traffic when Montoya count remains zero`() {
+        val startedAt = System.nanoTime()
+        val result =
+            awaitTaskCompletion(
+                operation = "crawl",
+                snapshot = { TaskJobOutput(0, 0) },
+                observedRequestCount = {
+                    if (System.nanoTime() - startedAt > TimeUnit.MILLISECONDS.toNanos(5)) 1 else 0
+                },
+                status = { null },
+                timeoutMillis = 100,
+                stableMillis = 5,
+                pollMillis = 1,
+            )
+
+        assertEquals(TaskJobOutput(1, 0), result)
+    }
+    @Test
+    fun `HTTP batch request count equals executed items`() {
+        val output =
+            HttpBatchJobOutput(
+                items = listOf(HttpJobItem("one", 200, 1), HttpJobItem("two", 500, 2)),
+                uniqueLengths = 2,
+                verdict = "completed",
+            )
+
+        assertEquals(2, output.requestCount)
+    }
+
+
 
     private fun awaitTerminal(jobs: JobFacade, id: String): JobSnapshot {
         repeat(100) {

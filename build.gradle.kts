@@ -46,6 +46,7 @@ dependencies {
     implementation("io.grpc:grpc-protobuf:$grpcVersion")
     implementation("com.google.protobuf:protobuf-java:$protobufVersion")
     implementation("io.grpc:grpc-stub:$grpcVersion")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.20.1")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.20.1")
     compileOnly("org.apache.tomcat:annotations-api:6.0.53")
 

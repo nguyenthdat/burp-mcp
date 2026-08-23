@@ -1115,17 +1115,18 @@ impl BurpTools {
         )
     }
 
-    #[tool(name = "burp_scan", description = "Start a Burp passive audit job; active auditing is unsupported")]
+    #[tool(name = "burp_scan", description = "Start a bounded passive or legacy-active Burp audit job; active mode may be rejected by the installed Burp edition")]
     async fn scan(&self, Parameters(input): Parameters<AuditInput>) -> String {
-        match input.mode.as_deref().unwrap_or("active") {
-            "passive" => job_status_json(
-                self.client
-                    .start_audit(StartAuditRequest { url: input.url, active: false })
-                    .await,
-            ),
-            "active" => serde_json::json!({"error": "active scan is unsupported", "supported_modes": ["passive"]}).to_string(),
-            _ => serde_json::json!({"error": "mode must be passive or active"}).to_string(),
-        }
+        let active = match input.mode.as_deref().unwrap_or("passive") {
+            "passive" => false,
+            "active" => true,
+            _ => return serde_json::json!({"error": "mode must be passive or active"}).to_string(),
+        };
+        job_status_json(
+            self.client
+                .start_audit(StartAuditRequest { url: input.url, active })
+                .await,
+        )
     }
 
     #[tool(name = "burp_crawl", description = "Start a bounded Burp crawl job")]

@@ -3,6 +3,14 @@ package io.github.nguyenthdat.burpmcp
 import burp.api.montoya.MontoyaApi
 import burp.api.montoya.http.HttpService
 import burp.api.montoya.http.message.requests.HttpRequest
+import burp.api.montoya.core.ToolType
+import burp.api.montoya.http.handler.HttpHandler
+import burp.api.montoya.http.handler.HttpRequestToBeSent
+import burp.api.montoya.http.handler.HttpResponseReceived
+import burp.api.montoya.http.handler.RequestToBeSentAction
+import burp.api.montoya.http.handler.ResponseReceivedAction
+import java.net.URI
+import java.util.concurrent.atomic.AtomicInteger
 
 internal class LongOperationFacade(
     private val api: MontoyaApi,
@@ -50,19 +58,45 @@ internal class LongOperationFacade(
         require(url.isNotBlank()) { "url must not be blank" }
         return jobs.start("crawl") {
             api.scope().includeInScope(url)
-            val crawl =
-                api.scanner().startCrawl(
-                    burp.api.montoya.scanner.CrawlConfiguration.crawlConfiguration(url),
+            val observedRequestCount = AtomicInteger()
+            val origin = crawlOrigin(url)
+            val registration =
+                api.http().registerHttpHandler(
+                    object : HttpHandler {
+                        override fun handleHttpRequestToBeSent(requestToBeSent: HttpRequestToBeSent): RequestToBeSentAction {
+                            if (requestToBeSent.toolSource().isFromTool(ToolType.SCANNER) && requestToBeSent.url().startsWith(origin)) {
+                                observedRequestCount.incrementAndGet()
+                            }
+                            return RequestToBeSentAction.continueWith(requestToBeSent)
+                        }
+
+                        override fun handleHttpResponseReceived(responseReceived: HttpResponseReceived): ResponseReceivedAction =
+                            ResponseReceivedAction.continueWith(responseReceived)
+                    },
                 )
-            awaitTaskCompletion(
-                operation = "crawl",
-                snapshot = { TaskJobOutput(crawl.requestCount(), crawl.errorCount()) },
-                status = { runCatching { crawl.statusMessage() }.getOrNull() },
-                timeoutMillis = taskTimeoutMillis,
-                stableMillis = taskStableMillis,
-                pollMillis = taskPollMillis,
-            )
+            try {
+                val crawl =
+                    api.scanner().startCrawl(
+                        burp.api.montoya.scanner.CrawlConfiguration.crawlConfiguration(url),
+                    )
+                awaitTaskCompletion(
+                    operation = "crawl",
+                    snapshot = { TaskJobOutput(crawl.requestCount(), crawl.errorCount()) },
+                    observedRequestCount = observedRequestCount::get,
+                    status = { runCatching { crawl.statusMessage() }.getOrNull() },
+                    timeoutMillis = taskTimeoutMillis,
+                    stableMillis = taskStableMillis,
+                    pollMillis = taskPollMillis,
+                )
+            } finally {
+                registration.deregister()
+            }
         }
+    }
+
+    private fun crawlOrigin(url: String): String {
+        val parsed = URI(url)
+        return "${parsed.scheme}://${parsed.rawAuthority}"
     }
     fun startAudit(url: String, active: Boolean): JobSnapshot {
         require(url.isNotBlank()) { "url must not be blank" }
@@ -93,12 +127,22 @@ internal class LongOperationFacade(
 internal fun awaitTaskCompletion(
     operation: String,
     snapshot: () -> TaskJobOutput,
+    observedRequestCount: () -> Int = { 0 },
     status: () -> String?,
     timeoutMillis: Long,
     stableMillis: Long,
     pollMillis: Long,
 ): TaskJobOutput =
-    awaitScannerProgress(operation, snapshot, TaskJobOutput::requestCount, status, timeoutMillis, stableMillis, pollMillis)
+    awaitScannerProgress(
+        operation,
+        snapshot,
+        { output -> maxOf(output.requestCount, observedRequestCount()) },
+        { output, effectiveRequestCount -> output.copy(requestCount = effectiveRequestCount) },
+        status,
+        timeoutMillis,
+        stableMillis,
+        pollMillis,
+    )
 
 internal fun awaitAuditCompletion(
     snapshot: () -> AuditJobOutput,
@@ -107,12 +151,22 @@ internal fun awaitAuditCompletion(
     stableMillis: Long,
     pollMillis: Long,
 ): AuditJobOutput =
-    awaitScannerProgress("scanner audit", snapshot, AuditJobOutput::requestCount, status, timeoutMillis, stableMillis, pollMillis)
+    awaitScannerProgress(
+        "scanner audit",
+        snapshot,
+        AuditJobOutput::requestCount,
+        { output, _ -> output },
+        status,
+        timeoutMillis,
+        stableMillis,
+        pollMillis,
+    )
 
 private fun <T> awaitScannerProgress(
     operation: String,
     snapshot: () -> T,
     requestCount: (T) -> Int,
+    withRequestCount: (T, Int) -> T,
     status: () -> String?,
     timeoutMillis: Long,
     stableMillis: Long,
@@ -133,9 +187,12 @@ private fun <T> awaitScannerProgress(
             last = current
             changedAt = now
         }
-        if (requestCount(current) > 0 && now - changedAt >= stableNanos) return current
+        val effectiveRequestCount = requestCount(current)
+        if (effectiveRequestCount > 0 && now - changedAt >= stableNanos) {
+            return withRequestCount(current, effectiveRequestCount)
+        }
         if (now - started >= timeoutNanos) {
-            error(if (requestCount(current) == 0) "$operation issued no requests before timeout" else "$operation did not settle before timeout")
+            error(if (effectiveRequestCount == 0) "$operation issued no requests before timeout" else "$operation did not settle before timeout")
         }
         Thread.sleep(pollMillis)
     }
