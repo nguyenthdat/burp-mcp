@@ -47,6 +47,8 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.RunMacroItem
 import io.github.nguyenthdat.burpmcp.grpc.v1.RunMacroRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.RunMacroResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ExtensionInfoRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.GenerateScannerReportRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.GenerateScannerReportResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ExtensionInfoResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptStateRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptStateResponse
@@ -59,6 +61,7 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketHistoryResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ManagedWebSocketHistoryRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ManagedWebSocketHistoryResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ManagedWebSocketMessageEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.InspectConfigResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ListProxyRulesRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ListProxyRulesResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyRuleEntry
@@ -390,7 +393,7 @@ internal class BurpRpcService(
                     }
                     else -> request.page.limit.toInt()
                 }
-            val offset = request.page.cursor.toIntOrNull()?.coerceAtLeast(0) ?: 0
+            val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "proxy history cursor")
             val page =
                 proxyFacade.history(
                     ProxyHistoryQuery(
@@ -472,7 +475,7 @@ internal class BurpRpcService(
     ) {
         val limit =
             when {
-                !request.hasPage() || request.page.limit == 0 -> 100
+                !request.hasPage() || request.page.limit == 0 -> 200
                 request.page.limit > GRPC_MAX_PAGE_SIZE -> {
                     responseObserver.onError(
                         structuredStatus(Status.INVALID_ARGUMENT, ErrorCode.ERROR_CODE_INVALID_ARGUMENT, "page limit must be at most $GRPC_MAX_PAGE_SIZE"),
@@ -481,7 +484,7 @@ internal class BurpRpcService(
                 }
                 else -> request.page.limit.toInt()
             }
-        val offset = request.page.cursor.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "sitemap cursor")
         val page = sitemapFacade.snapshot(SitemapQuery(request.urlPrefix, limit, offset))
         val response = SitemapSnapshotResponse.newBuilder()
         var boundedEnd = page.offset
@@ -563,7 +566,7 @@ internal class BurpRpcService(
                 }
                 else -> request.page.limit.toInt()
             }
-        val offset = request.page.cursor.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "scanner cursor")
         val page = scannerFacade.issues(ScanIssueQuery(limit, offset))
         val response =
             ScanIssuesResponse
@@ -623,6 +626,27 @@ internal class BurpRpcService(
             request.confidence,
         )
         responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("issue added").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun generateScannerReport(
+        request: GenerateScannerReportRequest,
+        responseObserver: StreamObserver<GenerateScannerReportResponse>,
+    ) {
+        val report =
+            scannerFacade.generateReport(
+                format = request.format,
+                path = request.path,
+                issueIndexes = request.issueIndexesList.map { it.toInt() },
+            )
+        responseObserver.onNext(
+            GenerateScannerReportResponse.newBuilder()
+                .setPath(report.path)
+                .setFormat(report.format)
+                .setIssueCount(report.issueCount)
+                .setSizeBytes(report.sizeBytes)
+                .build(),
+        )
         responseObserver.onCompleted()
     }
 
@@ -715,7 +739,6 @@ internal class BurpRpcService(
             ProxyInterceptConfigResponse.newBuilder()
                 .setMasterInterceptEnabled(config.masterInterceptEnabled)
                 .setRequestDoIntercept(config.requestDoIntercept)
-                .setRequestAutoContentLength(config.requestAutoContentLength)
                 .setRequestFixMissingNewLines(config.requestFixMissingNewLines)
                 .setResponseDoIntercept(config.responseDoIntercept)
                 .setResponseAutoContentLength(config.responseAutoContentLength)
@@ -739,7 +762,7 @@ internal class BurpRpcService(
         responseObserver: StreamObserver<ProxyWebSocketHistoryResponse>,
     ) {
         val limit = if (!request.hasPage() || request.page.limit == 0) 50 else request.page.limit.coerceAtMost(GRPC_MAX_PAGE_SIZE)
-        val offset = if (request.hasPage()) request.page.cursor.toIntOrNull() ?: 0 else 0
+        val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "WebSocket cursor")
         val page = proxyFacade.webSocketHistory(limit, offset)
         val end = page.offset + page.items.size
         responseObserver.onNext(
@@ -858,6 +881,21 @@ internal class BurpRpcService(
     ) {
         annotationFacade.annotate(request.index, request.note)
         responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("note updated").build())
+        responseObserver.onCompleted()
+    }
+
+    override fun inspectConfig(
+        request: ExportConfigRequest,
+        responseObserver: StreamObserver<InspectConfigResponse>,
+    ) {
+        val inspection = configFacade.inspect(request.pathsList)
+        responseObserver.onNext(
+            InspectConfigResponse.newBuilder()
+                .setConfig(inspection.config)
+                .addAllPaths(inspection.paths)
+                .setSizeBytes(inspection.sizeBytes)
+                .build(),
+        )
         responseObserver.onCompleted()
     }
 
@@ -1163,7 +1201,7 @@ internal class BurpRpcService(
             return
         }
         val limit = request.page.limit.toInt().takeIf { it > 0 }?.coerceAtMost(GRPC_MAX_PAGE_SIZE) ?: GRPC_DEFAULT_PAGE_SIZE
-        val offset = request.page.cursor.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val offset = parseCursor(request.page.cursor, "job result cursor")
         responseObserver.onNext(snapshot.toResultProto(offset, limit))
         responseObserver.onCompleted()
     }
@@ -1183,7 +1221,7 @@ internal class BurpRpcService(
     ) {
         val items = collaboratorFacade.interactions()
         val limit = request.page.limit.toInt().takeIf { it > 0 }?.coerceAtMost(GRPC_MAX_PAGE_SIZE) ?: GRPC_DEFAULT_PAGE_SIZE
-        val offset = request.page.cursor.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val offset = parseCursor(request.page.cursor, "Collaborator cursor")
         val end = minOf(offset + limit, items.size)
         val pageItems = if (offset >= items.size) emptyList() else items.subList(offset, end)
         responseObserver.onNext(
@@ -1235,7 +1273,7 @@ internal class BurpRpcService(
         responseObserver: StreamObserver<ManagedWebSocketHistoryResponse>,
     ) {
         val limit = request.page.limit.toInt().takeIf { it > 0 }?.coerceAtMost(GRPC_MAX_PAGE_SIZE) ?: GRPC_DEFAULT_PAGE_SIZE
-        val offset = request.page.cursor.toIntOrNull()?.coerceAtLeast(0) ?: 0
+        val offset = parseCursor(request.page.cursor, "managed WebSocket cursor")
         val page = webSocketFacade.history(request.id.takeIf(String::isNotEmpty), offset, limit)
         val end = page.offset + page.items.size
         responseObserver.onNext(
@@ -1327,6 +1365,13 @@ internal class BurpRpcService(
         burpVersion?.name()?.let(builder::setBurpName)
         responseObserver.onNext(builder.build())
         responseObserver.onCompleted()
+    }
+
+    private fun parseCursor(cursor: String, field: String): Int {
+        if (cursor.isBlank()) return 0
+        val parsed = cursor.toIntOrNull()
+        require(parsed != null && parsed >= 0) { "$field must be a non-negative decimal offset" }
+        return parsed
     }
 
     private fun SendRequestRequest.toSpec(): HttpRequestSpec =

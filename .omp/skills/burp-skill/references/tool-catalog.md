@@ -31,6 +31,7 @@ Fields ending in `?` are optional. `{}` means no arguments.
 | `burp_extension_info` | `{}` | Extension filename, BApp status, and process arguments. |
 | `burp_export_config` | `{}` | Export project configuration JSON. |
 | `burp_import_config` | `{config}` | Import project configuration JSON; project-wide mutation. |
+| `burp_inspect_config` | `{paths?}` | Export scoped project options with discovered leaf paths and UTF-8 size before import. |
 
 ## Scope, target, and site map
 
@@ -94,6 +95,9 @@ For a raw request, keep `Host`, path, body framing, target host, port, and
 | `burp_scan_issues` | `{limit?, cursor?}` | Page through Scanner issues. |
 | `burp_scan_issue_detail` | `{index}` | Read complete details for one issue index. |
 | `burp_add_issue` | `{name, url, detail?, remediation?, severity?, confidence?}` | Persist one validated typed issue in Burp. |
+| `burp_scanner_generate_report` | `{format, path, issue_indexes?}` | Generate an HTML or XML Scanner report. Omit indexes for all issues; destination must not exist. |
+
+Scanner reports and scoped configuration inspection are native Montoya-backed operations. Native Dashboard task enumeration/resource pools, Logger, Sequencer, Repeater/Intruder execution results, Session UI CRUD, Proxy listener/TLS configuration, and pending Intercept-editor message control remain outside the stable Montoya surface; do not represent lower-level HTTP wrappers as equivalents.
 
 ## Collaborator
 

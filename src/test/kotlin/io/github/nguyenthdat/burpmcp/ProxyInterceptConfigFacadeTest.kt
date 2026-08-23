@@ -63,6 +63,30 @@ class ProxyInterceptConfigFacadeTest {
         assertEquals(0, state.imports())
     }
 
+    @Test
+    fun `rejects unsupported Proxy filter types and relationships`() {
+        val state = fakeState()
+        val facade = ProxyInterceptConfigFacade(state.api)
+
+        assertFailsWith<IllegalArgumentException> {
+            facade.update(
+                ProxyInterceptConfigPatch(
+                    responseRules = listOf(ProxyInterceptRuleConfig(true, "and", "invalid", "matches", "x")),
+                    replaceResponseRules = true,
+                ),
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            facade.update(
+                ProxyInterceptConfigPatch(
+                    responseRules = listOf(ProxyInterceptRuleConfig(true, "and", "status_code", "was_modified", "")),
+                    replaceResponseRules = true,
+                ),
+            )
+        }
+        assertEquals(0, state.imports())
+    }
+
     private data class FakeState(
         val api: MontoyaApi,
         val imports: () -> Int,

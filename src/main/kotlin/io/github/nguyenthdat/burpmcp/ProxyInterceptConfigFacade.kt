@@ -164,15 +164,42 @@ internal class ProxyInterceptConfigFacade(
     private fun validate(patch: ProxyInterceptConfigPatch) {
         if (patch.requestRules.isNotEmpty()) require(patch.replaceRequestRules) { "request_rules requires replace_request_rules=true" }
         if (patch.responseRules.isNotEmpty()) require(patch.replaceResponseRules) { "response_rules requires replace_response_rules=true" }
-        (patch.requestRules + patch.responseRules).forEach { rule ->
-            require(rule.booleanOperator in BOOLEAN_OPERATORS) { "boolean_operator must be and or or" }
-            require(rule.matchType.isNotBlank()) { "match_type must not be blank" }
-            require(rule.matchRelationship.isNotBlank()) { "match_relationship must not be blank" }
+        patch.requestRules.forEach { rule -> validateRule(rule, REQUEST_RULE_RELATIONSHIPS) }
+        patch.responseRules.forEach { rule -> validateRule(rule, RESPONSE_RULE_RELATIONSHIPS) }
+    }
+
+    private fun validateRule(
+        rule: ProxyInterceptRuleConfig,
+        supported: Map<String, Set<String>>,
+    ) {
+        require(rule.booleanOperator in BOOLEAN_OPERATORS) { "boolean_operator must be and or or" }
+        val relationships = supported[rule.matchType]
+        requireNotNull(relationships) { "unsupported match_type: ${rule.matchType}" }
+        require(rule.matchRelationship in relationships) {
+            "unsupported match_relationship '${rule.matchRelationship}' for match_type '${rule.matchType}'"
+        }
+        if (rule.matchRelationship in RELATIONSHIPS_REQUIRING_CONDITION) {
+            require(rule.matchCondition.isNotEmpty()) { "match_condition must not be empty" }
         }
     }
 
     private companion object {
         const val PROXY_CONFIG_PATH = "proxy"
         val BOOLEAN_OPERATORS = setOf("and", "or")
+        val RELATIONSHIPS_REQUIRING_CONDITION = setOf("matches", "does_not_match", "contains", "does_not_contain")
+        val REQUEST_RULE_RELATIONSHIPS =
+            mapOf(
+                "file_extension" to setOf("matches", "does_not_match"),
+                "request" to setOf("contains_parameters"),
+                "http_method" to setOf("matches", "does_not_match"),
+                "url" to setOf("matches", "does_not_match", "contains", "does_not_contain", "is_in_target_scope"),
+            )
+        val RESPONSE_RULE_RELATIONSHIPS =
+            mapOf(
+                "content_type_header" to setOf("matches", "does_not_match"),
+                "request" to setOf("was_modified", "was_intercepted"),
+                "status_code" to setOf("matches", "does_not_match"),
+                "url" to setOf("matches", "does_not_match", "contains", "does_not_contain", "is_in_target_scope"),
+            )
     }
 }

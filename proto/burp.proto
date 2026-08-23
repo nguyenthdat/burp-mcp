@@ -21,6 +21,7 @@ service BurpService {
   rpc SetCookie(SetCookieRequest) returns (ActionResponse);
   rpc AddIssue(AddIssueRequest) returns (ActionResponse);
   rpc ScanIssueDetail(ScanIssueDetailRequest) returns (ScanIssueEntry);
+  rpc GenerateScannerReport(GenerateScannerReportRequest) returns (GenerateScannerReportResponse);
   rpc InterceptState(InterceptStateRequest) returns (InterceptStateResponse);
   rpc ProxyInterceptConfig(ProxyInterceptConfigRequest) returns (ProxyInterceptConfigResponse);
   rpc ProxyWebSocketHistory(ProxyWebSocketHistoryRequest) returns (ProxyWebSocketHistoryResponse);
@@ -36,6 +37,7 @@ service BurpService {
   rpc ImportConfig(ImportConfigRequest) returns (ActionResponse);
   rpc RegisterHttpHandler(RegisterHttpHandlerRequest) returns (ActionResponse);
   rpc ClearHttpHandler(ClearHttpHandlerRequest) returns (ActionResponse);
+  rpc InspectConfig(ExportConfigRequest) returns (InspectConfigResponse);
   rpc RegisterProxyRule(RegisterProxyRuleRequest) returns (ActionResponse);
   rpc ClearProxyRules(ClearProxyRulesRequest) returns (ActionResponse);
   rpc CreateSessionRule(CreateSessionRuleRequest) returns (ActionResponse);
@@ -175,6 +177,17 @@ message AddIssueRequest {
 }
 message ScanIssueDetailRequest { uint32 index = 1; }
 message InterceptStateRequest { optional bool enabled = 1; }
+message GenerateScannerReportRequest {
+  string format = 1;
+  string path = 2;
+  repeated uint32 issue_indexes = 3;
+}
+message GenerateScannerReportResponse {
+  string path = 1;
+  string format = 2;
+  uint32 issue_count = 3;
+  uint64 size_bytes = 4;
+}
 message InterceptStateResponse { bool enabled = 1; }
 message ProxyInterceptConfigRequest {
   optional bool master_intercept_enabled = 1;
@@ -301,6 +314,11 @@ message MutateScopeRequest {
 }
 message ExportConfigRequest { repeated string paths = 1; }
 message ConfigResponse { string config = 1; }
+message InspectConfigResponse {
+  string config = 1;
+  repeated string paths = 2;
+  uint32 size_bytes = 3;
+}
 message ImportConfigRequest { string config = 1; }
 message RegisterHttpHandlerRequest {
   string header_name = 1;

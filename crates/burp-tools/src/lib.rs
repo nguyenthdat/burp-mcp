@@ -3,11 +3,12 @@ use burp_protocol::proto::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
     CloseWebSocketRequest, ConfigResponse, CookieJarRequest, CreateMacroRequest,
     CreateSessionRuleRequest, CreateWebSocketRequest, ExportConfigRequest, ExtensionInfoRequest,
-    GenerateCollaboratorPayloadsRequest, GetJobResultRequest, GetJobStatusRequest, HttpHeaderEntry,
-    ImportBCheckRequest, ImportBambdaRequest, ImportConfigRequest, InterceptStateRequest,
-    ListMacrosRequest, ListProxyRulesRequest, ListSessionRulesRequest, ListWebSocketsRequest,
-    MacroDefinition, MacroItem, MacroParameter, ManagedWebSocketHistoryRequest, MutateScopeRequest,
-    PageRequest, PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
+    GenerateCollaboratorPayloadsRequest, GenerateScannerReportRequest, GetJobResultRequest,
+    GetJobStatusRequest, HttpHeaderEntry, ImportBCheckRequest, ImportBambdaRequest,
+    ImportConfigRequest, InterceptStateRequest, ListMacrosRequest, ListProxyRulesRequest,
+    ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition, MacroItem, MacroParameter,
+    ManagedWebSocketHistoryRequest, MutateScopeRequest, PageRequest,
+    PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
     ProxyInterceptConfigRequest, ProxyInterceptRule, ProxyWebSocketHistoryRequest,
     RegisterHttpHandlerRequest, RegisterProxyRuleRequest, RemoveMacroRequest,
     RemoveSessionRulesRequest, RunMacroRequest, ScanIssueDetailRequest, ScanIssuesRequest,
@@ -328,6 +329,13 @@ pub struct HighlightInput {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GenerateScannerReportInput {
+    pub format: String,
+    pub path: String,
+    pub issue_indexes: Option<Vec<u32>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct AnnotateInput {
     pub index: u32,
     pub note: String,
@@ -347,6 +355,11 @@ pub struct RegisterHttpHandlerInput {
     #[serde(rename = "match")]
     pub match_text: Option<String>,
     pub replace: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct InspectConfigInput {
+    pub paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -968,7 +981,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_import_config",
-        description = "Import Burp project configuration from JSON"
+        description = "Import validated, size-bounded Burp project configuration JSON"
     )]
     async fn import_config(&self, Parameters(input): Parameters<ImportConfigInput>) -> String {
         match self
@@ -987,8 +1000,30 @@ impl BurpTools {
     }
 
     #[tool(
+        name = "burp_inspect_config",
+        description = "Export scoped Burp project options and return discovered leaf paths and UTF-8 size"
+    )]
+    async fn inspect_config(&self, Parameters(input): Parameters<InspectConfigInput>) -> String {
+        match self
+            .client
+            .inspect_config(ExportConfigRequest {
+                paths: input.paths.unwrap_or_default(),
+            })
+            .await
+        {
+            Ok(response) => serde_json::json!({
+                "config": response.config,
+                "paths": response.paths,
+                "size_bytes": response.size_bytes,
+            })
+            .to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
         name = "burp_register_http_handler",
-        description = "Register an auto-modify rule for HTTP requests (add header or replace text)"
+        description = "Register a bounded HTTP request handler rule"
     )]
     async fn register_http_handler(
         &self,
@@ -1756,6 +1791,34 @@ impl BurpTools {
                 })
                 .await,
         )
+    }
+
+    #[tool(
+        name = "burp_scanner_generate_report",
+        description = "Generate an HTML or XML Burp Scanner report for selected issue indexes, or all issues when omitted"
+    )]
+    async fn scanner_generate_report(
+        &self,
+        Parameters(input): Parameters<GenerateScannerReportInput>,
+    ) -> String {
+        match self
+            .client
+            .generate_scanner_report(GenerateScannerReportRequest {
+                format: input.format,
+                path: input.path,
+                issue_indexes: input.issue_indexes.unwrap_or_default(),
+            })
+            .await
+        {
+            Ok(report) => serde_json::json!({
+                "path": report.path,
+                "format": report.format,
+                "issue_count": report.issue_count,
+                "size_bytes": report.size_bytes,
+            })
+            .to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
     }
 
     #[tool(
@@ -2605,6 +2668,8 @@ mod contract_tests {
                         | "burp_macro_run"
                         | "burp_proxy_intercept_config"
                         | "burp_list_proxy_rules"
+                        | "burp_inspect_config"
+                        | "burp_scanner_generate_report"
                         | "burp_scan_issues"
                         | "burp_websocket_history"
                         | "decoder"

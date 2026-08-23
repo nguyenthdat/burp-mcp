@@ -20,14 +20,10 @@ internal class CookieFacade(
 ) {
     fun cookies(query: CookieQuery): List<CookieItem> {
         require(query.limit in 0..500) { "limit must be between 0 and 500" }
-        return api
-            .http()
-            .cookieJar()
-            .cookies()
-            .asSequence()
-            .filter { cookie ->
-                query.domain == null || cookie.domain()?.contains(query.domain, ignoreCase = true) == true
-            }.take(query.limit)
+        val requestedDomain = query.domain?.trim()?.lowercase()
+        return api.http().cookieJar().cookies().asSequence()
+            .filter { cookie -> requestedDomain == null || cookie.domain()?.trim()?.lowercase() == requestedDomain }
+            .take(query.limit)
             .map { cookie ->
                 CookieItem(
                     name = cookie.name(),
@@ -36,16 +32,11 @@ internal class CookieFacade(
                     path = cookie.path(),
                     expiration = cookie.expiration().map { it.toString() }.orElse(null),
                 )
-            }.toList()
+            }
+            .toList()
     }
 
-    fun setCookie(
-        name: String,
-        value: String,
-        domain: String,
-        path: String,
-        expiration: String?,
-    ) {
+    fun setCookie(name: String, value: String, domain: String, path: String, expiration: String?) {
         require(name.isNotBlank()) { "cookie name must not be blank" }
         require(domain.isNotBlank()) { "cookie domain must not be blank" }
         require(path.startsWith('/')) { "cookie path must start with '/'" }

@@ -76,6 +76,10 @@ enum Command {
         request: proto::ScanIssueDetailRequest,
         response: oneshot::Sender<Result<proto::ScanIssueEntry, ClientError>>,
     },
+    GenerateScannerReport {
+        request: proto::GenerateScannerReportRequest,
+        response: oneshot::Sender<Result<proto::GenerateScannerReportResponse, ClientError>>,
+    },
     InterceptState {
         request: proto::InterceptStateRequest,
         response: oneshot::Sender<Result<proto::InterceptStateResponse, ClientError>>,
@@ -123,6 +127,10 @@ enum Command {
     MutateScope {
         request: proto::MutateScopeRequest,
         response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
+    InspectConfig {
+        request: proto::ExportConfigRequest,
+        response: oneshot::Sender<Result<proto::InspectConfigResponse, ClientError>>,
     },
     ExportConfig {
         request: proto::ExportConfigRequest,
@@ -346,6 +354,13 @@ impl BurpClient {
         self.send(|response| Command::ScanIssueDetail { request, response })
             .await
     }
+    pub async fn generate_scanner_report(
+        &self,
+        request: proto::GenerateScannerReportRequest,
+    ) -> Result<proto::GenerateScannerReportResponse, ClientError> {
+        self.send(|response| Command::GenerateScannerReport { request, response })
+            .await
+    }
 
     pub async fn intercept_state(
         &self,
@@ -438,6 +453,13 @@ impl BurpClient {
         request: proto::MutateScopeRequest,
     ) -> Result<proto::ActionResponse, ClientError> {
         self.send(|response| Command::MutateScope { request, response })
+            .await
+    }
+    pub async fn inspect_config(
+        &self,
+        request: proto::ExportConfigRequest,
+    ) -> Result<proto::InspectConfigResponse, ClientError> {
+        self.send(|response| Command::InspectConfig { request, response })
             .await
     }
     pub async fn export_config(
@@ -898,6 +920,16 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::GenerateScannerReport { request, response } => {
+            let result = client
+                .generate_scanner_report(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
         Command::InterceptState { request, response } => {
             let result = client
                 .intercept_state(with_deadline(request, config.call_timeout))
@@ -991,6 +1023,16 @@ async fn execute(
         Command::SetHighlight { request, response } => {
             let result = client
                 .set_highlight(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::InspectConfig { request, response } => {
+            let result = client
+                .inspect_config(with_deadline(request, config.call_timeout))
                 .await
                 .map(|response| response.into_inner())
                 .map_err(ClientError::Rpc);
@@ -1393,6 +1435,9 @@ fn respond_offline(command: Command) {
         Command::InterceptState { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
+        Command::GenerateScannerReport { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
         Command::ProxyInterceptConfig { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
@@ -1433,6 +1478,9 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::ClearProxyRules { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::InspectConfig { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::CreateSessionRule { response, .. } => {

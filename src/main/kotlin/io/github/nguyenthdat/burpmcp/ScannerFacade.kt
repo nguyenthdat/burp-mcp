@@ -1,6 +1,8 @@
 package io.github.nguyenthdat.burpmcp
 
 import burp.api.montoya.MontoyaApi
+import java.nio.file.Files
+import java.nio.file.Path
 
 internal data class ScanIssueQuery(
     val limit: Int = 50,
@@ -22,6 +24,13 @@ internal data class ScanIssuePage(
     val offset: Int,
 )
 
+internal data class ScannerReportResult(
+    val path: String,
+    val format: String,
+    val issueCount: Int,
+    val sizeBytes: Long,
+)
+
 internal class ScannerFacade(
     private val api: MontoyaApi,
 ) {
@@ -34,14 +43,13 @@ internal class ScannerFacade(
                 .drop(query.offset)
                 .take(query.limit)
                 .mapIndexed { position, issue ->
-                    val detail = issue.detail().orEmpty()
                     ScanIssueItem(
                         index = query.offset + position,
                         name = issue.name(),
                         severity = issue.severity().name,
                         confidence = issue.confidence().name,
                         url = issue.baseUrl(),
-                        detail = detail.take(200),
+                        detail = issue.detail().orEmpty().take(200),
                     )
                 }
         return ScanIssuePage(items, issues.size, query.offset.coerceAtMost(issues.size))
@@ -69,25 +77,73 @@ internal class ScannerFacade(
         confidence: String,
     ) {
         require(name.isNotBlank()) { "issue name must not be blank" }
-        require(url.isNotBlank()) { "issue URL must not be blank" }
-        val parsedSeverity = runCatching {
-            burp.api.montoya.scanner.audit.issues.AuditIssueSeverity.valueOf(severity.uppercase())
-        }.getOrDefault(burp.api.montoya.scanner.audit.issues.AuditIssueSeverity.INFORMATION)
-        val parsedConfidence = runCatching {
-            burp.api.montoya.scanner.audit.issues.AuditIssueConfidence.valueOf(confidence.uppercase())
-        }.getOrDefault(burp.api.montoya.scanner.audit.issues.AuditIssueConfidence.TENTATIVE)
-        api.siteMap().add(
+        require(url.isNotBlank()) { "issue url must not be blank" }
+        val normalizedSeverity = severity.trim().uppercase()
+        val normalizedConfidence = confidence.trim().uppercase()
+        require(normalizedSeverity in SEVERITIES) { "severity must be high, medium, low, information, or false_positive" }
+        require(normalizedConfidence in CONFIDENCES) { "confidence must be certain, firm, or tentative" }
+        val issue =
             burp.api.montoya.scanner.audit.issues.AuditIssue.auditIssue(
                 name,
                 detail,
                 remediation,
                 url,
-                parsedSeverity,
-                parsedConfidence,
-                "",
-                "",
-                parsedSeverity,
-            ),
+                burp.api.montoya.scanner.audit.issues.AuditIssueSeverity.valueOf(normalizedSeverity),
+                burp.api.montoya.scanner.audit.issues.AuditIssueConfidence.valueOf(normalizedConfidence),
+                null,
+                null,
+                burp.api.montoya.scanner.audit.issues.AuditIssueSeverity.valueOf(normalizedSeverity),
+                burp.api.montoya.http.message.HttpRequestResponse.httpRequestResponse(
+                    burp.api.montoya.http.message.requests.HttpRequest.httpRequestFromUrl(url),
+                    null,
+                ),
+            )
+        api.siteMap().add(issue)
+    }
+
+    fun generateReport(
+        format: String,
+        path: String,
+        issueIndexes: List<Int>,
+    ): ScannerReportResult {
+        val reportFormat =
+            when (format.lowercase()) {
+                "html" -> burp.api.montoya.scanner.ReportFormat.HTML
+                "xml" -> burp.api.montoya.scanner.ReportFormat.XML
+                else -> throw IllegalArgumentException("format must be html or xml")
+            }
+        require(path.isNotBlank()) { "path must not be blank" }
+        val reportPath = Path.of(path).toAbsolutePath().normalize()
+        val parent = requireNotNull(reportPath.parent) { "path must include a parent directory" }
+        require(Files.isDirectory(parent)) { "report parent directory does not exist" }
+        require(!Files.exists(reportPath)) { "report path already exists" }
+
+        val allIssues = api.siteMap().issues()
+        val selected =
+            if (issueIndexes.isEmpty()) {
+                allIssues
+            } else {
+                require(issueIndexes.size <= MAX_REPORT_ISSUES) { "issue_indexes must contain at most $MAX_REPORT_ISSUES entries" }
+                require(issueIndexes.distinct().size == issueIndexes.size) { "issue_indexes must not contain duplicates" }
+                issueIndexes.map { index ->
+                    require(index in allIssues.indices) { "scanner issue index out of range: $index" }
+                    allIssues[index]
+                }
+            }
+        require(selected.isNotEmpty()) { "no scanner issues selected" }
+        api.scanner().generateReport(selected, reportFormat, reportPath)
+        require(Files.isRegularFile(reportPath)) { "Burp did not create the scanner report" }
+        return ScannerReportResult(
+            path = reportPath.toString(),
+            format = reportFormat.name.lowercase(),
+            issueCount = selected.size,
+            sizeBytes = Files.size(reportPath),
         )
+    }
+
+    private companion object {
+        const val MAX_REPORT_ISSUES = 10_000
+        val SEVERITIES = setOf("HIGH", "MEDIUM", "LOW", "INFORMATION", "FALSE_POSITIVE")
+        val CONFIDENCES = setOf("CERTAIN", "FIRM", "TENTATIVE")
     }
 }
