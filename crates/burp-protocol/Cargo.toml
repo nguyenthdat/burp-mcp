@@ -20,9 +20,9 @@ name = "interop"
 required-features = ["interop"]
 
 [build-dependencies]
-prost-build = "0.14.4"
-protoc-bin-vendored = "3.2.0"
-tonic-prost-build = "0.14.6"
+prost-build.workspace = true
+protoc-bin-vendored.workspace = true
+tonic-prost-build.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
