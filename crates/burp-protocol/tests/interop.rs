@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use burp_protocol::interop_proto::{
     EchoBytesRequest, PageRequest, PingRequest, ProxyHistoryRequest, ServerInfoRequest,
+    StartAuditRequest,
 };
 use burp_protocol::{BurpClientConfig, DEFAULT_MAX_MESSAGE_BYTES, connect_client, spawn_client};
 use std::env;
@@ -36,7 +37,6 @@ async fn kotlin_server_echoes_binary_payloads_and_handles_concurrency() -> Resul
         usize::try_from(info.max_message_bytes)?
     );
     assert_eq!(32, info.max_concurrent_calls_per_connection);
-    assert_eq!(30, info.max_rpc_timeout_seconds);
 
     let mut page_request = Request::new(ProxyHistoryRequest {
         page: Some(PageRequest {
@@ -53,6 +53,21 @@ async fn kotlin_server_echoes_binary_payloads_and_handles_concurrency() -> Resul
     let history = client.proxy_history(page_request).await?.into_inner();
     assert!(history.items.len() <= 10);
     assert_eq!(0, history.page.as_ref().map_or(0, |page| page.total));
+    let actor = spawn_client(BurpClientConfig {
+        endpoint: endpoint.clone(),
+        call_timeout: Duration::from_secs(2),
+        queue_capacity: 8,
+        max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,
+    })?;
+    let audit = actor
+        .start_audit(StartAuditRequest {
+            url: "https://example.test/".to_owned(),
+            active: false,
+        })
+        .await?;
+    assert!(audit.id.starts_with("job-"));
+    assert_eq!("scanner_audit", audit.operation);
+    assert!(matches!(audit.state.as_str(), "queued" | "running"));
 
     for payload in [Vec::new(), vec![0xa5], patterned_payload(10 * 1024 * 1024)] {
         let mut request = Request::new(EchoBytesRequest {

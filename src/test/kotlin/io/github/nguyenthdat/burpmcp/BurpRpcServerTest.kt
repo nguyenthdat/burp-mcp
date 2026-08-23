@@ -59,6 +59,27 @@ class BurpRpcServerTest {
     }
 
     @Test
+    fun `starts scanner audits through the typed RPC`() {
+        val port = availablePort()
+        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server?.start()
+        channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
+        val client = BurpServiceGrpc.newBlockingStub(channel).withDeadlineAfter(2, TimeUnit.SECONDS)
+
+        val response =
+            client.startAudit(
+                io.github.nguyenthdat.burpmcp.grpc.v1.StartAuditRequest
+                    .newBuilder()
+                    .setUrl("https://example.test/")
+                    .build(),
+            )
+
+        assertTrue(response.id.startsWith("job-"))
+        assertEquals("scanner_audit", response.operation)
+        assertTrue(response.state == "queued" || response.state == "running")
+    }
+
+    @Test
     fun `echoes zero one and ten MiB payloads byte exactly`() {
         val port = availablePort()
         server = BurpRpcServer(fake(MontoyaApi::class.java), port)

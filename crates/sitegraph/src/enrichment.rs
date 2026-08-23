@@ -23,7 +23,9 @@ impl RulePack {
             rules: vec![
                 (
                     "secret_like_value",
-                    Regex::new(r#"(?i)(?:token|secret|api[_-]?key|authorization)\s*[:=]\s*([^\s&\"']+)"#)?,
+                    Regex::new(
+                        r#"(?i)(?:token|secret|api[_-]?key|authorization)\s*[:=]\s*([^\s&\"']+)"#,
+                    )?,
                 ),
                 (
                     "jwt",
@@ -64,7 +66,11 @@ mod tests {
     fn default_rules_keep_exact_secret_and_jwt_captures() {
         let pack = RulePack::default_exact().unwrap();
         let findings = pack.matches(b"token=exact-value eyJ12345678.abcdefgh.ijklmnop");
-        assert!(findings.iter().any(|finding| finding.capture == b"exact-value"));
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.capture == b"exact-value")
+        );
         assert!(findings.iter().any(|finding| finding.kind == "jwt"));
         assert!(findings.len() <= 128);
         assert_eq!(pack.id, "default");

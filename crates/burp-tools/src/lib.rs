@@ -1,6 +1,8 @@
 mod sitegraph;
 mod utility;
 
+use crate::sitegraph::SitegraphIndexer;
+use ::sitegraph::SiteGraph;
 use burp_protocol::BurpClient;
 use burp_protocol::protocol::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
@@ -32,11 +34,9 @@ use rmcp::model::{CallToolRequestParams, CallToolResponse, CallToolResult, Conte
 use rmcp::service::RequestContext;
 use rmcp::{RoleServer, schemars, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
-use ::sitegraph::SiteGraph;
 use std::path::Path;
 use std::sync::Arc;
 use utility_engine::{self as utility_engine_api, DataValue};
-use crate::sitegraph::SitegraphIndexer;
 
 const MAX_PAGE_SIZE: u32 = 500;
 const MAX_KOTLIN_INDEX: u32 = i32::MAX as u32;
@@ -694,9 +694,7 @@ pub struct BurpTools {
     sitegraph_indexer: SitegraphIndexer,
     auto_index_shutdown: Arc<tokio::sync::watch::Sender<bool>>,
     auto_index_task: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
-
 }
-
 
 #[tool_router(router = burp_router)]
 impl BurpTools {
@@ -721,7 +719,11 @@ impl BurpTools {
             }
             _ => (
                 graph_path.to_path_buf(),
-                graph_path.file_stem().and_then(|value| value.to_str()).unwrap_or("offline").to_owned(),
+                graph_path
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("offline")
+                    .to_owned(),
             ),
         };
         let sitegraph = Arc::new(
@@ -740,7 +742,11 @@ impl BurpTools {
         })
     }
 
-    pub async fn start_auto_index(&self, mode: &str, interval: std::time::Duration) -> Result<(), String> {
+    pub async fn start_auto_index(
+        &self,
+        mode: &str,
+        interval: std::time::Duration,
+    ) -> Result<(), String> {
         match mode {
             "off" => Ok(()),
             "startup" => {
@@ -2163,7 +2169,11 @@ impl BurpTools {
         description = "Synchronize bounded Burp sitemap metadata into the local SQLite graph"
     )]
     async fn sitegraph_sync(&self, Parameters(input): Parameters<SiteGraphSyncInput>) -> String {
-        match self.sitegraph_indexer.sync(input.url_prefix.unwrap_or_default()).await {
+        match self
+            .sitegraph_indexer
+            .sync(input.url_prefix.unwrap_or_default())
+            .await
+        {
             Ok(summary) => serde_json::to_string(&summary).expect("sync summary serializes"),
             Err(error) => serde_json::json!({"error": error}).to_string(),
         }
@@ -2220,7 +2230,10 @@ impl BurpTools {
         name = "sitegraph_config",
         description = "Read or validate sitegraph auto-index configuration; mode is off, startup, or watch"
     )]
-    async fn sitegraph_config(&self, Parameters(input): Parameters<SiteGraphConfigInput>) -> String {
+    async fn sitegraph_config(
+        &self,
+        Parameters(input): Parameters<SiteGraphConfigInput>,
+    ) -> String {
         let mode = input.mode.unwrap_or_else(|| "off".to_owned());
         if !matches!(mode.as_str(), "off" | "startup" | "watch") {
             return serde_json::json!({"error": "mode must be off, startup, or watch"}).to_string();
@@ -2233,7 +2246,8 @@ impl BurpTools {
             "queue_capacity": 32,
             "max_items": null,
             "note": "configuration changes apply on the next process start"
-        }).to_string()
+        })
+        .to_string()
     }
 
     #[tool(
@@ -2252,7 +2266,8 @@ impl BurpTools {
                 "total": 1,
                 "truncated": false,
                 "next_cursor": null
-            }).to_string(),
+            })
+            .to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
@@ -2364,11 +2379,16 @@ impl BurpTools {
                 Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
             },
             ("exact", "json") => match self.sitegraph.export_exact_json(cursor, limit).await {
-                Ok(export) => serde_json::to_string(&export).expect("exact graph export serializes"),
+                Ok(export) => {
+                    serde_json::to_string(&export).expect("exact graph export serializes")
+                }
                 Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
             },
             (_, "csv") => match self.sitegraph.export_csv(cursor, limit).await {
-                Ok(export) => serde_json::to_string(&serde_json::json!({"profile": profile, "export": export})).unwrap(),
+                Ok(export) => serde_json::to_string(
+                    &serde_json::json!({"profile": profile, "export": export}),
+                )
+                .unwrap(),
                 Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
             },
             _ => unreachable!(),
@@ -2644,7 +2664,9 @@ impl rmcp::ServerHandler for BurpTools {
         _context: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ListToolsResult, rmcp::ErrorData> {
         let router = Self::burp_router() + Self::utility_router();
-        Ok(rmcp::model::ListToolsResult::with_all_items(router.list_all()))
+        Ok(rmcp::model::ListToolsResult::with_all_items(
+            router.list_all(),
+        ))
     }
 }
 
@@ -2721,7 +2743,11 @@ fn utility_value(input: UtilityValueInput) -> utility_engine_api::UtilityResult<
         UtilityValueInput::Bytes { base64 } => {
             base64::Engine::decode(&base64::engine::general_purpose::STANDARD, base64)
                 .map(DataValue::Bytes)
-                .map_err(|error| utility_engine_api::UtilityError::message(format!("invalid base64 input: {error}")))
+                .map_err(|error| {
+                    utility_engine_api::UtilityError::message(format!(
+                        "invalid base64 input: {error}"
+                    ))
+                })
         }
         UtilityValueInput::Json { value } => Ok(DataValue::Json(value)),
     }

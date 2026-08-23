@@ -9,4 +9,3 @@ pub fn content_type(value: &str) -> String {
         .take(256)
         .collect()
 }
-

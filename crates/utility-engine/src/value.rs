@@ -19,7 +19,9 @@ impl DataValue {
             Self::Bytes(value) => Ok(value.len()),
             Self::Json(value) => serde_json::to_vec(value)
                 .map(|encoded| encoded.len())
-                .map_err(|error| UtilityError::with_source("failed to encode JSON utility value", error)),
+                .map_err(|error| {
+                    UtilityError::with_source("failed to encode JSON utility value", error)
+                }),
         }
     }
 
@@ -38,7 +40,9 @@ impl DataValue {
         match self {
             Self::Text(value) => Ok(value.as_bytes()),
             Self::Bytes(value) => Ok(value),
-            Self::Json(_) => Err(UtilityError::message("operation does not accept JSON input")),
+            Self::Json(_) => Err(UtilityError::message(
+                "operation does not accept JSON input",
+            )),
         }
     }
 

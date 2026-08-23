@@ -1,7 +1,7 @@
 use super::sync::SiteGraphSynchronizer;
+use ::sitegraph::{GraphStatus, SiteGraph, SyncSummary};
 use burp_protocol::BurpClient;
 use serde::Serialize;
-use ::sitegraph::{GraphStatus, SiteGraph, SyncSummary};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -87,7 +87,11 @@ impl SitegraphIndexer {
             }
             status_sender.send_modify(|status| status.state = IndexerState::Stopped);
         });
-        Self { sender, status, graph }
+        Self {
+            sender,
+            status,
+            graph,
+        }
     }
 
     pub(crate) async fn sync(&self, prefix: String) -> Result<SyncSummary, String> {
@@ -106,9 +110,17 @@ impl SitegraphIndexer {
     pub(crate) async fn status(&self) -> Result<IndexerStatus, String> {
         let (state, pending_commands, last_error) = {
             let status = self.status.borrow();
-            (status.state, status.pending_commands, status.last_error.clone())
+            (
+                status.state,
+                status.pending_commands,
+                status.last_error.clone(),
+            )
         };
-        let graph = self.graph.status().await.map_err(|error| error.to_string())?;
+        let graph = self
+            .graph
+            .status()
+            .await
+            .map_err(|error| error.to_string())?;
         Ok(IndexerStatus {
             state,
             pending_commands,
@@ -119,7 +131,12 @@ impl SitegraphIndexer {
 
     pub(crate) async fn shutdown(&self) {
         let (response, receiver) = oneshot::channel();
-        if self.sender.send(Command::Shutdown { response }).await.is_ok() {
+        if self
+            .sender
+            .send(Command::Shutdown { response })
+            .await
+            .is_ok()
+        {
             let _ = tokio::time::timeout(std::time::Duration::from_secs(5), receiver).await;
         }
     }

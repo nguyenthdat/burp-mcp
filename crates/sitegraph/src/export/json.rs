@@ -47,13 +47,17 @@ pub async fn page(
             }))
         })
         .collect::<Result<Vec<_>, StorageError>>()?;
-    let node_ids = nodes.iter().filter_map(|node| node["id"].as_str()).collect::<Vec<_>>();
+    let node_ids = nodes
+        .iter()
+        .filter_map(|node| node["id"].as_str())
+        .collect::<Vec<_>>();
     let mut edges = Vec::new();
     for node_id in node_ids {
-        for row in sqlx::query("SELECT id, from_id, to_id, kind FROM edges WHERE from_id=?1 ORDER BY id")
-            .bind(node_id)
-            .fetch_all(&mut *connection)
-            .await?
+        for row in
+            sqlx::query("SELECT id, from_id, to_id, kind FROM edges WHERE from_id=?1 ORDER BY id")
+                .bind(node_id)
+                .fetch_all(&mut *connection)
+                .await?
         {
             edges.push(serde_json::json!({
                 "id": row.get::<String, _>("id"),

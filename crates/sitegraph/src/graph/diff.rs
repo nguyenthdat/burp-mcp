@@ -59,7 +59,9 @@ pub async fn since(
         let status = row.get::<String, _>("status");
         match (entity_type.as_str(), status.as_str()) {
             ("node", "removed") => removed_node_ids.push(entity_id),
-            ("node", _) if row.get::<i64, _>("changed_at") > since => added_node_ids.push(entity_id),
+            ("node", _) if row.get::<i64, _>("changed_at") > since => {
+                added_node_ids.push(entity_id)
+            }
             ("edge", "removed") => removed_edge_ids.push(entity_id),
             ("edge", _) => added_edge_ids.push(entity_id),
             _ => updated_node_ids.push(entity_id),

@@ -1,3 +1,6 @@
+use crate::error::{UtilityError, UtilityResult};
+use crate::registry::{Operation, OperationInfo, ValueKind, run_from_registry};
+use crate::value::{DataValue, MAX_UTILITY_INPUT_BYTES};
 use base64::Engine;
 use flate2::Compression;
 use flate2::read::{
@@ -9,9 +12,6 @@ use regex::Regex;
 use serde_json::Value;
 use std::io::{Cursor, Read};
 use url::form_urlencoded;
-use crate::error::{UtilityError, UtilityResult};
-use crate::registry::{Operation, OperationInfo, ValueKind, run_from_registry};
-use crate::value::{DataValue, MAX_UTILITY_INPUT_BYTES};
 
 const MAX_REGEX_MATCHES: usize = 1_000;
 const MAX_SPLIT_PARTS: usize = 10_000;
@@ -20,10 +20,24 @@ const MAX_JWT_SEGMENTS: usize = 3;
 
 macro_rules! operation {
     ($id:literal, $name:literal, $description:literal, $input:ident, $output:ident) => {
-        op($id, $name, $description, ValueKind::$input, ValueKind::$output, false)
+        op(
+            $id,
+            $name,
+            $description,
+            ValueKind::$input,
+            ValueKind::$output,
+            false,
+        )
     };
     ($id:literal, $name:literal, $description:literal, $input:ident, $output:ident, weak) => {
-        op($id, $name, $description, ValueKind::$input, ValueKind::$output, true)
+        op(
+            $id,
+            $name,
+            $description,
+            ValueKind::$input,
+            ValueKind::$output,
+            true,
+        )
     };
 }
 
@@ -217,13 +231,7 @@ const OPERATIONS: &[Operation] = &[
         Text,
         Json
     ),
-    operation!(
-        "text.join",
-        "Join",
-        "Join a JSON string array",
-        Json,
-        Text
-    ),
+    operation!("text.join", "Join", "Join a JSON string array", Json, Text),
     operation!(
         "regex.extract",
         "Regex Extract",
@@ -309,34 +317,10 @@ const OPERATIONS: &[Operation] = &[
         Any,
         Text
     ),
-    operation!(
-        "sha3_224",
-        "SHA3-224",
-        "Compute SHA3-224 digest",
-        Any,
-        Text
-    ),
-    operation!(
-        "sha3_256",
-        "SHA3-256",
-        "Compute SHA3-256 digest",
-        Any,
-        Text
-    ),
-    operation!(
-        "sha3_384",
-        "SHA3-384",
-        "Compute SHA3-384 digest",
-        Any,
-        Text
-    ),
-    operation!(
-        "sha3_512",
-        "SHA3-512",
-        "Compute SHA3-512 digest",
-        Any,
-        Text
-    ),
+    operation!("sha3_224", "SHA3-224", "Compute SHA3-224 digest", Any, Text),
+    operation!("sha3_256", "SHA3-256", "Compute SHA3-256 digest", Any, Text),
+    operation!("sha3_384", "SHA3-384", "Compute SHA3-384 digest", Any, Text),
+    operation!("sha3_512", "SHA3-512", "Compute SHA3-512 digest", Any, Text),
     operation!(
         "hmac.sha256",
         "HMAC SHA-256",
@@ -473,16 +457,19 @@ const fn op(
     output_kind: ValueKind,
     cryptographically_weak: bool,
 ) -> Operation {
-    Operation::new(OperationInfo {
-        id,
-        name,
-        description,
-        input_kind,
-        output_kind,
-        deterministic: true,
-        pure: true,
-        cryptographically_weak,
-    }, execute_operation)
+    Operation::new(
+        OperationInfo {
+            id,
+            name,
+            description,
+            input_kind,
+            output_kind,
+            deterministic: true,
+            pure: true,
+            cryptographically_weak,
+        },
+        execute_operation,
+    )
 }
 
 pub fn search(query: &str) -> Vec<OperationInfo> {
@@ -530,7 +517,8 @@ fn execute_operation(id: &str, input: DataValue, args: &Value) -> UtilityResult<
                         .bytes()
                         .filter(|byte| !byte.is_ascii_whitespace())
                         .collect::<Vec<_>>(),
-                ).map_err(|error| UtilityError::message(error.to_string()))?,
+                )
+                .map_err(|error| UtilityError::message(error.to_string()))?,
         ),
         "hex.encode" => DataValue::Text(hex_encode(input.as_bytes()?)),
         "hex.decode" => DataValue::Bytes(hex_decode(input.as_text()?)?),
@@ -545,7 +533,8 @@ fn execute_operation(id: &str, input: DataValue, args: &Value) -> UtilityResult<
         }
         "url.decode" => DataValue::Text(
             percent_decode_str(input.as_text()?)
-                .decode_utf8().map_err(|error| UtilityError::message(error.to_string()))?
+                .decode_utf8()
+                .map_err(|error| UtilityError::message(error.to_string()))?
                 .into_owned(),
         ),
         "html.encode" => DataValue::Text(html_escape::encode_safe(input.as_text()?).into_owned()),
@@ -569,10 +558,12 @@ fn execute_operation(id: &str, input: DataValue, args: &Value) -> UtilityResult<
         "unicode.escape" => DataValue::Text(unicode_escape(input.as_text()?)),
         "unicode.unescape" => DataValue::Text(unicode_unescape(input.as_text()?)?),
         "json.pretty" => DataValue::Text(
-            serde_json::to_string_pretty(&input.parse_json()?).map_err(|error| UtilityError::message(error.to_string()))?,
+            serde_json::to_string_pretty(&input.parse_json()?)
+                .map_err(|error| UtilityError::message(error.to_string()))?,
         ),
         "json.minify" => DataValue::Text(
-            serde_json::to_string(&input.parse_json()?).map_err(|error| UtilityError::message(error.to_string()))?,
+            serde_json::to_string(&input.parse_json()?)
+                .map_err(|error| UtilityError::message(error.to_string()))?,
         ),
         "json.query" => DataValue::Json(json_query(
             &input.parse_json()?,
@@ -690,10 +681,12 @@ fn byte_search_term(args: &Value) -> UtilityResult<Vec<u8>> {
         return Ok(value.as_bytes().to_vec());
     }
     args.get("term_base64")
-        .and_then(Value::as_str).ok_or_else(|| UtilityError::message("operation requires 'term' or 'term_base64'"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| UtilityError::message("operation requires 'term' or 'term_base64'"))
         .and_then(|value| {
             base64::engine::general_purpose::STANDARD
-                .decode(value).map_err(|error| UtilityError::message(error.to_string()))
+                .decode(value)
+                .map_err(|error| UtilityError::message(error.to_string()))
         })
 }
 
@@ -726,21 +719,26 @@ fn require_nonempty_bytes(value: &[u8]) -> UtilityResult<()> {
 fn number_convert(value: &str, args: &Value) -> UtilityResult<DataValue> {
     let from = args
         .get("from")
-        .and_then(Value::as_u64).ok_or_else(|| UtilityError::message("number.convert requires 'from'"))?;
+        .and_then(Value::as_u64)
+        .ok_or_else(|| UtilityError::message("number.convert requires 'from'"))?;
     let to = args
         .get("to")
-        .and_then(Value::as_u64).ok_or_else(|| UtilityError::message("number.convert requires 'to'"))?;
+        .and_then(Value::as_u64)
+        .ok_or_else(|| UtilityError::message("number.convert requires 'to'"))?;
     if !matches!(from, 2 | 8 | 10 | 16) || !matches!(to, 2 | 8 | 10 | 16) {
-        return Err(UtilityError::message("number bases must be one of 2, 8, 10, or 16"));
+        return Err(UtilityError::message(
+            "number bases must be one of 2, 8, 10, or 16",
+        ));
     }
-    let number = num_bigint::BigUint::parse_bytes(value.trim().as_bytes(), from as u32).ok_or_else(|| UtilityError::message("invalid unsigned number"))?;
+    let number = num_bigint::BigUint::parse_bytes(value.trim().as_bytes(), from as u32)
+        .ok_or_else(|| UtilityError::message("invalid unsigned number"))?;
     Ok(DataValue::Text(number.to_str_radix(to as u32)))
 }
 
 fn required_str<'a>(args: &'a Value, name: &str) -> UtilityResult<&'a str> {
-    args.get(name)
-        .and_then(Value::as_str)
-        .ok_or_else(|| UtilityError::message(format!("operation requires string argument '{name}'")))
+    args.get(name).and_then(Value::as_str).ok_or_else(|| {
+        UtilityError::message(format!("operation requires string argument '{name}'"))
+    })
 }
 
 fn key(args: &Value) -> UtilityResult<&[u8]> {
@@ -750,14 +748,16 @@ fn key(args: &Value) -> UtilityResult<&[u8]> {
 fn decode_base64(input: &str, engine: &impl Engine) -> UtilityResult<DataValue> {
     engine
         .decode(input)
-        .map(DataValue::Bytes).map_err(|error| UtilityError::message(error.to_string()))
+        .map(DataValue::Bytes)
+        .map_err(|error| UtilityError::message(error.to_string()))
 }
 
 fn decode_base64_url(input: &str) -> UtilityResult<DataValue> {
     base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(input)
         .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(input))
-        .map(DataValue::Bytes).map_err(|error| UtilityError::message(error.to_string()))
+        .map(DataValue::Bytes)
+        .map_err(|error| UtilityError::message(error.to_string()))
 }
 
 fn hex_encode(input: &[u8]) -> String {
@@ -771,12 +771,15 @@ fn hex_encode(input: &[u8]) -> String {
 
 fn hex_decode(input: &str) -> UtilityResult<Vec<u8>> {
     if !input.len().is_multiple_of(2) {
-        return Err(UtilityError::message("hex input must contain an even number of digits"));
+        return Err(UtilityError::message(
+            "hex input must contain an even number of digits",
+        ));
     }
     (0..input.len())
         .step_by(2)
         .map(|index| {
-            u8::from_str_radix(&input[index..index + 2], 16).map_err(|error| UtilityError::message(error.to_string()))
+            u8::from_str_radix(&input[index..index + 2], 16)
+                .map_err(|error| UtilityError::message(error.to_string()))
         })
         .collect()
 }
@@ -805,7 +808,8 @@ fn unicode_unescape(input: &str) -> UtilityResult<String> {
             continue;
         }
         match chars
-            .next().ok_or_else(|| UtilityError::message("trailing Unicode escape delimiter"))?
+            .next()
+            .ok_or_else(|| UtilityError::message("trailing Unicode escape delimiter"))?
         {
             '\\' => output.push('\\'),
             'n' => output.push('\n'),
@@ -823,23 +827,32 @@ fn unicode_unescape(input: &str) -> UtilityResult<String> {
                         }
                         digits.push(digit);
                         if digits.len() > 6 {
-                            return Err(UtilityError::message("Unicode escape has too many digits"));
+                            return Err(UtilityError::message(
+                                "Unicode escape has too many digits",
+                            ));
                         }
                     }
                 } else {
                     for _ in 0..4 {
                         digits.push(
-                            chars
-                                .next().ok_or_else(|| UtilityError::message("incomplete Unicode escape"))?,
+                            chars.next().ok_or_else(|| {
+                                UtilityError::message("incomplete Unicode escape")
+                            })?,
                         );
                     }
                 }
-                let scalar = u32::from_str_radix(&digits, 16).map_err(|error| UtilityError::message(error.to_string()))?;
+                let scalar = u32::from_str_radix(&digits, 16)
+                    .map_err(|error| UtilityError::message(error.to_string()))?;
                 output.push(
-                    char::from_u32(scalar).ok_or_else(|| UtilityError::message("invalid Unicode scalar value"))?,
+                    char::from_u32(scalar)
+                        .ok_or_else(|| UtilityError::message("invalid Unicode scalar value"))?,
                 );
             }
-            escaped => return Err(UtilityError::message(format!("unsupported escape sequence: \\{escaped}"))),
+            escaped => {
+                return Err(UtilityError::message(format!(
+                    "unsupported escape sequence: \\{escaped}"
+                )));
+            }
         }
     }
     Ok(output)
@@ -911,7 +924,8 @@ fn json_query(value: &Value, path: &str) -> UtilityResult<Value> {
     if path.starts_with('/') {
         return value
             .pointer(path)
-            .cloned().ok_or_else(|| UtilityError::message("JSON pointer not found"));
+            .cloned()
+            .ok_or_else(|| UtilityError::message("JSON pointer not found"));
     }
     let mut current = value;
     for segment in path.split('.') {
@@ -939,7 +953,9 @@ fn text_split(input: &str, args: &Value) -> UtilityResult<DataValue> {
         .map(Value::from)
         .collect::<Vec<_>>();
     if values.len() > MAX_SPLIT_PARTS {
-        return Err(UtilityError::message(format!("split exceeds {MAX_SPLIT_PARTS} parts")));
+        return Err(UtilityError::message(format!(
+            "split exceeds {MAX_SPLIT_PARTS} parts"
+        )));
     }
     Ok(DataValue::Json(Value::Array(values)))
 }
@@ -947,21 +963,26 @@ fn text_split(input: &str, args: &Value) -> UtilityResult<DataValue> {
 fn text_join(value: &Value, args: &Value) -> UtilityResult<DataValue> {
     let delimiter = required_str(args, "delimiter")?;
     let values = value
-        .as_array().ok_or_else(|| UtilityError::message("join requires a JSON array"))?;
+        .as_array()
+        .ok_or_else(|| UtilityError::message("join requires a JSON array"))?;
     if values.len() > MAX_SPLIT_PARTS {
-        return Err(UtilityError::message(format!("join exceeds {MAX_SPLIT_PARTS} parts")));
+        return Err(UtilityError::message(format!(
+            "join exceeds {MAX_SPLIT_PARTS} parts"
+        )));
     }
     let strings = values
         .iter()
         .map(|item| {
-            item.as_str().ok_or_else(|| UtilityError::message("join requires an array of strings"))
+            item.as_str()
+                .ok_or_else(|| UtilityError::message("join requires an array of strings"))
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(DataValue::Text(strings.join(delimiter)))
 }
 
 fn regex_from_args(args: &Value) -> UtilityResult<Regex> {
-    Regex::new(required_str(args, "pattern")?).map_err(|error| UtilityError::message(error.to_string()))
+    Regex::new(required_str(args, "pattern")?)
+        .map_err(|error| UtilityError::message(error.to_string()))
 }
 
 fn regex_extract(input: &str, args: &Value) -> UtilityResult<DataValue> {
@@ -977,7 +998,9 @@ fn regex_extract(input: &str, args: &Value) -> UtilityResult<DataValue> {
         .map(|item| Value::from(item.as_str()))
         .collect::<Vec<_>>();
     if matches.len() > limit {
-        return Err(UtilityError::message(format!("regex results exceed limit {limit}")));
+        return Err(UtilityError::message(format!(
+            "regex results exceed limit {limit}"
+        )));
     }
     Ok(DataValue::Json(Value::Array(matches)))
 }
@@ -1034,7 +1057,9 @@ fn printable_strings(input: &[u8], args: &Value) -> UtilityResult<DataValue> {
             && index - begin >= minimum
         {
             if strings.len() == limit {
-                return Err(UtilityError::message(format!("printable strings exceed limit {limit}")));
+                return Err(UtilityError::message(format!(
+                    "printable strings exceed limit {limit}"
+                )));
             }
             strings.push(Value::from(
                 String::from_utf8_lossy(&input[begin..index]).into_owned(),
@@ -1049,13 +1074,15 @@ fn digest<D: sha1::Digest + Default>(input: &[u8]) -> String {
 }
 
 fn hmac_sha256(input: &[u8], key: &[u8]) -> UtilityResult<DataValue> {
-    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(key).map_err(|error| UtilityError::message(error.to_string()))?;
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(key)
+        .map_err(|error| UtilityError::message(error.to_string()))?;
     mac.update(input);
     Ok(DataValue::Text(hex_encode(&mac.finalize().into_bytes())))
 }
 
 fn hmac_sha512(input: &[u8], key: &[u8]) -> UtilityResult<DataValue> {
-    let mut mac = Hmac::<sha2::Sha512>::new_from_slice(key).map_err(|error| UtilityError::message(error.to_string()))?;
+    let mut mac = Hmac::<sha2::Sha512>::new_from_slice(key)
+        .map_err(|error| UtilityError::message(error.to_string()))?;
     mac.update(input);
     Ok(DataValue::Text(hex_encode(&mac.finalize().into_bytes())))
 }
@@ -1063,7 +1090,8 @@ fn hmac_sha512(input: &[u8], key: &[u8]) -> UtilityResult<DataValue> {
 fn compress_reader(mut reader: impl Read) -> UtilityResult<DataValue> {
     let mut output = Vec::new();
     reader
-        .read_to_end(&mut output).map_err(|error| UtilityError::message(error.to_string()))?;
+        .read_to_end(&mut output)
+        .map_err(|error| UtilityError::message(error.to_string()))?;
     Ok(DataValue::Bytes(output))
 }
 
@@ -1071,20 +1099,25 @@ fn decompress_reader(reader: impl Read, compressed_len: usize) -> UtilityResult<
     let mut output = Vec::new();
     reader
         .take((MAX_UTILITY_INPUT_BYTES + 1) as u64)
-        .read_to_end(&mut output).map_err(|error| UtilityError::message(error.to_string()))?;
+        .read_to_end(&mut output)
+        .map_err(|error| UtilityError::message(error.to_string()))?;
     validate_decompressed_size(compressed_len, output.len())?;
     Ok(DataValue::Bytes(output))
 }
 
 fn validate_decompressed_size(compressed_len: usize, output_len: usize) -> UtilityResult<()> {
     if output_len > MAX_UTILITY_INPUT_BYTES {
-        return Err(UtilityError::message("decompressed output exceeds byte limit"));
+        return Err(UtilityError::message(
+            "decompressed output exceeds byte limit",
+        ));
     }
     let ratio_limit = compressed_len
         .saturating_mul(MAX_DECOMPRESSION_RATIO)
         .max(1024);
     if output_len > ratio_limit {
-        return Err(UtilityError::message(format!("decompression ratio exceeds {MAX_DECOMPRESSION_RATIO}:1")));
+        return Err(UtilityError::message(format!(
+            "decompression ratio exceeds {MAX_DECOMPRESSION_RATIO}:1"
+        )));
     }
     Ok(())
 }
@@ -1095,13 +1128,15 @@ fn brotli_compress(input: &[u8]) -> UtilityResult<DataValue> {
         &mut Cursor::new(input),
         &mut output,
         &brotli::enc::BrotliEncoderParams::default(),
-    ).map_err(|error| UtilityError::message(error.to_string()))?;
+    )
+    .map_err(|error| UtilityError::message(error.to_string()))?;
     Ok(DataValue::Bytes(output))
 }
 
 fn brotli_decompress(input: &[u8]) -> UtilityResult<DataValue> {
     let mut output = Vec::new();
-    brotli::BrotliDecompress(&mut Cursor::new(input), &mut output).map_err(|error| UtilityError::message(error.to_string()))?;
+    brotli::BrotliDecompress(&mut Cursor::new(input), &mut output)
+        .map_err(|error| UtilityError::message(error.to_string()))?;
     validate_decompressed_size(input.len(), output.len())?;
     Ok(DataValue::Bytes(output))
 }
@@ -1136,7 +1171,8 @@ fn jwt_verify_hs256(token: &str, key: &[u8]) -> UtilityResult<DataValue> {
     if decoded["header"]["alg"] != "HS256" {
         return Err(UtilityError::message("JWT alg must be HS256"));
     }
-    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(key).map_err(|error| UtilityError::message(error.to_string()))?;
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(key)
+        .map_err(|error| UtilityError::message(error.to_string()))?;
     mac.update(format!("{header}.{payload}").as_bytes());
     let signature = match decode_base64_url(signature)? {
         DataValue::Bytes(bytes) => bytes,
@@ -1189,18 +1225,26 @@ fn query_build(value: &Value) -> UtilityResult<DataValue> {
             for pair in pairs {
                 let pair = pair
                     .as_array()
-                    .filter(|pair| pair.len() == 2).ok_or_else(|| UtilityError::message("query pair must be a two-element array"))?;
+                    .filter(|pair| pair.len() == 2)
+                    .ok_or_else(|| {
+                        UtilityError::message("query pair must be a two-element array")
+                    })?;
                 serializer.append_pair(scalar_text(&pair[0])?, scalar_text(&pair[1])?);
             }
         }
-        _ => return Err(UtilityError::message("query build requires a JSON object or pair array")),
+        _ => {
+            return Err(UtilityError::message(
+                "query build requires a JSON object or pair array",
+            ));
+        }
     }
     Ok(DataValue::Text(serializer.finish()))
 }
 
 fn scalar_text(value: &Value) -> UtilityResult<&str> {
     value
-        .as_str().ok_or_else(|| UtilityError::message("query names and values must be strings"))
+        .as_str()
+        .ok_or_else(|| UtilityError::message("query names and values must be strings"))
 }
 
 struct HttpMessage<'a> {
@@ -1211,13 +1255,15 @@ struct HttpMessage<'a> {
 
 fn parse_http(input: &[u8]) -> UtilityResult<HttpMessage<'_>> {
     let (head, body) = split_once_bytes(input, b"\r\n\r\n")
-        .or_else(|| split_once_bytes(input, b"\n\n")).ok_or_else(|| UtilityError::message("HTTP message requires a header/body separator"))?;
+        .or_else(|| split_once_bytes(input, b"\n\n"))
+        .ok_or_else(|| UtilityError::message("HTTP message requires a header/body separator"))?;
     let mut lines = head
         .split(|byte| *byte == b'\n')
         .map(|line| line.strip_suffix(b"\r").unwrap_or(line));
     let start_line = lines
         .next()
-        .filter(|line| !line.is_empty()).ok_or_else(|| UtilityError::message("HTTP start line is missing"))?;
+        .filter(|line| !line.is_empty())
+        .ok_or_else(|| UtilityError::message("HTTP start line is missing"))?;
     Ok(HttpMessage {
         start_line,
         headers: lines.collect(),
@@ -1249,7 +1295,8 @@ fn http_parse(input: &[u8]) -> UtilityResult<DataValue> {
 fn http_set_body(input: &[u8], args: &Value) -> UtilityResult<DataValue> {
     let body = if let Some(base64) = args.get("body_base64").and_then(Value::as_str) {
         base64::engine::general_purpose::STANDARD
-            .decode(base64).map_err(|error| UtilityError::message(error.to_string()))?
+            .decode(base64)
+            .map_err(|error| UtilityError::message(error.to_string()))?
     } else {
         required_str(args, "body")?.as_bytes().to_vec()
     };
@@ -1487,7 +1534,10 @@ mod tests {
             &serde_json::json!({"delimiter": ","}),
         )
         .unwrap_err();
-        assert_eq!(error.to_string(), format!("split exceeds {MAX_SPLIT_PARTS} parts"));
+        assert_eq!(
+            error.to_string(),
+            format!("split exceeds {MAX_SPLIT_PARTS} parts")
+        );
     }
 
     #[test]
@@ -1500,11 +1550,11 @@ mod tests {
             "shell",
             "process.spawn",
         ];
-        assert!(
-            OPERATIONS
+        assert!(OPERATIONS.iter().all(|operation| {
+            prohibited
                 .iter()
-                .all(|operation| prohibited.iter().all(|term| !operation.info.id.contains(term)))
-        );
+                .all(|term| !operation.info.id.contains(term))
+        }));
     }
 
     #[test]

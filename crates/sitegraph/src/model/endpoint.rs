@@ -114,7 +114,6 @@ pub struct SyncSummary {
     pub pages_seen: u64,
     pub tombstoned_nodes: u64,
     pub tombstoned_edges: u64,
-
 }
 impl Default for SyncCoverage {
     fn default() -> Self {
@@ -129,7 +128,6 @@ impl Default for SyncCoverage {
         }
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Endpoint {

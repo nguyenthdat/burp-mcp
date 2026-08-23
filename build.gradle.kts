@@ -53,6 +53,7 @@ dependencies {
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("net.portswigger.burp.extensions:montoya-api:2026.7")
+    testImplementation("io.mockk:mockk:1.14.6")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

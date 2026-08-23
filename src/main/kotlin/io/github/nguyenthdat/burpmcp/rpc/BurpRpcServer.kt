@@ -1305,6 +1305,13 @@ internal class BurpRpcService(
         responseObserver.onCompleted()
     }
 
+    override fun startAudit(
+        request: StartAuditRequest,
+        responseObserver: StreamObserver<JobStatusResponse>,
+    ) = responseObserver.respond {
+        longOperationFacade.startAudit(request.url, request.active).toStatusProto()
+    }
+
     override fun getJobStatus(
         request: GetJobStatusRequest,
         responseObserver: StreamObserver<JobStatusResponse>,

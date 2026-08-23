@@ -35,7 +35,11 @@ pub struct ServeArgs {
     pub sitegraph_mode: String,
 
     /// Poll interval for watch mode.
-    #[arg(long, env = "BURP_MCP_SITEGRAPH_INTERVAL_SECONDS", default_value_t = 30)]
+    #[arg(
+        long,
+        env = "BURP_MCP_SITEGRAPH_INTERVAL_SECONDS",
+        default_value_t = 30
+    )]
     pub sitegraph_interval_seconds: u64,
 
     /// Serve MCP over standard input and output.

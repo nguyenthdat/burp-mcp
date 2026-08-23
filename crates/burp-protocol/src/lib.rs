@@ -17,7 +17,9 @@ use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Status};
 
 mod config;
-pub use config::{BurpClientConfig, DEFAULT_CALL_TIMEOUT, DEFAULT_MAX_MESSAGE_BYTES, DEFAULT_QUEUE_CAPACITY};
+pub use config::{
+    BurpClientConfig, DEFAULT_CALL_TIMEOUT, DEFAULT_MAX_MESSAGE_BYTES, DEFAULT_QUEUE_CAPACITY,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -893,7 +895,6 @@ impl BurpClient {
         receiver.await.map_err(|_| ClientError::ResponseCancelled)?
     }
 }
-
 
 pub fn spawn_client(config: BurpClientConfig) -> Result<BurpClient, ClientError> {
     if config.queue_capacity == 0 {

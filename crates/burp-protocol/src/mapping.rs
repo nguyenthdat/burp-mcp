@@ -1,5 +1,5 @@
-use super::{PageRequest, ProxyHistoryQuery};
 use super::protocol as proto;
+use super::{PageRequest, ProxyHistoryQuery};
 
 pub(crate) fn page_request(page: PageRequest) -> proto::PageRequest {
     proto::PageRequest {
