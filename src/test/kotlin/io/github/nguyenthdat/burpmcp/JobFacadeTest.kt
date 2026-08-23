@@ -70,7 +70,7 @@ class JobFacadeTest {
             val finished = awaitTerminal(jobs, started.id)
 
             assertEquals(JobState.FAILED, finished.state)
-            assertEquals("crawl issued no requests before timeout", finished.error)
+            assertEquals("crawl completed without observing any requests", finished.error)
         }
     }
 

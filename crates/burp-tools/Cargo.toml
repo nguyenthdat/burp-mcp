@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 base64.workspace = true
+blake3.workspace = true
 burp-protocol = { package = "burp-protocol", path = "../burp-protocol" }
 rmcp.workspace = true
 schemars.workspace = true
@@ -15,4 +16,5 @@ regex.workspace = true
 serde_json.workspace = true
 sitegraph = { path = "../sitegraph" }
 tokio.workspace = true
+time.workspace = true
 utility-engine = { path = "../utility-engine" }

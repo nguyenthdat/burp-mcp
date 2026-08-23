@@ -1,6 +1,5 @@
-mod sitegraph_sync;
-mod sitegraph_indexer;
-mod utility_tools;
+mod sitegraph;
+mod utility;
 
 use burp_protocol::BurpClient;
 use burp_protocol::protocol::{
@@ -33,11 +32,11 @@ use rmcp::model::{CallToolRequestParams, CallToolResponse, CallToolResult, Conte
 use rmcp::service::RequestContext;
 use rmcp::{RoleServer, schemars, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
-use sitegraph::SiteGraph;
+use ::sitegraph::SiteGraph;
 use std::path::Path;
 use std::sync::Arc;
-use utility_engine::{self as utility, DataValue};
-use crate::sitegraph_indexer::SitegraphIndexer;
+use utility_engine::{self as utility_engine_api, DataValue};
+use crate::sitegraph::SitegraphIndexer;
 
 const MAX_PAGE_SIZE: u32 = 500;
 const MAX_KOTLIN_INDEX: u32 = i32::MAX as u32;
@@ -681,7 +680,9 @@ pub struct SiteGraphDiffInput {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SiteGraphExportInput {
+    pub profile: Option<String>,
     pub format: Option<String>,
+    pub snapshot_id: Option<String>,
     pub limit: Option<u32>,
     pub cursor: Option<u32>,
 }
@@ -692,6 +693,8 @@ pub struct BurpTools {
     sitegraph: Arc<SiteGraph>,
     sitegraph_indexer: SitegraphIndexer,
     auto_index_shutdown: Arc<tokio::sync::watch::Sender<bool>>,
+    auto_index_task: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
+
 }
 
 
@@ -733,6 +736,7 @@ impl BurpTools {
             sitegraph,
             sitegraph_indexer,
             auto_index_shutdown: Arc::new(auto_index_shutdown),
+            auto_index_task: Arc::new(tokio::sync::Mutex::new(None)),
         })
     }
 
@@ -746,7 +750,7 @@ impl BurpTools {
             "watch" => {
                 let indexer = self.sitegraph_indexer.clone();
                 let mut shutdown = self.auto_index_shutdown.subscribe();
-                tokio::spawn(async move {
+                let task = tokio::spawn(async move {
                     loop {
                         tokio::select! {
                             _ = shutdown.changed() => break,
@@ -760,6 +764,7 @@ impl BurpTools {
                         }
                     }
                 });
+                *self.auto_index_task.lock().await = Some(task);
                 Ok(())
             }
             _ => Err(format!("unsupported sitegraph mode: {mode}")),
@@ -768,6 +773,9 @@ impl BurpTools {
 
     pub async fn shutdown(&self) {
         let _ = self.auto_index_shutdown.send(true);
+        if let Some(task) = self.auto_index_task.lock().await.take() {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), task).await;
+        }
         self.sitegraph_indexer.shutdown().await;
     }
 
@@ -2328,30 +2336,44 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_export",
-        description = "Export a bounded metadata-only graph page as JSON or CSV"
+        description = "Export a bounded sitegraph page using explicit metadata or exact profile"
     )]
     async fn sitegraph_export(
         &self,
         Parameters(input): Parameters<SiteGraphExportInput>,
     ) -> String {
+        let profile = input.profile.as_deref().unwrap_or("metadata");
+        if !matches!(profile, "metadata" | "exact") {
+            return serde_json::json!({"error": "profile must be metadata or exact"}).to_string();
+        }
+        let format = input.format.as_deref().unwrap_or("json");
+        if !matches!(format, "json" | "csv") {
+            return serde_json::json!({"error": "format must be json or csv"}).to_string();
+        }
+        if input.snapshot_id.is_some() && profile == "exact" {
+            return serde_json::json!({"error": "exact export snapshot_id must be requested from the active project DB"}).to_string();
+        }
         let cursor = input.cursor.unwrap_or(0) as u64;
         let limit = match validated_graph_limit(input.limit) {
             Ok(limit) => limit as u64,
             Err(error) => return serde_json::json!({"error": error}).to_string(),
         };
-        match input.format.as_deref().unwrap_or("json") {
-            "json" => match self.sitegraph.export_json(cursor, limit).await {
+        match (profile, format) {
+            ("metadata", "json") => match self.sitegraph.export_json(cursor, limit).await {
                 Ok(export) => serde_json::to_string(&export).expect("JSON graph export serializes"),
                 Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
             },
-            "csv" => match self.sitegraph.export_csv(cursor, limit).await {
-                Ok(export) => serde_json::to_string(&export).expect("CSV graph export serializes"),
+            ("exact", "json") => match self.sitegraph.export_exact_json(cursor, limit).await {
+                Ok(export) => serde_json::to_string(&export).expect("exact graph export serializes"),
                 Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
             },
-            _ => serde_json::json!({"error": "format must be json or csv"}).to_string(),
+            (_, "csv") => match self.sitegraph.export_csv(cursor, limit).await {
+                Ok(export) => serde_json::to_string(&serde_json::json!({"profile": profile, "export": export})).unwrap(),
+                Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+            },
+            _ => unreachable!(),
         }
     }
-
     #[tool(
         name = "burp_cookie_jar",
         description = "List cookies in Burp cookie jar with name, value, domain, path, and expiration (optional domain filter)"
@@ -2693,13 +2715,13 @@ fn script_import_json(
         Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
     }
 }
-fn utility_value(input: UtilityValueInput) -> utility::UtilityResult<DataValue> {
+fn utility_value(input: UtilityValueInput) -> utility_engine_api::UtilityResult<DataValue> {
     match input {
         UtilityValueInput::Text { value } => Ok(DataValue::Text(value)),
         UtilityValueInput::Bytes { base64 } => {
             base64::Engine::decode(&base64::engine::general_purpose::STANDARD, base64)
                 .map(DataValue::Bytes)
-                .map_err(|error| utility::UtilityError::message(format!("invalid base64 input: {error}")))
+                .map_err(|error| utility_engine_api::UtilityError::message(format!("invalid base64 input: {error}")))
         }
         UtilityValueInput::Json { value } => Ok(DataValue::Json(value)),
     }
@@ -2707,11 +2729,11 @@ fn utility_value(input: UtilityValueInput) -> utility::UtilityResult<DataValue> 
 
 fn decoder_json(input: DecoderInput) -> String {
     if let Some(query) = input.query.as_deref() {
-        return serde_json::to_string(&utility::search(query))
+        return serde_json::to_string(&utility_engine_api::search(query))
             .expect("decoder operation registry must serialize");
     }
     if let Some(operation) = input.describe.as_deref() {
-        return match utility::describe(operation) {
+        return match utility_engine_api::describe(operation) {
             Some(operation) => serde_json::to_string(&operation)
                 .expect("decoder operation metadata must serialize"),
             None => serde_json::json!({"error": "operation not found"}).to_string(),
@@ -2722,32 +2744,32 @@ fn decoder_json(input: DecoderInput) -> String {
         Err(error) => return serde_json::json!({"error": error.to_string()}).to_string(),
     };
     if input.magic {
-        return serde_json::json!({"suggestions": utility::magic(&value)}).to_string();
+        return serde_json::json!({"suggestions": utility_engine_api::magic(&value)}).to_string();
     }
     let result = match (input.operation, input.steps.is_empty()) {
-        (Some(operation), true) => utility::run(&operation, value, &input.args),
+        (Some(operation), true) => utility_engine_api::run(&operation, value, &input.args),
         (None, false) => {
             let steps = input
                 .steps
                 .iter()
-                .map(|step| utility::RecipeStep {
+                .map(|step| utility_engine_api::RecipeStep {
                     operation: step.op.clone(),
                     args: step.args.clone(),
                 })
                 .collect::<Vec<_>>();
-            utility::run_recipe(value, &steps, utility::run)
+            utility_engine_api::run_recipe(value, &steps, utility_engine_api::run)
         }
-        (Some(_), false) => Err(utility::UtilityError::message(
+        (Some(_), false) => Err(utility_engine_api::UtilityError::message(
             "provide either operation or steps, not both",
         )),
-        (None, true) => Err(utility::UtilityError::message(
+        (None, true) => Err(utility_engine_api::UtilityError::message(
             "provide an operation, steps, query, describe, or magic mode",
         )),
     };
     decoder_result_json(result)
 }
 
-fn decoder_result_json(result: utility::UtilityResult<DataValue>) -> String {
+fn decoder_result_json(result: utility_engine_api::UtilityResult<DataValue>) -> String {
     match result {
         Ok(value) => utility_value_json(value).to_string(),
         Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),

@@ -134,4 +134,17 @@ CREATE TABLE enrichment_findings (
   UNIQUE(node_id, enricher_id, ruleset_id, input_fingerprint, byte_start, byte_end)
 );
 
+CREATE TABLE enrichment_finding_revisions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  finding_id TEXT NOT NULL,
+  node_id TEXT NOT NULL,
+  enricher_id TEXT NOT NULL,
+  ruleset_id TEXT,
+  ruleset_version TEXT,
+  input_fingerprint TEXT NOT NULL,
+  capture BLOB NOT NULL,
+  replaced_at INTEGER NOT NULL
+);
+CREATE INDEX enrichment_revisions_finding ON enrichment_finding_revisions(finding_id, replaced_at DESC);
+
 CREATE INDEX nodes_updated_id ON nodes(updated_at, id);

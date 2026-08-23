@@ -92,6 +92,9 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.ListPayloadListsResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.PayloadListEntry
 import io.github.nguyenthdat.burpmcp.grpc.v1.UpdatePayloadListRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.RemovePayloadGeneratorRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.BurpEvent
+import io.github.nguyenthdat.burpmcp.grpc.v1.EventsSinceRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.EventsSinceResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.RemovePayloadProcessorRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.CookieEntry
 import io.github.nguyenthdat.burpmcp.grpc.v1.CookieJarRequest
@@ -511,6 +514,8 @@ internal class BurpRpcService(
                     .setStatus(item.status)
                     .setContentType(item.contentType)
                     .setResponseBody(com.google.protobuf.ByteString.copyFrom(item.responseBody))
+                    .setRequestBytes(com.google.protobuf.ByteString.copyFrom(item.requestBytes))
+                    .setResponseBytes(com.google.protobuf.ByteString.copyFrom(item.responseBytes))
                     .setRedirectUrl(item.redirectUrl)
                     .addAllResponseLinks(item.responseLinks)
                     .addAllFormActions(item.formActions)
@@ -530,6 +535,29 @@ internal class BurpRpcService(
                 .build()
         responseObserver.onNext(response.build())
         responseObserver.onCompleted()
+    }
+
+    override fun eventsSince(
+        request: EventsSinceRequest,
+        responseObserver: StreamObserver<EventsSinceResponse>,
+    ) = responseObserver.respond {
+        val limit = if (request.limit == 0) 100 else request.limit.coerceAtMost(GRPC_MAX_PAGE_SIZE)
+        val page = resources.events.since(request.afterSequence, limit.toInt())
+        EventsSinceResponse.newBuilder()
+            .addAllItems(page.items.map { event ->
+                BurpEvent.newBuilder()
+                    .setSequence(event.sequence)
+                    .setKind(event.kind)
+                    .setKey(event.key)
+                    .setReconcileRequired(event.reconcileRequired)
+                    .setObservedUnixMillis(event.observedUnixMillis)
+                    .build()
+            })
+            .setLatestSequence(page.latestSequence)
+            .setGapDetected(page.gapDetected)
+            .setTruncated(page.truncated)
+            .setNextSequence(page.nextSequence)
+            .build()
     }
 
     override fun targetInfo(
@@ -760,36 +788,33 @@ internal class BurpRpcService(
     override fun proxyWebSocketHistory(
         request: ProxyWebSocketHistoryRequest,
         responseObserver: StreamObserver<ProxyWebSocketHistoryResponse>,
-    ) {
+    ) = responseObserver.respond {
         val limit = if (!request.hasPage() || request.page.limit == 0) 50 else request.page.limit.coerceAtMost(GRPC_MAX_PAGE_SIZE)
         val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "WebSocket cursor")
         val page = proxyFacade.webSocketHistory(limit, offset)
         val end = page.offset + page.items.size
-        responseObserver.onNext(
-            ProxyWebSocketHistoryResponse.newBuilder()
-                .addAllItems(page.items.map { item ->
-                    ProxyWebSocketEntry.newBuilder()
-                        .setIndex(item.index)
-                        .setId(item.id)
-                        .setWebSocketId(item.webSocketId)
-                        .setDirection(item.direction)
-                        .setPayload(com.google.protobuf.ByteString.copyFrom(item.payload))
-                        .setEditedPayload(com.google.protobuf.ByteString.copyFrom(item.editedPayload))
-                        .setTime(item.time)
-                        .setListenerPort(item.listenerPort)
-                        .setUpgradeUrl(item.upgradeUrl)
-                        .build()
-                })
-                .setPage(
-                    PageInfo.newBuilder()
-                        .setTotal(page.total)
-                        .setTruncated(end < page.total)
-                        .setNextCursor(if (end < page.total) end.toString() else "")
-                        .build(),
-                )
-                .build(),
-        )
-        responseObserver.onCompleted()
+        ProxyWebSocketHistoryResponse.newBuilder()
+            .addAllItems(page.items.map { item ->
+                ProxyWebSocketEntry.newBuilder()
+                    .setIndex(item.index)
+                    .setId(item.id)
+                    .setWebSocketId(item.webSocketId)
+                    .setDirection(item.direction)
+                    .setPayload(com.google.protobuf.ByteString.copyFrom(item.payload))
+                    .setEditedPayload(com.google.protobuf.ByteString.copyFrom(item.editedPayload))
+                    .setTime(item.time)
+                    .setListenerPort(item.listenerPort)
+                    .setUpgradeUrl(item.upgradeUrl)
+                    .build()
+            })
+            .setPage(
+                PageInfo.newBuilder()
+                    .setTotal(page.total)
+                    .setTruncated(end < page.total)
+                    .setNextCursor(if (end < page.total) end.toString() else "")
+                    .build(),
+            )
+            .build()
     }
 
     override fun sendToIntruder(

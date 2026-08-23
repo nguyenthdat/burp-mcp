@@ -231,6 +231,31 @@ impl SiteGraph {
                 now,
                 json!({"origin": endpoint.metadata["origin"]}),
             );
+            for (surface, direction, payload) in [
+                ("request_message", "request", observation.request_bytes.as_slice()),
+                ("response_message", "response", observation.response_bytes.as_slice()),
+            ] {
+                if payload.is_empty() {
+                    continue;
+                }
+                let payload_hash = blake3::hash(payload).to_hex().to_string();
+                let blob_id = fingerprint::stable_id("evidence_blob", &[surface, &payload_hash]);
+                sqlx::query(
+                    "INSERT OR IGNORE INTO evidence_blobs(id, sha256, blake3, source_entry_id, surface, direction, content_type, payload, byte_length, observed_at)
+                     VALUES(?1, ?2, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                )
+                .bind(&blob_id)
+                .bind(&payload_hash)
+                .bind(&endpoint.id)
+                .bind(surface)
+                .bind(direction)
+                .bind(&observation.content_type)
+                .bind(payload)
+                .bind(i64::try_from(payload.len()).unwrap_or(i64::MAX))
+                .bind(now)
+                .execute(&mut *transaction)
+                .await?;
+            }
             if !observation.response_body.is_empty() {
                 let body_hash = blake3::hash(&observation.response_body).to_hex().to_string();
                 let blob_id = fingerprint::stable_id("evidence_blob", &["response", &body_hash]);
@@ -247,28 +272,52 @@ impl SiteGraph {
                 .bind(now)
                 .execute(&mut *transaction)
                 .await?;
-                let body_text = String::from_utf8_lossy(&observation.response_body);
-                let secret_pattern = regex::Regex::new(r#"(?i)(?:token|secret|api[_-]?key|authorization)\s*[:=]\s*([^\s&\"']+)"#)
+                let rule_pack = crate::enrichment::RulePack::default_exact()
                     .map_err(|error| StorageError::InvalidInput(error.to_string()))?;
-                for capture in secret_pattern.captures_iter(&body_text).take(128) {
-                    let Some(found) = capture.get(1) else { continue };
-                    let capture_bytes = found.as_str().as_bytes();
+                for rule_match in rule_pack.matches(&observation.response_body) {
                     let finding_id = fingerprint::stable_id(
                         "exact_finding",
-                        &[&endpoint.id, &blob_id, "secret_pattern", &found.start().to_string(), &found.end().to_string()],
+                        &[&endpoint.id, &blob_id, rule_match.kind, &rule_match.byte_start.to_string(), &rule_match.byte_end.to_string()],
                     );
+                    let stored_payload = sqlx::query("SELECT payload, blake3 FROM evidence_blobs WHERE id=?1")
+                        .bind(&blob_id)
+                        .fetch_one(&mut *transaction)
+                        .await?;
+                    let stored_bytes = stored_payload.get::<Vec<u8>, _>("payload");
+                    let stored_hash = stored_payload.get::<String, _>("blake3");
+                    if blake3::hash(&stored_bytes).to_hex().to_string() != stored_hash {
+                        return Err(StorageError::InvalidInput(format!("evidence blob {blob_id} failed integrity verification")));
+                    }
                     sqlx::query(
-                        "INSERT OR IGNORE INTO enrichment_findings(id, node_id, evidence_blob_id, enricher_id, enricher_version, ruleset_id, ruleset_version, input_fingerprint, kind, severity, confidence, byte_start, byte_end, capture, incomplete, metadata, observed_at)
-                         VALUES(?1, ?2, ?3, 'secret_pattern', '1', 'default', '1', ?4, 'secret_like_value', 'high', 0.8, ?5, ?6, ?7, 0, ?8, ?9)",
+                        "INSERT INTO enrichment_findings(id, node_id, evidence_blob_id, enricher_id, enricher_version, ruleset_id, ruleset_version, input_fingerprint, kind, severity, confidence, byte_start, byte_end, capture, incomplete, metadata, observed_at)
+                         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'high', 0.8, ?10, ?11, ?12, 0, ?13, ?14)
+                         ON CONFLICT(id) DO UPDATE SET
+                           evidence_blob_id=excluded.evidence_blob_id,
+                           enricher_version=excluded.enricher_version,
+                           ruleset_version=excluded.ruleset_version,
+                           input_fingerprint=excluded.input_fingerprint,
+                           kind=excluded.kind,
+                           severity=excluded.severity,
+                           confidence=excluded.confidence,
+                           capture=excluded.capture,
+                           incomplete=excluded.incomplete,
+                           limit_reason=excluded.limit_reason,
+                           metadata=excluded.metadata,
+                           observed_at=excluded.observed_at",
                     )
                     .bind(&finding_id)
                     .bind(&endpoint.id)
                     .bind(&blob_id)
+                    .bind(rule_match.kind)
+                    .bind(rule_pack.version)
+                    .bind(rule_pack.id)
+                    .bind(rule_pack.version)
                     .bind(&body_hash)
-                    .bind(i64::try_from(found.start()).unwrap_or(i64::MAX))
-                    .bind(i64::try_from(found.end()).unwrap_or(i64::MAX))
-                    .bind(capture_bytes)
-                    .bind(json!({"capture_policy": "exact", "source": "response_body"}).to_string())
+                    .bind(rule_match.kind)
+                    .bind(i64::try_from(rule_match.byte_start).unwrap_or(i64::MAX))
+                    .bind(i64::try_from(rule_match.byte_end).unwrap_or(i64::MAX))
+                    .bind(&rule_match.capture)
+                    .bind(json!({"capture_policy": "exact", "source": "response_body", "rule_pack": rule_pack.id}).to_string())
                     .bind(now)
                     .execute(&mut *transaction)
                     .await?;
@@ -498,6 +547,51 @@ impl SiteGraph {
             upserted_nodes += 2;
             upserted_edges += 1;
         }
+        for message in &batch.websocket_messages {
+            let node_id = fingerprint::stable_id("websocket_message", &[&message.web_socket_id, &message.id]);
+            let node = nodes::node(
+                NodeKind::Artifact,
+                node_id.clone(),
+                now,
+                json!({
+                    "artifact_kind": "websocket_message",
+                    "web_socket_id": message.web_socket_id,
+                    "direction": message.direction,
+                    "upgrade_url": message.upgrade_url,
+                }),
+            );
+            upsert_source_node(
+                &mut transaction,
+                &node,
+                nodes::SearchFields { name: &message.web_socket_id, ..nodes::SearchFields::default() },
+                context,
+                &sync_id,
+                now,
+            ).await?;
+            for (surface, payload) in [
+                ("websocket_payload", message.payload.as_slice()),
+                ("websocket_edited_payload", message.edited_payload.as_slice()),
+            ] {
+                if payload.is_empty() { continue; }
+                let payload_hash = blake3::hash(payload).to_hex().to_string();
+                let blob_id = fingerprint::stable_id("evidence_blob", &[surface, &payload_hash]);
+                sqlx::query(
+                    "INSERT OR IGNORE INTO evidence_blobs(id, sha256, blake3, source_entry_id, surface, direction, content_type, payload, byte_length, observed_at)
+                     VALUES(?1, ?2, ?2, ?3, ?4, ?5, 'application/octet-stream', ?6, ?7, ?8)",
+                )
+                .bind(&blob_id)
+                .bind(&payload_hash)
+                .bind(&node_id)
+                .bind(surface)
+                .bind(&message.direction)
+                .bind(payload)
+                .bind(i64::try_from(payload.len()).unwrap_or(i64::MAX))
+                .bind(now)
+                .execute(&mut *transaction)
+                .await?;
+            }
+            upserted_nodes += 1;
+        }
         let mut tombstoned_nodes = 0_u64;
         let mut tombstoned_edges = 0_u64;
         if context.complete {
@@ -633,6 +727,29 @@ impl SiteGraph {
             tombstoned_nodes,
             tombstoned_edges,
         })
+    }
+
+    pub async fn checkpoint(
+        &self,
+        source: &str,
+        scope: &str,
+    ) -> Result<Option<(String, SyncCoverage)>, StorageError> {
+        sqlx::query(
+            "SELECT last_snapshot_id, coverage_json FROM source_checkpoints
+             WHERE graph_id=?1 AND source=?2 AND scope=?3",
+        )
+        .bind(&self.graph_id)
+        .bind(source)
+        .bind(scope)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(|row| {
+            Ok((
+                row.get::<String, _>("last_snapshot_id"),
+                serde_json::from_str::<SyncCoverage>(&row.get::<String, _>("coverage_json"))?,
+            ))
+        })
+        .transpose()
     }
 
     pub async fn status(&self) -> Result<GraphStatus, StorageError> {
@@ -884,6 +1001,21 @@ impl SiteGraph {
         .await
     }
 
+    pub async fn export_exact_json(
+        &self,
+        cursor: u64,
+        limit: u64,
+    ) -> Result<crate::export::json::JsonExport, StorageError> {
+        let limit = validated_limit(limit)?;
+        crate::export::json::exact_page(
+            &self.pool,
+            cursor,
+            limit,
+            self.status().await?.last_synced_at,
+        )
+        .await
+    }
+
     pub async fn export_csv(
         &self,
         cursor: u64,
@@ -964,11 +1096,56 @@ mod tests {
             status: 200,
             content_type: "text/html".to_owned(),
             response_body: body.to_vec(),
+            request_bytes: Vec::new(),
+            response_bytes: Vec::new(),
             redirect_url: String::new(),
             response_links: Vec::new(),
             form_actions: Vec::new(),
             script_sources: Vec::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn large_source_batch_remains_bounded_by_page_commits() {
+        let graph = graph().await;
+        for page in 0..21 {
+            let sitemap = (0..500)
+                .map(|item| observation(&format!("page-{page}-item-{item}"), b""))
+                .collect::<Vec<_>>();
+            let mut context = SyncContext::snapshot("test", "stress");
+            context.run_id = "stress-run".to_owned();
+            context.pages_seen = page + 1;
+            context.items_seen = (page as u64 + 1) * 500;
+            context.complete = page == 20;
+            context.cursor = (!context.complete).then(|| format!("cursor-{}", page + 1));
+            graph
+                .sync_with_context(&SyncBatch { sitemap, ..SyncBatch::default() }, &context)
+                .await
+                .unwrap();
+        }
+        let status = graph.status().await.unwrap();
+        assert!(status.total_nodes > 10_000);
+        assert!(status.coverage.complete);
+        assert_eq!(status.coverage.items_indexed, 10_500);
+        assert_eq!(status.coverage.pages_read, 21);
+    }
+
+    #[tokio::test]
+    async fn project_graph_ids_remain_isolated_in_separate_databases() {
+        let directory = tempfile::tempdir().unwrap();
+        let graph_a = SiteGraph::open_with_id(&directory.path().join("a.sqlite"), "project-a").await.unwrap();
+        let graph_b = SiteGraph::open_with_id(&directory.path().join("b.sqlite"), "project-b").await.unwrap();
+        graph_a
+            .sync(&SyncBatch {
+                sitemap: vec![observation("only-a", b"")],
+                ..SyncBatch::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(graph_a.status().await.unwrap().graph_id, "project-a");
+        assert_eq!(graph_b.status().await.unwrap().graph_id, "project-b");
+        assert!(graph_a.status().await.unwrap().total_nodes > 0);
+        assert_eq!(graph_b.status().await.unwrap().total_nodes, 0);
     }
 
     #[tokio::test]
@@ -1370,6 +1547,84 @@ mod tests {
             .unwrap();
         assert_eq!(stored.get::<Vec<u8>, _>("payload"), body);
         assert_eq!(stored.get::<i64, _>("byte_length"), body.len() as i64);
+    }
+
+    #[tokio::test]
+    async fn diff_reports_nodes_edges_and_tombstones_without_sql_errors() {
+        let graph = graph().await;
+        let mut first = SyncContext::snapshot("test", "all");
+        first.run_id = "diff-first".to_owned();
+        first.items_seen = 2;
+        graph
+            .sync_with_context(
+                &SyncBatch {
+                    sitemap: vec![observation("kept", b""), observation("gone", b"")],
+                    ..SyncBatch::default()
+                },
+                &first,
+            )
+            .await
+            .unwrap();
+        let mut second = SyncContext::snapshot("test", "all");
+        second.run_id = "diff-second".to_owned();
+        second.items_seen = 1;
+        graph
+            .sync_with_context(
+                &SyncBatch {
+                    sitemap: vec![observation("kept", b"")],
+                    ..SyncBatch::default()
+                },
+                &second,
+            )
+            .await
+            .unwrap();
+        let diff = graph.diff(0, 0, 500).await.unwrap();
+        assert!(!diff.added_node_ids.is_empty());
+        assert!(!diff.added_edge_ids.is_empty());
+        assert!(!diff.removed_node_ids.is_empty());
+        assert!(!diff.removed_edge_ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn export_profiles_separate_metadata_from_exact_payloads() {
+        let graph = graph().await;
+        graph
+            .sync(&SyncBatch {
+                sitemap: vec![observation("profiles", b"token=exact-export-value")],
+                ..SyncBatch::default()
+            })
+            .await
+            .unwrap();
+        let metadata = serde_json::to_string(&graph.export_json(0, 50).await.unwrap()).unwrap();
+        let exact = serde_json::to_string(&graph.export_exact_json(0, 50).await.unwrap()).unwrap();
+        assert!(!metadata.contains("exact-export-value"));
+        assert!(exact.contains("payload_base64"));
+        assert!(exact.contains("exact"));
+    }
+
+    #[tokio::test]
+    async fn websocket_payload_evidence_round_trips_exactly() {
+        let graph = graph().await;
+        graph
+            .sync(&SyncBatch {
+                websocket_messages: vec![crate::model::WebSocketObservation {
+                    id: "1".to_owned(),
+                    web_socket_id: "socket-1".to_owned(),
+                    direction: "CLIENT_TO_SERVER".to_owned(),
+                    upgrade_url: "wss://example.test/socket".to_owned(),
+                    payload: b"binary\0payload\xff".to_vec(),
+                    edited_payload: Vec::new(),
+                }],
+                ..SyncBatch::default()
+            })
+            .await
+            .unwrap();
+        let payload = sqlx::query("SELECT payload FROM evidence_blobs WHERE surface='websocket_payload'")
+            .fetch_one(graph.pool())
+            .await
+            .unwrap()
+            .get::<Vec<u8>, _>("payload");
+        assert_eq!(payload, b"binary\0payload\xff");
     }
 
 }

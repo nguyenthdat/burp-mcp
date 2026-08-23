@@ -8,10 +8,26 @@ pub struct SitemapObservation {
     pub content_type: String,
     #[serde(skip)]
     pub response_body: Vec<u8>,
+    #[serde(skip)]
+    pub request_bytes: Vec<u8>,
+    #[serde(skip)]
+    pub response_bytes: Vec<u8>,
     pub redirect_url: String,
     pub response_links: Vec<String>,
     pub form_actions: Vec<String>,
     pub script_sources: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebSocketObservation {
+    pub id: String,
+    pub web_socket_id: String,
+    pub direction: String,
+    pub upgrade_url: String,
+    #[serde(skip)]
+    pub payload: Vec<u8>,
+    #[serde(skip)]
+    pub edited_payload: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,7 +58,9 @@ pub struct SyncBatch {
     pub issues: Vec<IssueObservation>,
     pub technologies: Vec<TechnologyObservation>,
     pub artifacts: Vec<ArtifactObservation>,
+    pub websocket_messages: Vec<WebSocketObservation>,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyncContext {
     pub graph_id: String,

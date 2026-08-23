@@ -15,6 +15,7 @@ service BurpService {
   rpc ProxyDetail(ProxyDetailRequest) returns (ProxyDetailResponse);
   rpc ScanIssues(ScanIssuesRequest) returns (ScanIssuesResponse);
   rpc SitemapSnapshot(SitemapSnapshotRequest) returns (SitemapSnapshotResponse);
+  rpc EventsSince(EventsSinceRequest) returns (EventsSinceResponse);
   rpc TargetInfo(TargetInfoRequest) returns (TargetInfoResponse);
   rpc ScopeCheck(ScopeCheckRequest) returns (ScopeCheckResponse);
   rpc CookieJar(CookieJarRequest) returns (CookieJarResponse);
@@ -140,6 +141,26 @@ message SitemapEntry {
   repeated string response_links = 7;
   repeated string form_actions = 8;
   repeated string script_sources = 9;
+  bytes request_bytes = 10;
+  bytes response_bytes = 11;
+}
+message EventsSinceRequest {
+  uint64 after_sequence = 1;
+  uint32 limit = 2;
+}
+message BurpEvent {
+  uint64 sequence = 1;
+  string kind = 2;
+  string key = 3;
+  bool reconcile_required = 4;
+  int64 observed_unix_millis = 5;
+}
+message EventsSinceResponse {
+  repeated BurpEvent items = 1;
+  uint64 latest_sequence = 2;
+  bool gap_detected = 3;
+  bool truncated = 4;
+  uint64 next_sequence = 5;
 }
 message TargetInfoRequest {
   string url_prefix = 1;

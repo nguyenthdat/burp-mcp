@@ -314,6 +314,7 @@ name = "burp-tools"
 version = "3.0.0-alpha.1"
 dependencies = [
  "base64 0.22.1",
+ "blake3",
  "burp-protocol",
  "regex",
  "rmcp",
@@ -321,6 +322,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sitegraph",
+ "time",
  "tokio",
  "utility-engine",
 ]
@@ -2168,6 +2170,7 @@ checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 name = "sitegraph"
 version = "3.0.0-alpha.1"
 dependencies = [
+ "base64 0.22.1",
  "blake3",
  "http",
  "petgraph",
@@ -2176,6 +2179,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "tempfile",
  "thiserror",
  "time",
  "tokio",

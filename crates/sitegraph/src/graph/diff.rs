@@ -33,11 +33,14 @@ pub async fn since(
     .await?
     .get::<i64, _>("count") as u64;
     let rows = sqlx::query(
-        "SELECT entity_type, entity_id, created_at AS changed_at, 'active' AS status FROM nodes WHERE updated_at>?1
+        "SELECT 'node' AS entity_type, id AS entity_id, created_at AS changed_at, 'active' AS status
+         FROM nodes WHERE updated_at>?1
          UNION ALL
-         SELECT 'edge', id, updated_at, 'active' FROM edges WHERE updated_at>?1
+         SELECT 'edge' AS entity_type, id AS entity_id, updated_at AS changed_at, 'active' AS status
+         FROM edges WHERE updated_at>?1
          UNION ALL
-         SELECT entity_type, entity_id, last_confirmed_at, 'removed' FROM tombstones WHERE last_confirmed_at>?1
+         SELECT entity_type, entity_id, last_confirmed_at AS changed_at, 'removed' AS status
+         FROM tombstones WHERE last_confirmed_at>?1
          ORDER BY changed_at, entity_type, entity_id LIMIT ?2 OFFSET ?3",
     )
     .bind(since)

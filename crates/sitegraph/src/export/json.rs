@@ -13,6 +13,7 @@ pub struct JsonExport {
     pub last_synced_at: Option<i64>,
     pub snapshot_id: Option<String>,
     pub evidence: Value,
+    pub profile: String,
 }
 
 pub async fn page(
@@ -76,6 +77,49 @@ pub async fn page(
         next_cursor: (next < node_total).then_some(next),
         last_synced_at,
         snapshot_id,
+        profile: "metadata".to_owned(),
         evidence: serde_json::json!({"source": "metadata-only SQLite read transaction"}),
+    })
+}
+
+pub async fn exact_page(
+    pool: &SqlitePool,
+    cursor: u64,
+    limit: u64,
+    last_synced_at: Option<i64>,
+) -> Result<JsonExport, StorageError> {
+    let mut transaction = pool.begin().await?;
+    let connection = transaction.acquire().await?;
+    let total = sqlx::query("SELECT count(*) AS count FROM evidence_blobs")
+        .fetch_one(&mut *connection)
+        .await?
+        .get::<i64, _>("count") as u64;
+    let rows = sqlx::query("SELECT id, source_entry_id, surface, direction, content_type, payload, byte_length, observed_at FROM evidence_blobs ORDER BY id LIMIT ?1 OFFSET ?2")
+        .bind(limit as i64)
+        .bind(cursor as i64)
+        .fetch_all(&mut *connection)
+        .await?;
+    let evidence = rows.into_iter().map(|row| serde_json::json!({
+        "id": row.get::<String, _>("id"),
+        "source_entry_id": row.get::<Option<String>, _>("source_entry_id"),
+        "surface": row.get::<String, _>("surface"),
+        "direction": row.get::<Option<String>, _>("direction"),
+        "content_type": row.get::<Option<String>, _>("content_type"),
+        "payload_base64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, row.get::<Vec<u8>, _>("payload")),
+        "byte_length": row.get::<i64, _>("byte_length"),
+        "observed_at": row.get::<i64, _>("observed_at"),
+    })).collect::<Vec<_>>();
+    transaction.commit().await?;
+    let next = cursor + evidence.len() as u64;
+    Ok(JsonExport {
+        nodes: Vec::new(),
+        edges: Vec::new(),
+        total,
+        truncated: next < total,
+        next_cursor: (next < total).then_some(next),
+        last_synced_at,
+        snapshot_id: None,
+        profile: "exact".to_owned(),
+        evidence: serde_json::json!({"items": evidence, "profile": "exact", "source": "project evidence_blobs"}),
     })
 }

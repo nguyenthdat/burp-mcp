@@ -8,6 +8,7 @@ import io.github.nguyenthdat.burpmcp.HttpFacade
 import io.github.nguyenthdat.burpmcp.HttpHandlerFacade
 import io.github.nguyenthdat.burpmcp.IntruderPayloadFacade
 import io.github.nguyenthdat.burpmcp.JobFacade
+import io.github.nguyenthdat.burpmcp.EventFacade
 import io.github.nguyenthdat.burpmcp.LongOperationFacade
 import io.github.nguyenthdat.burpmcp.MacroFacade
 import io.github.nguyenthdat.burpmcp.PayloadListFacade
@@ -45,8 +46,10 @@ internal class BurpServiceResources(api: MontoyaApi) : AutoCloseable {
     val longOperations = LongOperationFacade(api, jobs)
     val capabilities = BurpCapabilityFacade(api)
     val intruderPayloads = IntruderPayloadFacade(api)
+    val events = EventFacade(api)
 
     override fun close() {
+        events.close()
         jobs.close()
         httpHandlers.clear()
         proxyRules.close()

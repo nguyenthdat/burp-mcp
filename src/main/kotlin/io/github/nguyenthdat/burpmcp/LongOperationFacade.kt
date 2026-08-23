@@ -183,9 +183,8 @@ private fun <T> awaitScannerProgress(operation: String, snapshot: () -> T, reque
             changedAt = now
         }
         val effective = requestCount(current)
-        val completed = message.contains("finished", true) || message.contains("complete", true) || message.contains("succeeded", true)
-        if ((effective > 0 || completed) && now - changedAt >= stableNanos) return withRequestCount(current, effective)
-        if (now - started >= timeoutNanos) error(if (effective == 0) "$operation issued no requests before timeout" else "$operation did not settle before timeout")
+        if (effective > 0 && now - changedAt >= stableNanos) return withRequestCount(current, effective)
+        if (now - started >= timeoutNanos) error(if (effective == 0) "$operation completed without observing any requests" else "$operation did not settle before timeout")
         Thread.sleep(pollMillis)
     }
 }

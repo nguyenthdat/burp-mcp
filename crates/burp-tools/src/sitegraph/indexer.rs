@@ -1,7 +1,7 @@
-use crate::sitegraph_sync::SiteGraphSynchronizer;
+use super::sync::SiteGraphSynchronizer;
 use burp_protocol::BurpClient;
 use serde::Serialize;
-use sitegraph::{GraphStatus, SiteGraph, SyncSummary};
+use ::sitegraph::{GraphStatus, SiteGraph, SyncSummary};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, watch};
 

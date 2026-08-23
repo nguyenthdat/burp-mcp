@@ -10,6 +10,7 @@ analysis = ["dep:petgraph"]
 
 [dependencies]
 blake3.workspace = true
+base64.workspace = true
 http.workspace = true
 petgraph = { workspace = true, optional = true }
 regex.workspace = true
@@ -24,3 +25,4 @@ url.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+tempfile.workspace = true
