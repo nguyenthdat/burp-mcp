@@ -6,9 +6,9 @@
 
 Auto-index phải đọc hết history hiện có, không có hard cap tổng 10.000, 100.000 hay một số item cố định khác. Giới hạn chỉ áp dụng cho từng page, từng transaction, bytes transient, queue và deadline để giữ backpressure; checkpoint tiếp tục sang page kế tiếp cho tới khi đạt end-of-source. Người dùng có thể hủy hoặc pause, nhưng indexer không được tự tuyên bố complete vì chạm một total-item cap.
 
-Metadata enrichment là pipeline first-class. Ngoài normalize/HTML/OpenAPI, graph nên chạy các enricher versioned và bounded: nhận diện JavaScript component/vulnerability theo database kiểu Retire.js; tagging/extraction bằng rule packs regex theo mô hình HaE; technology fingerprint; secret-pattern metadata; GraphQL/OpenAPI/JS-route discovery. Enricher chỉ lưu finding, tag, captured metadata đã redact, confidence và provenance; không lưu raw body mặc định.
+Metadata enrichment là pipeline first-class. Ngoài normalize/HTML/OpenAPI, graph nên chạy các enricher versioned và bounded: nhận diện JavaScript component/vulnerability theo database kiểu Retire.js; tagging/extraction bằng rule packs regex theo mô hình HaE; technology fingerprint; secret-pattern metadata; GraphQL/OpenAPI/JS-route discovery. **Enrichment không redact dữ liệu match:** security-testing profile phải giữ exact capture, exact token/value, vị trí match và payload evidence đủ cho replay/debug. Enricher chỉ giới hạn kích thước, thời gian và phạm vi input; không biến kết quả thành placeholder hoặc hash thay cho dữ liệu kiểm thử.
 
-MVP hiện tại đã có nền tảng đúng: SQLite/WAL, migration, FTS5, BLAKE3 stable IDs, bounded search/traversal/export, metadata-only persistence và các tool `sitegraph_*`. Tuy nhiên, nó vẫn là **manual snapshot sync**, chưa phải auto-index pipeline. Các rủi ro cần xử lý trước khi bật auto-index:
+MVP hiện tại đã có nền tảng đúng cho topology: SQLite/WAL, migration, FTS5, BLAKE3 stable IDs, bounded search/traversal/export và các tool `sitegraph_*`. Tuy nhiên, nó vẫn là **manual snapshot sync**, chưa phải auto-index pipeline; target enrichment sẽ bổ sung project-scoped exact evidence blobs.
 
 1. **Checkpoint và evidence chưa đủ ổn định cho incremental sync.** Edge ID hiện phụ thuộc `evidence_id`; `evidence_id` lại phụ thuộc `sync_id` tạo từ timestamp. Snapshot lặp qua ranh giới giây có thể tạo edge mới dù quan hệ không đổi.
 2. **Không có reconciliation/deletion model.** Upsert xử lý những gì nhìn thấy nhưng chưa có tombstone hoặc `last_seen_run` để biết entry đã biến mất khỏi Burp sitemap.
@@ -100,9 +100,8 @@ Nguồn: [`crates/sitegraph/migrations/0001_graph.sql`](../crates/sitegraph/migr
 ### 2.3 Những điểm đã làm đúng
 
 - Endpoint identity dùng BLAKE3 từ origin + method + normalized path; stable ID helper nằm ở [`crates/sitegraph/src/normalize/fingerprint.rs:1-9`](../crates/sitegraph/src/normalize/fingerprint.rs).
-- URL chỉ nhận HTTP/HTTPS, lower-case scheme/host, bỏ default port, normalize repeated slash, bỏ query values khỏi metadata nhưng giữ parameter names — [`crates/sitegraph/src/normalize/url.rs:10-53`](../crates/sitegraph/src/normalize/url.rs).
-- `metadata_url` bỏ query và fragment khi tạo discovered relationship — [`crates/sitegraph/src/normalize/url.rs:56-66`](../crates/sitegraph/src/normalize/url.rs).
-- Response fingerprint được tính transient từ body, không lưu raw body; test cũng kiểm tra query/body bí mật không xuất hiện trong node metadata — [`crates/sitegraph/src/normalize/fingerprint.rs:11-13`](../crates/sitegraph/src/normalize/fingerprint.rs), [`crates/sitegraph/src/storage/sqlite.rs:723-747`](../crates/sitegraph/src/storage/sqlite.rs).
+- URL hiện normalize và loại query values khỏi topology metadata; đây là topology identity behavior, không phải policy áp dụng cho exact security-testing evidence. Enrichment findings phải giữ query/body/header/cookie values khi rule match — [`crates/sitegraph/src/normalize/url.rs:10-53`](../crates/sitegraph/src/normalize/url.rs), [`crates/sitegraph/src/normalize/url.rs:56-66`](../crates/sitegraph/src/normalize/url.rs).
+- Response fingerprint hiện được tính transient và không lưu raw body trong topology graph; security-testing enrichment target sẽ lưu exact evidence blobs/captures riêng, không nhầm hai storage policies — [`crates/sitegraph/src/normalize/fingerprint.rs:11-13`](../crates/sitegraph/src/normalize/fingerprint.rs), [`crates/sitegraph/src/storage/sqlite.rs:723-747`](../crates/sitegraph/src/storage/sqlite.rs).
 - Search, neighbors, trace và export có limit; trace depth bị chặn ở 8 và result ở 500 — [`crates/sitegraph/src/graph/traversal.rs:3-4`](../crates/sitegraph/src/graph/traversal.rs), [`crates/sitegraph/src/storage/sqlite.rs:471-532,569-608,654-686`](../crates/sitegraph/src/storage/sqlite.rs).
 - MCP surface đã có `sitegraph_sync`, `sitegraph_search`, `sitegraph_endpoint_detail`, `sitegraph_status`, `sitegraph_stats`, `sitegraph_neighbors`, `sitegraph_trace`, `sitegraph_diff`, `sitegraph_export` — [`crates/burp-tools/src/lib.rs:1937-2160`](../crates/burp-tools/src/lib.rs).
 - Offline behavior phù hợp PLAN.md: graph local vẫn query được khi Burp offline; Burp-bound call trả lỗi kết nối — [`PLAN.md:387-396`](../PLAN.md).
@@ -153,12 +152,15 @@ Kotlin vẫn có rủi ro memory vì Montoya trả list. Spike phải đo behavi
 
 `crates/sitegraph/src/ingest/html.rs:18-38` dùng một regex giới hạn `a|area|link|form|script`, tối đa 1.024 URL và 8 KiB mỗi URL. `crates/sitegraph/src/ingest/openapi.rs:3-11` trả lỗi cố ý vì OpenAPI ingestion chưa enabled. Trong `SitemapFacade`, `responseLinks`, `formActions`, `scriptSources` hiện được trả về `emptyList()` — [`SitemapFacade.kt:47-59`](../src/main/kotlin/io/github/nguyenthdat/burpmcp/SitemapFacade.kt).
 
-**Quyết định:** enrichment là một pipeline versioned, không phải các regex rời rạc nhét vào sync loop. Mỗi enricher khai báo input surfaces, rule/database version, resource limits, output schema và privacy policy. P1 phải có ít nhất:
+**Quyết định:** enrichment là một pipeline versioned, không phải các regex rời rạc nhét vào sync loop. Mỗi enricher khai báo input surfaces, rule/database version, resource limits, output schema và capture policy. Capture policy ở security-testing profile phải giữ dữ liệu nguyên bản đã match, không redact:
 
 - Retire.js-style JavaScript library/version detection và vulnerability metadata từ một repository snapshot đã pin/verify;
 - HaE-style rule packs cho request/response/WebSocket tagging và extraction, với scope, regex engine, capture policy, severity/color/tags và rule provenance;
 - HTML/OpenAPI/GraphQL/JS-route/technology enrichers;
-- re-enrichment không cần refetch Burp history khi retained normalized evidence đủ dùng; nếu cần raw body thì chạy transient lúc ingest hoặc explicit opt-in.
+- exact token/secret/header/cookie/query/body captures khi rule match, để test parser và kiểm thử security workflow;
+- re-enrichment không cần refetch Burp history khi retained evidence đủ dùng.
+
+Hash/fingerprint chỉ dùng cho identity/deduplication. Không được thay exact capture bằng hash trong finding output. Redaction là một profile tùy chọn cho export/chia sẻ, không phải behavior mặc định của enrichment.
 
 Retire.js chính thức mô tả việc nhận diện JavaScript library/version dễ tổn thương, gồm cả thư viện chỉ xuất hiện trong asset thay vì package manifest. HaE Network mô tả multi-engine regex để tag và extract HTTP/WebSocket messages, rule database offline và rule schema cấu hình. Burp MCP nên học data model/provenance của hai hệ này, không nhúng Node runtime hoặc phụ thuộc plugin JVM của chúng.
 
@@ -353,7 +355,7 @@ Per-project SQLite graph
 State semantics:
 
 | State | Ý nghĩa | Query behavior |
-|---|---|---|
+| --- | --- | --- |
 | `disabled` | Auto-index không đăng ký watcher/worker | Query graph cũ bình thường |
 | `bootstrapping` | Đang full snapshot đầu tiên | Query graph cũ; status trả progress |
 | `ready` | Checkpoint đã commit, coverage biết rõ | Query bình thường |
@@ -407,7 +409,7 @@ BURP_MCP_SITEGRAPH_INTERVAL_SECONDS=30
 BURP_MCP_SITEGRAPH_PAGE_SIZE=500
 BURP_MCP_SITEGRAPH_QUEUE_CAPACITY=4096
 BURP_MCP_SITEGRAPH_BODY_LIMIT=262144
-BURP_MCP_SITEGRAPH_ENRICHMENT=off|safe|full
+BURP_MCP_SITEGRAPH_ENRICHMENT=off|exact|metadata
 BURP_MCP_SITEGRAPH_RULE_PACKS=default,custom
 BURP_MCP_SITEGRAPH_RETIRE_DB=embedded|path|off
 BURP_MCP_SITEGRAPH_PROJECT_DB_ROOT=<platform-data>/burp-mcp/projects
@@ -426,24 +428,26 @@ Mỗi Burp project có một SQLite file riêng:
   temp-<random-128-bit-id>.sqlite
 ```
 
-Kotlin lấy identity từ Montoya `Project.id()` và display name từ `Project.name()` — [Montoya Project Javadoc](../docs/burp-extensions-montoya-api/docs/javadoc/burp/api/montoya/project/Project.html#id()), [name()](../docs/burp-extensions-montoya-api/docs/javadoc/burp/api/montoya/project/Project.html#name()).
+Kotlin lấy project identity từ Montoya `Project.id()`/`Project.name()` và lưu opaque graph UUID trong `api.persistence().extensionData()`. Montoya mô tả `extensionData()` là storage nằm trong Burp project — [Project Javadoc](../docs/burp-extensions-montoya-api/docs/javadoc/burp/api/montoya/project/Project.html), [Persistence Javadoc](../docs/burp-extensions-montoya-api/docs/javadoc/burp/api/montoya/persistence/Persistence.html#extensionData()).
 
-- **Persistent Burp project:** `project_id` là khóa logic ổn định; filename là encode/hash an toàn của `project_id`, không dùng raw project name, hostname hoặc target URL.
-- **Temporary project:** tạo `temp-<cryptographically-random-id>.sqlite` ngay khi session/project identity không persistent; không cố đoán tên từ target. Lưu random DB identity trong registry runtime để cùng phiên reconnect lại đúng file.
+- **DB identity:** đọc key extension data như `burp_mcp.sitegraph_db_id`; nếu chưa có thì sinh CSPRNG 128-bit ID, persist key và dùng `projects/<opaque-id>.sqlite`. Vì vậy filename không phụ thuộc project name, hostname hoặc target URL.
+- **Persistent Burp project:** extension data đi cùng project nên reopen/reload chọn lại cùng DB; `Project.id()` được lưu làm metadata/cross-check, không dùng raw làm filename.
+- **Temporary project:** lần đầu luôn nhận một random graph UUID và file `temp-<random-128-bit-id>.sqlite`; registry đánh dấu `temporary=true` nếu adapter xác định được, nếu không thì dùng session-lifetime marker. Temp DB không được suy ra từ target.
 - **Project rename:** DB không đổi tên; metadata cập nhật `project_name`.
 - **Project close/unload:** đóng writer/SQLite pool sau khi queue drain hoặc cancellation deadline; DB không bị xóa tự động.
-- **Collision/ownership:** file create với exclusive lock; registry lưu `project_id`, `db_path`, `created_at`, `last_seen_at`, `temporary`, schema version. Nếu project ID không có, random ID mới mỗi temporary session là chủ ý.
+- **Collision/ownership:** file create với exclusive lock; registry lưu `project_id`, opaque `graph_id`, `db_path`, `created_at`, `last_seen_at`, `temporary`, schema version.
 - **Cross-project queries:** mặc định không query union. MCP cần chọn project context rõ ràng; federation là P2.
 
 `--graph-path`/`BURP_MCP_GRAPH_PATH` hiện cho phép override một path — [`crates/burp-mcp/src/cli.rs:20-59,89-97`](../crates/burp-mcp/src/cli.rs). Giữ option này cho debug/export, nhưng production resolver phải có project identity và không để một default `default.sqlite` trộn nhiều Burp projects. `graph_id` trong status/query là stable project DB identity, không chỉ là label tự nhập.
 
 Nếu MCP process khởi động trước khi Kotlin trả project identity, dùng trạng thái `awaiting_project`; không mở `default.sqlite` rồi migrate dữ liệu sau. Khi identity xuất hiện, resolve/create DB trước khi bootstrap.
+
 ### 4.6 Enrichment pipeline và rule lifecycle
 
 ```text
 Burp snapshot/event
   ▼
-normalize + redact + fingerprint
+canonicalize identity + preserve exact evidence
   ▼
 extract artifacts (HTML/OpenAPI/GraphQL/JS)
   ▼
@@ -454,12 +458,16 @@ parallel bounded enrichers
   ├── HaE-style regex tag/extract rules
   └── secret/token pattern classifier
   ▼
-findings + tags + extracted metadata + provenance
+findings + exact captures + evidence ranges + rule provenance
   ▼
 one SQLite transaction per page/batch
 ```
 
-Mỗi finding phải có `enricher_id`, `enricher_version`, `ruleset_id`, `ruleset_version`, `input_fingerprint`, `confidence`, `severity`, `redaction_status`, `observed_at`, `source_evidence_id` và `metadata`. Raw regex capture phải qua capture policy: allowlist group, max length, normalization và secret redaction.
+Mỗi finding phải có `enricher_id`, `enricher_version`, `ruleset_id`, `ruleset_version`, `input_fingerprint`, `confidence`, `severity`, `observed_at`, `source_evidence_id`, `surface`, `byte_start`, `byte_end`, `capture_bytes` và metadata. `capture_bytes` giữ byte-exact match; text/JSON view chỉ là derived representation. Không có `redaction_status` trong core finding schema vì core enrichment không redact.
+
+Với match cần context để xác minh, finding tham chiếu một exact evidence blob hoặc exact request/response/WebSocket message. Blob phải giữ bytes nguyên bản, content type, direction, source entry ID và hash integrity. Có thể deduplicate blob theo content hash, nhưng hash không thay thế content.
+
+Giới hạn áp dụng cho ingest/matching throughput, không thay đổi nội dung match: max payload bytes được chấp nhận, max matches, max capture length và timeout. Nếu input/capture vượt policy, finding phải báo `incomplete=true`/`limit_reason`; không silently truncate rồi giả vờ exact.
 
 `Retire.js` là nguồn tham khảo cho JavaScript library/version và known-vulnerability matching — [Retire.js README](https://github.com/RetireJS/retire.js#readme), [Retire.js repository data](https://github.com/RetireJS/retire.js/tree/master/repository). Không chạy Node/npm trong Rust server. Chuyển database/rule format đã pin vào Rust-compatible snapshot hoặc chạy một offline import/build step trước release; không tải rule database qua network trong lúc xử lý Burp traffic.
 
@@ -468,13 +476,12 @@ Mỗi finding phải có `enricher_id`, `enricher_version`, `ruleset_id`, `rules
 Enrichment modes:
 
 | Mode | Hành vi |
-|---|---|
+| --- | --- |
 | `off` | Chỉ normalize, fingerprint và graph relationships |
-| `safe` | Technology, parser, bounded tags; redact capture; không advisory network update |
-| `full` | Thêm Retire-style advisory match, HaE rule packs và issue enrichment từ pinned offline databases |
+| `exact` | Chạy toàn bộ pinned enrichers và persist exact captures/evidence; đây là security-testing default |
+| `metadata` | Chỉ technology/parser metadata, dành cho export hoặc graph nhẹ; không phải default kiểm thử |
 
-Rule database update là một operation riêng: verify checksum/signature, build staging index, chạy compatibility/schema check, atomic swap, sau đó enqueue re-enrichment. Re-enrichment phải idempotent và chỉ replace findings thuộc đúng `enricher_id/ruleset_id`; không xóa findings do source khác tạo.
----
+Rule database update là một operation riêng: verify checksum/signature, build staging index, chạy compatibility/schema check, atomic swap, sau đó enqueue re-enrichment. Re-enrichment phải idempotent và chỉ replace findings thuộc đúng `enricher_id/ruleset_id`; không xóa findings do source khác tạo. Exact evidence blob chỉ được garbage-collect khi không còn observation/finding nào tham chiếu.
 
 ## 5. Schema và data model đề xuất
 
@@ -529,9 +536,23 @@ CREATE TABLE project_registry (
   schema_version INTEGER NOT NULL
 );
 
+CREATE TABLE evidence_blobs (
+  id TEXT PRIMARY KEY,
+  sha256 TEXT NOT NULL,
+  source_entry_id TEXT,
+  surface TEXT NOT NULL,
+  direction TEXT,
+  content_type TEXT,
+  payload BLOB NOT NULL,
+  byte_length INTEGER NOT NULL,
+  observed_at INTEGER NOT NULL,
+  UNIQUE(sha256, surface, direction)
+);
+
 CREATE TABLE enrichment_findings (
   id TEXT PRIMARY KEY,
   node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  evidence_blob_id TEXT NOT NULL REFERENCES evidence_blobs(id),
   enricher_id TEXT NOT NULL,
   enricher_version TEXT NOT NULL,
   ruleset_id TEXT,
@@ -540,13 +561,18 @@ CREATE TABLE enrichment_findings (
   kind TEXT NOT NULL,
   severity TEXT,
   confidence REAL,
+  byte_start INTEGER NOT NULL,
+  byte_end INTEGER NOT NULL,
+  capture BLOB NOT NULL,
+  incomplete INTEGER NOT NULL DEFAULT 0,
+  limit_reason TEXT,
   metadata TEXT NOT NULL CHECK(json_valid(metadata)),
   observed_at INTEGER NOT NULL,
-  UNIQUE(node_id, enricher_id, ruleset_id, input_fingerprint)
+  UNIQUE(node_id, enricher_id, ruleset_id, input_fingerprint, byte_start, byte_end)
 );
 ```
 
-`project_registry` có thể nằm trong một registry DB nhỏ dưới graph root hoặc được quản lý bởi process runtime; từng project graph DB vẫn là file độc lập. `enrichment_findings` phải tách khỏi `issues` do scanner tạo để re-enrichment không overwrite issue lifecycle.
+`project_registry` có thể nằm trong một registry DB nhỏ dưới graph root hoặc được quản lý bởi process runtime; từng project graph DB vẫn là file độc lập. `enrichment_findings` phải tách khỏi `issues` do scanner tạo để re-enrichment không overwrite issue lifecycle. `evidence_blobs.payload` và `enrichment_findings.capture` là byte-exact security-testing evidence, không phải metadata provenance placeholder.
 
 Tên/schema cụ thể có thể thay đổi, nhưng các invariant không nên bỏ:
 
@@ -557,7 +583,9 @@ Tên/schema cụ thể có thể thay đổi, nhưng các invariant không nên 
 - event gap làm invalid checkpoint và yêu cầu reconcile;
 - không có `max_items` trong checkpoint hoặc schema; `items_seen` là counter thực tế, không phải quota;
 - project identity phải resolve trước khi tạo/open graph DB;
-- findings chỉ replace theo `(node_id, enricher_id, ruleset_id, input_fingerprint)` và giữ provenance.
+- findings chỉ replace theo `(node_id, enricher_id, ruleset_id, input_fingerprint, byte range)`;
+- exact capture và referenced evidence blob phải round-trip byte-for-byte;
+- finding vượt resource policy phải khai báo incomplete, không được silently truncate; core exact evidence không redact.
 
 ### 5.2 Evidence ổn định
 
@@ -592,34 +620,23 @@ Mỗi full snapshot scope phải có `run_id`. Trong transaction:
 3. sau khi toàn scope complete, mark absent những source-owned records không seen;
 4. tạo tombstone trước, hard-delete sau maintenance grace period.
 
-Không reconciliation khi:
+### 5.5 Security-testing evidence retention
 
-- source offline;
-- page truncated;
-- user dùng prefix chưa xác định là closed scope;
-- event sequence gap;
-- parser/storage error làm thiếu item.
+PLAN.md ban đầu chọn metadata-only mặc định — [`PLAN.md:666-685`](../PLAN.md), [`PLAN.md:838-861`](../PLAN.md). Yêu cầu cập nhật của sitemap enrichment thay đổi điểm này: **core enrichment phải lưu exact matched data để kiểm thử**, kể cả Authorization, Cookie, query/body values, JWT/API keys hoặc secret-like tokens nếu rule match chúng.
 
-### 5.5 Privacy
+Phân tách dữ liệu:
 
-PLAN.md yêu cầu metadata-only và cấm Authorization, Cookie, query values, request/response bodies, JWT/API keys mặc định — [`PLAN.md:666-685`](../PLAN.md), [`PLAN.md:838-861`](../PLAN.md).
+- **graph topology:** origin, endpoint, relationship và fingerprints cho traversal;
+- **exact evidence blobs:** byte-exact request, response, WebSocket message hoặc asset cần để tái hiện finding;
+- **exact captures:** byte range và bytes match của từng rule/enricher;
+- **derived views:** decoded text/JSON, tags, technology và advisory metadata;
+- **integrity metadata:** source entry ID, content hash, timestamps, rule/enricher versions.
 
-Cần phân biệt:
+Ingest không redact, mask hoặc hash-only exact evidence. Nếu storage/resource policy từ chối payload quá lớn, indexer phải đánh dấu finding incomplete và giữ lý do; không được lưu bản cắt ngắn rồi báo là exact.
 
-- **persisted data:** tuyệt đối metadata-only mặc định;
-- **transient extraction bytes:** có thể tồn tại ngắn trong Rust/Kotlin để hash/parse;
-- **wire payload:** hiện proto có `bytes response_body` — [`proto/burp.proto:133-142`](../proto/burp.proto).
+Vì mỗi Burp project có DB riêng, exact evidence nằm trong project DB tương ứng. Database và backup phải dùng owner-only permissions; encryption-at-rest có thể bổ sung sau nhưng không được làm thay đổi bytes khi đọc lại. Logs vẫn không dump payload tự động vì log không phải evidence store.
 
-Khuyến nghị thêm request flags:
-
-```proto
-bool include_response_body = 10;
-uint32 response_body_limit = 11;
-```
-
-Auto-index mặc định `include_response_body=false` nếu chỉ cần status/headers; body transient chỉ bật cho content type allowlist và limit nhỏ khi cần HTML/OpenAPI extraction. Không log body, query value, cookie, Authorization hoặc parser input nguyên bản.
-
----
+Export/chia sẻ có thể có profile `exact` và `metadata`; `metadata` có thể bỏ blobs/captures. Đây là export projection, không mutate hoặc redact core database.
 
 ## 6. MCP/API surface đề xuất
 
@@ -645,7 +662,7 @@ Không đổi tên các tool hiện tại trong v3. Cập nhật output để m�
 ### 6.2 Tool/config mới, giới hạn số tool
 
 | Tool | P0/P1 | Mục đích |
-|---|---:|---|
+| --- | --- | --- |
 | `sitegraph_status` | P0 | Trả project/DB identity, state, queue, checkpoint, progress, freshness, ruleset versions, last error |
 | `sitegraph_sync` | P0 | Enqueue full/scoped reconcile tới end-of-source; không total cap; serialize với watcher |
 | `sitegraph_config` | P0 | Read/set mode, page/resource bounds và enrichment; không có `max_items` |
@@ -687,17 +704,17 @@ Không mở `sitegraph_sql`, `sitegraph_cypher` hoặc arbitrary query trong MVP
 
 ### P1 — enrich có giá trị cao
 
-1. OpenAPI JSON/YAML: paths, methods, parameters, schemas/artifact provenance.
-2. GraphQL endpoint/operation names không lưu variables/values.
-3. Technology evidence từ headers/body fingerprint với confidence.
-4. Retire.js-style JS library/version/vulnerability matching bằng database offline đã pin.
-5. HaE-style regex rule packs cho HTTP/WebSocket tagging/extraction, capture policy và provenance.
-6. Scanner issue lifecycle: open/resolved/last-seen.
-7. Proxy/HTTP handler event feed và sequence checkpoint.
-8. Redirect chains, form method, content discovery source.
+1. OpenAPI JSON/YAML: paths, methods, parameters, schemas/artifact provenance và exact source evidence.
+2. GraphQL endpoint/operation names cùng exact query/variables capture khi rule yêu cầu.
+3. Technology evidence từ headers/body với exact byte range và confidence.
+4. Retire.js-style JS library/version/vulnerability matching bằng database offline đã pin, giữ exact asset evidence.
+5. HaE-style regex rule packs cho HTTP/WebSocket tagging/extraction, exact captures, byte ranges và provenance.
+6. Secret/token/header/cookie/query/body findings giữ giá trị exact phục vụ kiểm thử.
+7. Scanner issue lifecycle: open/resolved/last-seen.
+8. Proxy/HTTP handler event feed và sequence checkpoint.
+9. Redirect chains, form method, content discovery source.
 
-Enrichment runner phải có `off|safe|full` mode, chạy idempotent, bounded và không cần refetch khi evidence fingerprint đủ dùng.
-
+Enrichment runner phải có `off|exact|metadata` mode; `exact` là security-testing default. Runner chạy idempotent, bounded và không cần refetch khi exact evidence blob đã lưu đủ dùng.
 
 ### P2 — phân tích nâng cao
 
@@ -715,40 +732,43 @@ Enrichment runner phải có `off|safe|full` mode, chạy idempotent, bounded v�
 ### P0 — Correctness và auto-index foundation
 
 | Hạng mục | Kết quả bắt buộc | Acceptance criteria |
-|---|---|---|
-| Stable evidence/edge identity | Edge không đổi chỉ vì sync timestamp | Chạy cùng batch ít nhất 10 lần, sleep qua nhiều giây, node/edge/evidence identity ổn định; evidence count tăng hợp lệ nhưng edge count không tăng |
+| --- | --- | --- |
+| Stable evidence/edge identity | Edge không đổi chỉ vì sync timestamp | Chạy cùng batch ít nhất 10 lần, sleep qua nhiều giây, node/edge/evidence identity ổn định; edge count không tăng |
 | Full source pagination without total cap | Không mất sitemap/issues dù history lớn | Fixture có hơn 10.000 sitemap và hơn 500 issues; indexer đọc tới end-of-source; không có `max_items` branch; cancel/resume không mất item |
 | One-writer actor | Không race manual/auto | Concurrent `sitegraph_sync` + watcher chỉ có một commit order; không database lock loop/duplicate run |
 | Per-project DB resolver | Không trộn Burp projects | Hai project IDs mở hai SQLite files; rename giữ file; temp project tạo random filename; query context không đọc nhầm DB |
 | Auto-index config | Opt-in, bounded, observable | `off` không spawn watcher; `startup` bootstrap một lần; `watch` retry được; status phản ánh state/queue/error |
 | Checkpoint | Không mất thay đổi sau crash/failure | Inject fail sau page N; restart tiếp tục từ checkpoint cũ hoặc full reconcile, không claim success |
 | Tombstone/reconcile | Xử lý item bị xóa | Complete full-scope snapshot mark missing; partial/offline snapshot không xóa |
-| Enrichment provenance | Finding có thể tái lập và cập nhật | Rerun cùng input/ruleset không duplicate; ruleset version đổi chỉ replace finding owner đó; DB offline tamper/checksum bị từ chối |
-| Trace/diff/export hardening | Query trả semantics đúng | Cycle graph không lặp vô hạn; diff có removed; export node-edge pagination cùng snapshot |
-| Privacy boundary | Auto-index không lưu secret/raw body | Fixture với Authorization/Cookie/query/JWT/body; DB, FTS, export, logs đều không chứa values |
+| Exact enrichment evidence | Finding có thể tái hiện | Exact request/response/WebSocket blob và capture round-trip byte-for-byte, gồm token/header/cookie/query/body values; không redact core data |
+| Enrichment provenance | Finding có thể cập nhật an toàn | Rerun cùng input/ruleset không duplicate; ruleset version đổi chỉ replace finding owner đó; database tamper/checksum bị từ chối |
+| Trace/diff/export hardening | Query trả semantics đúng | Cycle graph không lặp vô hạn; diff có removed; export `exact`/`metadata` profile rõ ràng và pagination cùng snapshot |
+| Operational containment | Evidence không thoát ngoài ý muốn | Exact evidence chỉ nằm trong per-project DB; logs không dump payload; metadata export không chứa blob/capture |
 | Shutdown | Không còn worker khi stop/unload | MCP shutdown và Kotlin extension unload join/cancel worker trong bounded deadline |
 
 ### P1 — Incremental quality
 
 | Hạng mục | Acceptance criteria |
-|---|---|
+| --- | --- |
 | Kotlin `EventsSince` | Sequence monotonic, gap phát hiện được, queue overflow tạo reconcile marker |
 | Event coalescing/backpressure | Queue không tăng vô hạn; duplicate endpoint events được gộp; Burp callback không chờ SQLite/network |
-| HTML/OpenAPI/GraphQL parser | Corpus fixtures, limit/depth/bytes enforced, parse error có confidence/limitation |
+| HTML/OpenAPI/GraphQL parser | Corpus fixtures, limit/depth/bytes enforced; incomplete evidence được khai báo rõ |
+| Retire-style matcher | Pinned database nhận diện đúng library/version/advisory fixtures; không cần Node/npm hoặc network runtime |
+| HaE-style rule packs | Rule schema, regex bounds, exact byte captures/ranges và provenance được kiểm tra bằng fixtures HTTP/WebSocket |
 | Freshness/coverage API | Status phân biệt fresh, partial, offline, degraded; mọi query có evidence summary |
-| Backup/migration/integrity | Migration backup trước upgrade; corrupt DB quarantine, transient I/O không xóa graph |
-| Filtered graph query | Filter kind/origin/method/status/edge direction deterministic và paginated |
-| Scope ownership | Hai graph/target không trộn endpoint, issue hoặc evidence |
+| Backup/migration/integrity | Migration backup trước upgrade; corrupt DB quarantine, transient I/O không xóa graph hoặc exact blobs |
+| Filtered graph query | Filter kind/origin/method/status/tag/finding/edge direction deterministic và paginated |
+| Project ownership | Hai Burp project DB không trộn endpoint, issue, exact evidence hoặc enrichment findings |
 
 ### P2 — UX và analysis
 
 | Hạng mục | Acceptance criteria |
-|---|---|
-| Local graph UI | Read-only, bind local-only, pagination, không expose raw bodies/secrets |
+| --- | --- |
+| Local graph UI | Read-only, bind local-only, explicit reveal exact evidence, pagination |
 | Clustering/path analysis | Benchmark trên graph fixture; depth/CPU/memory limits |
 | Semantic search | Benchmark so với FTS; opt-in, local-only, no network/API key |
-| Export/import artifact | Integrity hash, schema version, explicit user action, không tự commit sensitive graph artifact |
-| Federation | Auth/trust model, graph ownership, conflict semantics và migration đã được ADR hóa |
+| Export/import artifact | Integrity hash, schema version, explicit `exact` hoặc `metadata` profile |
+| Federation | Auth/trust model, graph ownership, exact-evidence policy, conflict semantics và migration đã được ADR hóa |
 
 ### Recommended PR sequence
 
@@ -796,15 +816,16 @@ Không áp limit tổng số page/snapshot hoặc tổng số sitemap item/run. 
 
 ### 9.3 Privacy threat model
 
-Graph cục bộ vẫn là dữ liệu nhạy cảm: hostname nội bộ, endpoint names, issue names và technology fingerprint có thể tiết lộ target. Vì vậy:
+Graph cục bộ vẫn là dữ liệu nhạy cảm: hostname nội bộ, endpoint names, issue names, exact headers/cookies/tokens và technology fingerprint có thể tiết lộ target. Vì vậy:
 
 - file/database directory owner-only;
 - không bind graph UI ra `0.0.0.0`;
-- không log raw request/response;
-- không export raw bodies mặc định;
+- không log raw request/response hoặc exact captures;
+- core per-project DB giữ exact evidence cho security testing;
+- metadata export không có raw bodies/captures; exact export phải explicit `profile=exact`;
 - graph backups cần explicit path và integrity check;
-- query output vẫn phải bounded và redact metadata bất kỳ nào đến từ Burp;
-- raw body transient phải được drop ngay sau extraction/hash.
+- query output bounded, nhưng không redact exact result trong project security-testing context;
+- raw evidence không bị drop sau extraction nếu còn finding/observation reference; GC theo reference count.
 
 ### 9.4 Offline semantics
 
@@ -828,7 +849,7 @@ Không đưa các mục sau vào auto-index MVP:
 - semantic/vector search;
 - full CyberChef hoặc JavaScript execution;
 - active crawling/fuzzing tự động chỉ vì auto-index bật;
-- lưu request/response bodies, tokens, cookies, JWT, API keys;
+- lưu request/response bodies, tokens, cookies, JWT, API keys trong **metadata-only export hoặc shared artifact**; exact core evidence trong per-project security-testing DB là mục tiêu bắt buộc, không phải non-goal;
 - cross-project federation/team artifact mặc định;
 - daemon account-wide trước khi chứng minh một process actor đủ;
 - thay đổi Montoya behavior hoặc làm graph writer trong Kotlin;
@@ -846,8 +867,8 @@ Auto-index ở đây nghĩa là **tự đồng bộ dữ liệu Burp đã quan s
 4. `HttpHandler` có bao phủ đúng các nguồn request/response cần sitemap không, hay cần Proxy handlers riêng?
 5. Burp API callbacks có thread-affinity/lifecycle constraint nào cấm đọc body ngoài callback thread?
 6. Retire.js database/rule data sẽ được convert và pin vào Rust-compatible format nào? Update verification dùng checksum hay signature nào?
-7. HaE rule schema nào được hỗ trợ trong v1: match/tag/extract, WebSocket surface, capture groups, severity và redaction policy?
-8. Body transient phục vụ extraction có được bật mặc định không? Khuyến nghị: không; chỉ allowlist content type + explicit byte budget.
+7. HaE rule schema nào được hỗ trợ trong v1: match/tag/extract, WebSocket surface, capture groups, severity và exact capture policy?
+8. Body/evidence retention nào được bật mặc định trong `exact` security-testing mode, và resource limit nào chỉ làm finding `incomplete`?
 9. Tombstone grace period bao lâu và có user-facing `hide inactive` filter không?
 
 Các câu hỏi này nên được ghi thành ADR/spike result, không để implicit trong implementation.
@@ -903,14 +924,16 @@ Các câu hỏi này nên được ghi thành ADR/spike result, không để imp
 Bắt đầu bằng P0, không bắt đầu bằng UI hoặc semantic search. Định nghĩa invariant trước:
 
 ```text
-một graph writer
+một graph writer cho mỗi active project DB
 + checkpoint chỉ commit sau transaction thành công
 + stable edge identity độc lập evidence timestamp
 + complete snapshot mới được reconcile deletion
 + queue bounded và overflow chuyển thành full reconcile
 + offline không tạo tombstone
-+ metadata-only persistence mặc định
++ exact enrichment captures/evidence round-trip byte-for-byte
++ hash không thay thế capture; vượt limit phải báo incomplete
++ metadata export không mutate core exact database
 + unload/shutdown luôn cancel và join worker
 ```
 
-Khi các invariant này có test và status observability, `sitegraph_sync` sẽ trở thành một control plane cho cùng một indexer thay vì một đường code riêng. Khi đó auto-index không làm thay đổi semantics graph một cách âm thầm, và các mở rộng OpenAPI/event/UI/semantic có thể thêm từng lớp mà không phá nền tảng privacy/correctness của Burp MCP.
+Khi các invariant này có test và status observability, `sitegraph_sync` sẽ trở thành một control plane cho cùng một indexer thay vì một đường code riêng. Auto-index và enrichment phục vụ security testing bằng exact evidence trong per-project DB; containment nằm ở project isolation, owner-only storage, bounded queries và explicit export profile, không nằm ở việc làm mất dữ liệu bằng redaction.
