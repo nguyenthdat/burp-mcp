@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-pub const MAX_TRAVERSAL_DEPTH: u32 = 8;
-pub const MAX_TRAVERSAL_RESULTS: u32 = 500;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraceStep {

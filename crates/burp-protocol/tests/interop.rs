@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail};
-use burp_protocol::proto::{
+use burp_protocol::interop_proto::{
     EchoBytesRequest, PageRequest, PingRequest, ProxyHistoryRequest, ServerInfoRequest,
 };
 use burp_protocol::{BurpClientConfig, DEFAULT_MAX_MESSAGE_BYTES, connect_client, spawn_client};

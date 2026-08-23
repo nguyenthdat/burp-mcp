@@ -43,6 +43,16 @@ pub struct SyncBatch {
     pub technologies: Vec<TechnologyObservation>,
     pub artifacts: Vec<ArtifactObservation>,
 }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncSummary {
+    pub sync_id: String,
+    pub upserted_nodes: u64,
+    pub upserted_edges: u64,
+    pub total_nodes: u64,
+    pub total_edges: u64,
+    pub last_synced_at: i64,
+}
+
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Endpoint {

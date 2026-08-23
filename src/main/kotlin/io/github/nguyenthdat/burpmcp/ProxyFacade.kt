@@ -56,7 +56,7 @@ internal data class ProxyWebSocketPage(
     val offset: Int,
 )
 
-/** Typed Montoya seam shared by the compatibility HTTP and gRPC adapters. */
+/** Typed Montoya seam owned by the gRPC adapter. */
 internal class ProxyFacade(
     private val api: MontoyaApi,
 ) {

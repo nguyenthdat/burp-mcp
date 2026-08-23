@@ -1,15 +1,12 @@
 mod cli;
 use crate::cli::{Cli, Command, ServeArgs};
 use anyhow::{Context, Result, anyhow, bail};
-use burp_protocol::proto::{
-    EchoBytesRequest, PageRequest, PingRequest, ProxyHistoryRequest, ServerInfoRequest,
+use burp_protocol::{
+    BurpClientConfig, DEFAULT_MAX_MESSAGE_BYTES, PageRequest, ProxyHistoryQuery, spawn_client,
 };
-use burp_protocol::{BurpClientConfig, DEFAULT_MAX_MESSAGE_BYTES, connect_client, spawn_client};
 use burp_tools::BurpTools;
 use clap::Parser;
 use rmcp::{ServiceExt, transport::stdio};
-use std::time::Duration;
-use tonic::Request;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -47,52 +44,41 @@ async fn run_server(config: ServeArgs) -> Result<()> {
     Ok(())
 }
 
-// MCP tool implementations live in `tools.rs`; this binary owns only CLI setup and probing.
+// This binary owns only CLI setup, dependency composition, and probing.
 
 async fn run_probe(endpoint: &str) -> Result<()> {
-    let mut client = connect_client(endpoint, Duration::from_secs(5), DEFAULT_MAX_MESSAGE_BYTES)
+    let client = spawn_client(BurpClientConfig {
+        endpoint: endpoint.to_owned(),
+        call_timeout: std::time::Duration::from_secs(10),
+        ..BurpClientConfig::default()
+    })?;
+
+    let ping = client
+        .probe_ping("burp-mcp-probe".to_owned())
         .await
-        .with_context(|| format!("connect to Burp gRPC endpoint {endpoint}"))?;
-
-    let mut ping = Request::new(PingRequest {
-        client: "burp-mcp-phase0-probe".to_owned(),
-    });
-    ping.set_timeout(Duration::from_secs(5));
-    let ping = client.ping(ping).await?.into_inner();
-
-    let mut info = Request::new(ServerInfoRequest {});
-    info.set_timeout(Duration::from_secs(5));
-    let info = client.server_info(info).await?.into_inner();
+        .with_context(|| format!("probe Burp gRPC endpoint {endpoint}"))?;
+    let info = client.probe_server_info().await?;
     if usize::try_from(info.max_message_bytes)? != DEFAULT_MAX_MESSAGE_BYTES {
         bail!("server message limit differs from Rust client limit");
     }
 
     for payload in [Vec::new(), vec![0xa5], patterned_payload(10 * 1024 * 1024)] {
         let expected = payload.clone();
-        let mut request = Request::new(EchoBytesRequest {
-            payload,
-            delay_millis: 0,
-        });
-        request.set_timeout(Duration::from_secs(10));
-        let echoed = client.echo_bytes(request).await?.into_inner().payload;
+        let echoed = client.probe_echo(payload).await?;
         if echoed != expected {
             bail!("byte round trip failed for {} bytes", expected.len());
         }
     }
 
-    let mut history = Request::new(ProxyHistoryRequest {
-        page: Some(PageRequest {
-            limit: 1,
-            cursor: String::new(),
-        }),
-        url_filter: String::new(),
-        method_filter: String::new(),
-        status_filter: None,
-        has_notes: false,
-        color: String::new(),
-    });
-    history.set_timeout(Duration::from_secs(5));
-    client.proxy_history(history).await?;
+    client
+        .probe_proxy_history(ProxyHistoryQuery {
+            page: PageRequest {
+                limit: 1,
+                cursor: String::new(),
+            },
+            ..ProxyHistoryQuery::default()
+        })
+        .await?;
 
     println!("PASS endpoint={endpoint}");
     println!("server={} version={}", ping.server, ping.version);

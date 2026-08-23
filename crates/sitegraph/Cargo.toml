@@ -13,7 +13,6 @@ blake3.workspace = true
 http.workspace = true
 petgraph = { workspace = true, optional = true }
 regex.workspace = true
-rusqlite.workspace = true # Links the bundled SQLite runtime used by SQLx.
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true

@@ -20,7 +20,6 @@ pub async fn page(
     limit: u64,
     last_synced_at: Option<i64>,
 ) -> Result<JsonExport, StorageError> {
-    let limit = limit.clamp(1, 500);
     let node_total = sqlx::query("SELECT count(*) AS count FROM nodes")
         .fetch_one(pool)
         .await?

@@ -1,17 +1,23 @@
 //! Typed, bounded Rust client for the loopback Burp RPC seam.
 
-pub mod proto {
+mod mapping;
+mod model;
+pub use model::{PageRequest, PingInfo, ProxyHistoryQuery, ServerInfo};
+#[doc(hidden)]
+pub mod protocol {
     tonic::include_proto!("burp.v1");
 }
+#[cfg(feature = "interop")]
+pub use protocol as interop_proto;
+use protocol as proto;
 
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Status};
 
-pub const DEFAULT_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
-pub const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(10);
-pub const DEFAULT_QUEUE_CAPACITY: usize = 64;
+mod config;
+pub use config::{BurpClientConfig, DEFAULT_CALL_TIMEOUT, DEFAULT_MAX_MESSAGE_BYTES, DEFAULT_QUEUE_CAPACITY};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -318,6 +324,39 @@ impl BurpClient {
     ) -> Result<proto::PingResponse, ClientError> {
         self.send(|response| Command::Ping { request, response })
             .await
+    }
+    pub async fn probe_ping(&self, client: String) -> Result<PingInfo, ClientError> {
+        let response = self.ping(proto::PingRequest { client }).await?;
+        Ok(PingInfo {
+            server: response.server,
+            version: response.version,
+        })
+    }
+
+    pub async fn probe_echo(&self, payload: Vec<u8>) -> Result<Vec<u8>, ClientError> {
+        self.echo_bytes(proto::EchoBytesRequest {
+            payload,
+            delay_millis: 0,
+        })
+        .await
+        .map(|response| response.payload)
+    }
+
+    pub async fn probe_server_info(&self) -> Result<ServerInfo, ClientError> {
+        let response = self.server_info(proto::ServerInfoRequest {}).await?;
+        Ok(ServerInfo {
+            capabilities: response.capabilities,
+            max_message_bytes: response.max_message_bytes,
+            max_response_bytes: response.max_response_bytes,
+            max_page_size: response.max_page_size,
+            max_concurrent_calls_per_connection: response.max_concurrent_calls_per_connection,
+            max_rpc_timeout_seconds: response.max_rpc_timeout_seconds,
+        })
+    }
+    pub async fn probe_proxy_history(&self, query: ProxyHistoryQuery) -> Result<(), ClientError> {
+        self.proxy_history(mapping::proxy_history_request(query))
+            .await
+            .map(|_| ())
     }
 
     pub async fn echo_bytes(
@@ -851,23 +890,6 @@ impl BurpClient {
     }
 }
 
-pub struct BurpClientConfig {
-    pub endpoint: String,
-    pub call_timeout: Duration,
-    pub queue_capacity: usize,
-    pub max_message_bytes: usize,
-}
-
-impl Default for BurpClientConfig {
-    fn default() -> Self {
-        Self {
-            endpoint: "http://127.0.0.1:9877".to_owned(),
-            call_timeout: DEFAULT_CALL_TIMEOUT,
-            queue_capacity: DEFAULT_QUEUE_CAPACITY,
-            max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,
-        }
-    }
-}
 
 pub fn spawn_client(config: BurpClientConfig) -> Result<BurpClient, ClientError> {
     if config.queue_capacity == 0 {

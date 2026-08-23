@@ -1,3 +1,2 @@
-pub mod html;
-pub mod openapi;
-pub mod sitemap;
+pub(crate) mod html;
+pub(crate) mod sitemap;

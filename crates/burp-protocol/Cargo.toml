@@ -5,12 +5,19 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+interop = []
+
 [dependencies]
 prost.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tonic.workspace = true
 tonic-prost.workspace = true
+
+[[test]]
+name = "interop"
+required-features = ["interop"]
 
 [build-dependencies]
 prost-build = "0.14.4"

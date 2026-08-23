@@ -1,5 +1,8 @@
+mod sitegraph_sync;
+mod utility_tools;
+
 use burp_protocol::BurpClient;
-use burp_protocol::proto::{
+use burp_protocol::protocol::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
     CloseWebSocketRequest, ConfigResponse, CookieJarRequest, CreateMacroRequest,
     CreatePayloadListRequest, CreateSessionRuleRequest, CreateWebSocketRequest,
@@ -29,10 +32,11 @@ use rmcp::model::{CallToolRequestParams, CallToolResponse, CallToolResult, Conte
 use rmcp::service::RequestContext;
 use rmcp::{RoleServer, schemars, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
-use sitegraph::{IssueObservation, SitemapObservation, SqliteGraph, SyncBatch};
+use sitegraph::SiteGraph;
 use std::path::Path;
 use std::sync::Arc;
-use utility_tools::{self as utility, DataValue};
+use utility_engine::{self as utility, DataValue};
+use crate::sitegraph_sync::SiteGraphSynchronizer;
 
 const MAX_PAGE_SIZE: u32 = 500;
 const MAX_KOTLIN_INDEX: u32 = i32::MAX as u32;
@@ -678,16 +682,17 @@ pub struct SiteGraphExportInput {
 #[derive(Clone)]
 pub struct BurpTools {
     client: BurpClient,
-    sitegraph: Arc<SqliteGraph>,
+    sitegraph: Arc<SiteGraph>,
 }
 
-#[tool_router]
+
+#[tool_router(router = burp_router)]
 impl BurpTools {
     pub async fn new(client: BurpClient, graph_path: &Path) -> Result<Self, String> {
         Ok(Self {
             client,
             sitegraph: Arc::new(
-                SqliteGraph::open(graph_path)
+                SiteGraph::open(graph_path)
                     .await
                     .map_err(|error| error.to_string())?,
             ),
@@ -703,8 +708,8 @@ impl BurpTools {
         if limit > MAX_PAGE_SIZE {
             return serde_json::json!({"error": "limit must be at most 500"}).to_string();
         }
-        match self.client.proxy_history(ProxyHistoryRequest {
-            page: Some(PageRequest {
+        match self.client.proxy_history(burp_protocol::protocol::ProxyHistoryRequest {
+            page: Some(burp_protocol::protocol::PageRequest {
                 limit,
                 cursor: input.cursor.unwrap_or_else(|| input.offset.unwrap_or_default().to_string()),
             }),
@@ -2074,86 +2079,16 @@ impl BurpTools {
     }
 
     #[tool(
-        name = "decoder",
-        description = "One bounded offline decoder tool with many operations. Supply operation for one transform, steps for a recipe, query to search the operation catalog, describe for one operation's metadata, or magic=true for deterministic decode suggestions."
-    )]
-    async fn decoder(&self, Parameters(input): Parameters<DecoderInput>) -> String {
-        decoder_json(input)
-    }
-    #[tool(
         name = "sitegraph_sync",
         description = "Synchronize bounded Burp sitemap metadata into the local SQLite graph"
     )]
     async fn sitegraph_sync(&self, Parameters(input): Parameters<SiteGraphSyncInput>) -> String {
-        let prefix = input.url_prefix.unwrap_or_default();
-        let mut cursor = String::new();
-        let mut sitemap = Vec::new();
-        loop {
-            let response = match self
-                .client
-                .sitemap_snapshot(burp_protocol::proto::SitemapSnapshotRequest {
-                    url_prefix: prefix.clone(),
-                    page: Some(PageRequest { limit: 500, cursor }),
-                })
-                .await
-            {
-                Ok(response) => response,
-                Err(error) => return serde_json::json!({"error": error.to_string()}).to_string(),
-            };
-            sitemap.extend(response.items.into_iter().map(|entry| SitemapObservation {
-                url: entry.url,
-                method: entry.method,
-                status: entry.status,
-                content_type: entry.content_type,
-                response_body: entry.response_body,
-                redirect_url: entry.redirect_url,
-                response_links: entry.response_links,
-                form_actions: entry.form_actions,
-                script_sources: entry.script_sources,
-            }));
-            let page = response.page.unwrap_or_default();
-            if !page.truncated || page.next_cursor.is_empty() || sitemap.len() >= 10_000 {
-                break;
-            }
-            cursor = page.next_cursor;
-        }
-        let issues = self
-            .client
-            .scan_issues(ScanIssuesRequest {
-                page: Some(PageRequest {
-                    limit: 500,
-                    cursor: String::new(),
-                }),
-            })
-            .await
-            .map(|response| {
-                response
-                    .items
-                    .into_iter()
-                    .filter(|issue| prefix.is_empty() || issue.url.starts_with(&prefix))
-                    .map(|issue| IssueObservation {
-                        name: issue.name,
-                        severity: issue.severity,
-                        confidence: issue.confidence,
-                        url: issue.url,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        match self
-            .sitegraph
-            .sync(&SyncBatch {
-                sitemap,
-                issues,
-                ..SyncBatch::default()
-            })
-            .await
-        {
-            Ok(result) => serde_json::to_string(&result).expect("sync result serializes"),
-            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        let synchronizer = SiteGraphSynchronizer::new(self.client.clone(), Arc::clone(&self.sitegraph));
+        match synchronizer.run(input.url_prefix.unwrap_or_default()).await {
+            Ok(summary) => serde_json::to_string(&summary).expect("sync summary serializes"),
+            Err(error) => serde_json::json!({"error": error}).to_string(),
         }
     }
-
     #[tool(
         name = "sitegraph_search",
         description = "Search normalized sitegraph endpoints with bounded pagination"
@@ -2346,7 +2281,7 @@ impl BurpTools {
     async fn burp_version(&self) -> String {
         match self
             .client
-            .server_info(burp_protocol::proto::ServerInfoRequest {})
+            .server_info(burp_protocol::protocol::ServerInfoRequest {})
             .await
         {
             Ok(info) => serde_json::to_string(&ServerInfoOutput {
@@ -2556,7 +2491,7 @@ fn macro_json(macro_definition: MacroDefinition) -> serde_json::Value {
     })
 }
 
-#[tool_handler(name = "burp-mcp", version = "3.0.0-alpha.1")]
+#[tool_handler(router = Self::burp_router(), name = "burp-mcp", version = "3.0.0-alpha.1")]
 impl rmcp::ServerHandler for BurpTools {
     async fn call_tool(
         &self,
@@ -2564,8 +2499,18 @@ impl rmcp::ServerHandler for BurpTools {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, rmcp::ErrorData> {
         let tool_context = ToolCallContext::new(self, request, context);
-        let response = Self::tool_router().call(tool_context).await?;
+        let router = Self::burp_router() + Self::utility_router();
+        let response = router.call(tool_context).await?;
         Ok(mark_embedded_error(response))
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListToolsResult, rmcp::ErrorData> {
+        let router = Self::burp_router() + Self::utility_router();
+        Ok(rmcp::model::ListToolsResult::with_all_items(router.list_all()))
     }
 }
 
@@ -2603,7 +2548,7 @@ pub struct ScanIssuesInput {
 }
 
 fn action_json(
-    result: Result<burp_protocol::proto::ActionResponse, burp_protocol::ClientError>,
+    result: Result<burp_protocol::protocol::ActionResponse, burp_protocol::ClientError>,
 ) -> String {
     match result {
         Ok(response) => {
@@ -2624,7 +2569,7 @@ fn proxy_intercept_rule_json(rule: ProxyInterceptRule) -> serde_json::Value {
     })
 }
 fn script_import_json(
-    result: Result<burp_protocol::proto::ScriptImportResponse, burp_protocol::ClientError>,
+    result: Result<burp_protocol::protocol::ScriptImportResponse, burp_protocol::ClientError>,
 ) -> String {
     match result {
         Ok(response) => serde_json::json!({
@@ -2636,13 +2581,13 @@ fn script_import_json(
         Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
     }
 }
-fn utility_value(input: UtilityValueInput) -> Result<DataValue, String> {
+fn utility_value(input: UtilityValueInput) -> utility::UtilityResult<DataValue> {
     match input {
         UtilityValueInput::Text { value } => Ok(DataValue::Text(value)),
         UtilityValueInput::Bytes { base64 } => {
             base64::Engine::decode(&base64::engine::general_purpose::STANDARD, base64)
                 .map(DataValue::Bytes)
-                .map_err(|error| format!("invalid base64 input: {error}"))
+                .map_err(|error| utility::UtilityError::message(format!("invalid base64 input: {error}")))
         }
         UtilityValueInput::Json { value } => Ok(DataValue::Json(value)),
     }
@@ -2662,7 +2607,7 @@ fn decoder_json(input: DecoderInput) -> String {
     }
     let value = match utility_value(input.input) {
         Ok(value) => value,
-        Err(error) => return serde_json::json!({"error": error}).to_string(),
+        Err(error) => return serde_json::json!({"error": error.to_string()}).to_string(),
     };
     if input.magic {
         return serde_json::json!({"suggestions": utility::magic(&value)}).to_string();
@@ -2673,28 +2618,30 @@ fn decoder_json(input: DecoderInput) -> String {
             let steps = input
                 .steps
                 .iter()
-                .map(|step| utility_core::RecipeStep {
+                .map(|step| utility::RecipeStep {
                     operation: step.op.clone(),
                     args: step.args.clone(),
                 })
                 .collect::<Vec<_>>();
-            utility_core::run_recipe(value, &steps, utility::run)
+            utility::run_recipe(value, &steps, utility::run)
         }
-        (Some(_), false) => Err("provide either operation or steps, not both".to_owned()),
-        (None, true) => {
-            Err("provide an operation, steps, query, describe, or magic mode".to_owned())
-        }
+        (Some(_), false) => Err(utility::UtilityError::message(
+            "provide either operation or steps, not both",
+        )),
+        (None, true) => Err(utility::UtilityError::message(
+            "provide an operation, steps, query, describe, or magic mode",
+        )),
     };
     decoder_result_json(result)
 }
 
-fn decoder_result_json(result: Result<DataValue, String>) -> String {
+fn decoder_result_json(result: utility::UtilityResult<DataValue>) -> String {
     match result {
         Ok(value) => utility_value_json(value).to_string(),
-        Err(error) => serde_json::json!({"error": error}).to_string(),
+        Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
     }
 }
-fn payload_list_proto_json(item: &burp_protocol::proto::PayloadListEntry) -> serde_json::Value {
+fn payload_list_proto_json(item: &burp_protocol::protocol::PayloadListEntry) -> serde_json::Value {
     serde_json::json!({
         "id": item.id,
         "display_name": item.display_name,
@@ -2705,7 +2652,7 @@ fn payload_list_proto_json(item: &burp_protocol::proto::PayloadListEntry) -> ser
 }
 
 fn payload_list_entry_json(
-    result: Result<burp_protocol::proto::PayloadListEntry, burp_protocol::ClientError>,
+    result: Result<burp_protocol::protocol::PayloadListEntry, burp_protocol::ClientError>,
 ) -> String {
     match result {
         Ok(item) => payload_list_proto_json(&item).to_string(),
@@ -2758,7 +2705,7 @@ fn to_filtered_proxy_history_request(
 }
 
 fn job_status_json(
-    result: Result<burp_protocol::proto::JobStatusResponse, burp_protocol::ClientError>,
+    result: Result<burp_protocol::protocol::JobStatusResponse, burp_protocol::ClientError>,
 ) -> String {
     match result {
         Ok(status) => serde_json::json!({
@@ -2771,7 +2718,7 @@ fn job_status_json(
         Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
     }
 }
-fn to_send_output(response: burp_protocol::proto::SendRequestResponse) -> SendResponseOutput {
+fn to_send_output(response: burp_protocol::protocol::SendRequestResponse) -> SendResponseOutput {
     SendResponseOutput {
         request: String::from_utf8_lossy(&response.request).into_owned(),
         response: response
@@ -3177,9 +3124,8 @@ mod contract_tests {
             _ => Vec::new(),
         }
     }
-
     fn actual_tool_names() -> BTreeSet<String> {
-        BurpTools::tool_router()
+        (BurpTools::burp_router() + BurpTools::utility_router())
             .map
             .keys()
             .map(ToString::to_string)

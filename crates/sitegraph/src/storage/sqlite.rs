@@ -1,20 +1,21 @@
 use crate::graph::neighbors::{Neighbor, NeighborPage};
-use crate::graph::traversal::{MAX_TRAVERSAL_DEPTH, MAX_TRAVERSAL_RESULTS, TracePage, TraceStep};
+use crate::graph::traversal::{TracePage, TraceStep};
 use crate::ingest::sitemap::relationships;
+use crate::limits::{PageLimit, TraversalDepth};
 use crate::model::{Endpoint, EndpointPage, GraphStatus, NodeKind, SyncBatch, SyncSummary};
 use crate::normalize::{fingerprint, headers, url};
-use crate::storage::{StorageError, edges, migrations::MIGRATOR, nodes};
+use crate::storage::{StorageError, edges, migrations::MIGRATOR, nodes, query::validated_limit};
 use serde_json::json;
 use sqlx::{ConnectOptions, Row, SqlitePool, sqlite::SqliteConnectOptions};
 use std::path::Path;
 use std::str::FromStr;
 use time::OffsetDateTime;
 
-pub struct SqliteGraph {
+pub struct SiteGraph {
     pool: SqlitePool,
 }
 
-impl SqliteGraph {
+impl SiteGraph {
     pub async fn open(path: &Path) -> Result<Self, StorageError> {
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -29,7 +30,8 @@ impl SqliteGraph {
         Ok(Self { pool })
     }
 
-    pub fn pool(&self) -> &SqlitePool {
+    #[cfg(test)]
+    fn pool(&self) -> &SqlitePool {
         &self.pool
     }
 
@@ -474,7 +476,7 @@ impl SqliteGraph {
         cursor: u64,
         limit: u64,
     ) -> Result<EndpointPage, StorageError> {
-        let limit = limit.clamp(1, 500);
+        let limit = validated_limit(limit)?;
         let pattern = literal_prefix_pattern(query);
         if pattern.is_empty() {
             return Ok(EndpointPage {
@@ -572,7 +574,7 @@ impl SqliteGraph {
         cursor: u64,
         limit: u64,
     ) -> Result<NeighborPage, StorageError> {
-        let limit = limit.clamp(1, 500);
+        let limit = validated_limit(limit)?;
         let total = sqlx::query("SELECT count(*) AS count FROM edges WHERE from_id=?1 OR to_id=?1")
             .bind(node_id)
             .fetch_one(&self.pool)
@@ -613,6 +615,7 @@ impl SqliteGraph {
         cursor: u64,
         limit: u64,
     ) -> Result<crate::graph::diff::GraphDiff, StorageError> {
+        let limit = validated_limit(limit)?;
         crate::graph::diff::since(
             &self.pool,
             since,
@@ -628,6 +631,7 @@ impl SqliteGraph {
         cursor: u64,
         limit: u64,
     ) -> Result<crate::export::json::JsonExport, StorageError> {
+        let limit = validated_limit(limit)?;
         crate::export::json::page(
             &self.pool,
             cursor,
@@ -642,6 +646,7 @@ impl SqliteGraph {
         cursor: u64,
         limit: u64,
     ) -> Result<crate::export::csv::CsvExport, StorageError> {
+        let limit = validated_limit(limit)?;
         crate::export::csv::page(
             &self.pool,
             cursor,
@@ -657,8 +662,8 @@ impl SqliteGraph {
         max_depth: u32,
         limit: u32,
     ) -> Result<TracePage, StorageError> {
-        let depth = max_depth.min(MAX_TRAVERSAL_DEPTH);
-        let limit = limit.clamp(1, MAX_TRAVERSAL_RESULTS);
+        let depth = TraversalDepth::new(max_depth)?.get();
+        let limit = PageLimit::new(limit)?.get();
         let rows = sqlx::query("WITH RECURSIVE walk(depth, edge_id, edge_kind, from_id, to_id, path) AS (SELECT 1, e.id, e.kind, e.from_id, e.to_id, printf('%s>%s', e.from_id, e.to_id) FROM edges e WHERE e.from_id=?1 UNION ALL SELECT walk.depth+1, e.id, e.kind, e.from_id, e.to_id, printf('%s>%s', walk.path, e.to_id) FROM walk JOIN edges e ON e.from_id=walk.to_id WHERE walk.depth < ?2) SELECT depth, edge_id, edge_kind, from_id, to_id, path FROM walk ORDER BY depth, edge_id LIMIT ?3")
             .bind(start_id)
             .bind(depth as i64)
@@ -698,12 +703,13 @@ fn literal_prefix_pattern(query: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::limits::MAX_TRAVERSAL_DEPTH;
     use crate::model::SitemapObservation;
 
-    async fn graph() -> SqliteGraph {
+    async fn graph() -> SiteGraph {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         MIGRATOR.run(&pool).await.unwrap();
-        SqliteGraph { pool }
+        SiteGraph { pool }
     }
 
     fn observation(path: &str, body: &[u8]) -> SitemapObservation {
@@ -762,7 +768,9 @@ mod tests {
         };
         graph.sync(&batch).await.unwrap();
         let start = fingerprint::stable_id("endpoint", &["https://example.test", "GET", "/n0"]);
-        let trace = graph.trace(&start, 100, 3).await.unwrap();
+        let invalid_depth = graph.trace(&start, 100, 3).await.unwrap_err();
+        assert!(invalid_depth.to_string().contains("max_depth"));
+        let trace = graph.trace(&start, MAX_TRAVERSAL_DEPTH, 3).await.unwrap();
         assert_eq!(trace.items.len(), 3);
         assert!(
             trace
@@ -920,7 +928,7 @@ mod tests {
             std::process::id(),
             OffsetDateTime::now_utc().unix_timestamp_nanos()
         ));
-        let graph = SqliteGraph::open(&path).await.unwrap();
+        let graph = SiteGraph::open(&path).await.unwrap();
         graph
             .sync(&SyncBatch {
                 sitemap: vec![observation("persistent", b"")],
@@ -936,7 +944,7 @@ mod tests {
         transaction.rollback().await.unwrap();
         graph.pool().close().await;
 
-        let reopened = SqliteGraph::open(&path).await.unwrap();
+        let reopened = SiteGraph::open(&path).await.unwrap();
         assert_eq!(reopened.status().await.unwrap().schema_version, 2);
         assert!(reopened.search("persistent", 0, 10).await.unwrap().total > 0);
         let interrupted = sqlx::query("SELECT value FROM graph_metadata WHERE key='interrupted'")

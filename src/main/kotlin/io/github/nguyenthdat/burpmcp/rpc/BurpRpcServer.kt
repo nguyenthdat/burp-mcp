@@ -192,15 +192,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.min
 
-internal const val GRPC_MAX_MESSAGE_BYTES: Int = 16 * 1024 * 1024
-internal const val GRPC_MAX_PAGE_SIZE: Int = 500
-internal const val GRPC_MAX_METADATA_BYTES: Int = 8 * 1024
-internal const val GRPC_MAX_CONCURRENT_CALLS_PER_CONNECTION: Int = 32
-internal const val GRPC_MAX_RPC_TIMEOUT_SECONDS: Long = 30
-internal const val GRPC_MAX_RESPONSE_BYTES: Int = 16 * 1024 * 1024
-private const val GRPC_DEFAULT_PAGE_SIZE: Int = 100
-private const val GRPC_RESPONSE_OVERHEAD_BYTES: Int = 64 * 1024
-private const val GRPC_SHUTDOWN_SECONDS: Long = 5
+private const val GRPC_DEFAULT_PAGE_SIZE: Int = RpcLimits.DEFAULT_PAGE_SIZE
+private const val GRPC_RESPONSE_OVERHEAD_BYTES: Int = RpcLimits.RESPONSE_OVERHEAD_BYTES
+private const val GRPC_SHUTDOWN_SECONDS: Long = RpcLimits.SHUTDOWN_SECONDS
 
 internal class BurpRpcServer(
     private val api: MontoyaApi,
@@ -360,69 +354,39 @@ private inline fun <T> StreamObserver<T>.respond(block: () -> T) {
 internal class BurpRpcService(
     private val api: MontoyaApi,
     private val clock: Clock,
-    private val proxyFacade: ProxyFacade = ProxyFacade(api),
-    private val sitemapFacade: SitemapFacade = SitemapFacade(api),
-    private val targetFacade: TargetFacade = TargetFacade(api),
-    private val scannerFacade: ScannerFacade = ScannerFacade(api),
-    private val cookieFacade: CookieFacade = CookieFacade(api),
-    private val httpFacade: HttpFacade = HttpFacade(api),
-    private val annotationFacade: AnnotationFacade = AnnotationFacade(api),
-    private val collaboratorFacade: CollaboratorFacade = CollaboratorFacade(api),
-    private val scriptImportFacade: ScriptImportFacade = ScriptImportFacade(api),
-    private val webSocketFacade: WebSocketFacade = WebSocketFacade(api),
-    private val configFacade: ConfigFacade = ConfigFacade(api),
-    private val httpHandlerFacade: HttpHandlerFacade = HttpHandlerFacade(api),
-    private val proxyRuleFacade: ProxyRuleFacade = ProxyRuleFacade(api),
-    private val proxyInterceptConfigFacade: ProxyInterceptConfigFacade = ProxyInterceptConfigFacade(api),
-    private val macroFacade: io.github.nguyenthdat.burpmcp.MacroFacade = io.github.nguyenthdat.burpmcp.MacroFacade(api),
-    private val sessionRuleFacade: SessionRuleFacade = SessionRuleFacade(api) { description -> macroFacade.run(description) },
-    private val payloadListFacade: PayloadListFacade = PayloadListFacade(),
-    private val jobFacade: JobFacade = JobFacade(),
-    private val longOperationFacade: LongOperationFacade = LongOperationFacade(api, jobFacade),
-    private val capabilityFacade: BurpCapabilityFacade = BurpCapabilityFacade(api),
-    private val intruderPayloadFacade: IntruderPayloadFacade = IntruderPayloadFacade(api),
+    private val resources: BurpServiceResources = BurpServiceResources(api),
+    private val proxyFacade: ProxyFacade = resources.proxy,
+    private val sitemapFacade: SitemapFacade = resources.sitemap,
+    private val targetFacade: TargetFacade = resources.target,
+    private val scannerFacade: ScannerFacade = resources.scanner,
+    private val cookieFacade: CookieFacade = resources.cookies,
+    private val httpFacade: HttpFacade = resources.http,
+    private val annotationFacade: AnnotationFacade = resources.annotations,
+    private val collaboratorFacade: CollaboratorFacade = resources.collaborator,
+    private val scriptImportFacade: ScriptImportFacade = resources.scripts,
+    private val webSocketFacade: WebSocketFacade = resources.webSockets,
+    private val configFacade: ConfigFacade = resources.config,
+    private val httpHandlerFacade: HttpHandlerFacade = resources.httpHandlers,
+    private val proxyRuleFacade: ProxyRuleFacade = resources.proxyRules,
+    private val proxyInterceptConfigFacade: ProxyInterceptConfigFacade = resources.proxyIntercept,
+    private val macroFacade: io.github.nguyenthdat.burpmcp.MacroFacade = resources.macros,
+    private val sessionRuleFacade: SessionRuleFacade = resources.sessionRules,
+    private val payloadListFacade: PayloadListFacade = resources.payloadLists,
+    private val jobFacade: JobFacade = resources.jobs,
+    private val longOperationFacade: LongOperationFacade = resources.longOperations,
+    private val capabilityFacade: BurpCapabilityFacade = resources.capabilities,
+    private val intruderPayloadFacade: IntruderPayloadFacade = resources.intruderPayloads,
 ) : BurpServiceGrpc.BurpServiceImplBase() {
-    override fun ping(
-        @Suppress("UNUSED_PARAMETER") request: PingRequest,
-        responseObserver: StreamObserver<PingResponse>,
-    ) {
-        if (Context.current().isCancelled) {
-            responseObserver.onError(Status.CANCELLED.asRuntimeException())
-            return
-        }
-        responseObserver.onNext(
-            PingResponse
-                .newBuilder()
-                .setServer("burp-mcp-kotlin")
-                .setVersion(extensionVersion())
-                .setUnixMillis(clock.millis())
-                .build(),
-        )
-        responseObserver.onCompleted()
-    }
+    private val systemGrpcService = SystemGrpcService(api, clock)
 
-    override fun echoBytes(
-        request: EchoBytesRequest,
-        responseObserver: StreamObserver<EchoBytesResponse>,
-    ) {
-        val delayMillis = request.delayMillis.toLong().coerceAtMost(5_000)
-        if (delayMillis > 0) {
-            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(delayMillis)
-            while (System.nanoTime() < deadline) {
-                if (Context.current().isCancelled) {
-                    responseObserver.onError(Status.CANCELLED.asRuntimeException())
-                    return
-                }
-                Thread.sleep(minOf(10, delayMillis))
-            }
-        }
-        if (Context.current().isCancelled) {
-            responseObserver.onError(Status.CANCELLED.asRuntimeException())
-            return
-        }
-        responseObserver.onNext(EchoBytesResponse.newBuilder().setPayload(request.payload).build())
-        responseObserver.onCompleted()
-    }
+    override fun ping(request: PingRequest, responseObserver: StreamObserver<PingResponse>) =
+        systemGrpcService.ping(request, responseObserver)
+
+    override fun echoBytes(request: EchoBytesRequest, responseObserver: StreamObserver<EchoBytesResponse>) =
+        systemGrpcService.echoBytes(request, responseObserver)
+
+    override fun serverInfo(request: ServerInfoRequest, responseObserver: StreamObserver<ServerInfoResponse>) =
+        systemGrpcService.serverInfo(request, responseObserver)
 
     override fun proxyHistory(
         request: ProxyHistoryRequest,
@@ -1497,29 +1461,6 @@ internal class BurpRpcService(
         responseObserver.onCompleted()
     }
 
-    override fun serverInfo(
-        @Suppress("UNUSED_PARAMETER") request: ServerInfoRequest,
-        responseObserver: StreamObserver<ServerInfoResponse>,
-    ) {
-        val burpVersion = api.burpSuite().version()
-        val builder =
-            ServerInfoResponse
-                .newBuilder()
-                .setExtension("Burp MCP")
-                .setVersion(extensionVersion())
-                .addAllCapabilities(listOf("proxy.read", "sitemap.read", "scanner.read", "cookies.read", "transport.echo", "lifecycle.restart"))
-                .setMaxMessageBytes(GRPC_MAX_MESSAGE_BYTES)
-                .setMaxPageSize(GRPC_MAX_PAGE_SIZE)
-                .setMaxConcurrentCallsPerConnection(GRPC_MAX_CONCURRENT_CALLS_PER_CONNECTION)
-                .setMaxRpcTimeoutSeconds(GRPC_MAX_RPC_TIMEOUT_SECONDS.toInt())
-                .setMaxResponseBytes(GRPC_MAX_RESPONSE_BYTES)
-                .setBurpVersion(burpVersion?.toString().orEmpty())
-                .setBurpEdition(burpVersion?.edition()?.name ?: "UNKNOWN")
-                .setBurpBuildNumber(burpVersion?.buildNumber() ?: 0)
-        burpVersion?.name()?.let(builder::setBurpName)
-        responseObserver.onNext(builder.build())
-        responseObserver.onCompleted()
-    }
 
     private fun parseCursor(cursor: String, field: String): Int {
         if (cursor.isBlank()) return 0
@@ -1546,12 +1487,7 @@ internal class BurpRpcService(
             .build()
 
     fun close() {
-        jobFacade.close()
-        httpHandlerFacade.clear()
-        proxyRuleFacade.close()
-        sessionRuleFacade.remove()
-        webSocketFacade.close()
-        intruderPayloadFacade.close()
+        resources.close()
     }
 
 

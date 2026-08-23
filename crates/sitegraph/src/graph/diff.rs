@@ -20,7 +20,6 @@ pub async fn since(
     limit: u64,
     last_synced_at: Option<i64>,
 ) -> Result<GraphDiff, StorageError> {
-    let limit = limit.clamp(1, 500);
     let total = sqlx::query("SELECT count(*) AS count FROM nodes WHERE updated_at>?1")
         .bind(since)
         .fetch_one(pool)

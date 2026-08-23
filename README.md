@@ -21,12 +21,12 @@ Burp MCP connects MCP-compatible clients to Burp Suite through a native Rust std
 
 Some capabilities require Burp Suite Professional or a Burp feature that is available only in specific editions.
 
-## v3 migration status
-
-`PLAN.md` defines the v3 migration. The Kotlin extension now exposes only the
-loopback gRPC transport on `127.0.0.1:9877`; the HTTP/JSON/NanoHTTPD adapter and
-Bearer-token file are removed. The native Rust `burp-mcp` binary serves MCP over
-stdio and uses a bounded, reconnecting tonic actor for Burp calls.
+`PLAN.md` defines the v3 architecture. Rust serves MCP over stdio and owns the
+bounded reconnecting gRPC actor, typed protocol client, local utility engine,
+and persistent sitegraph facade. Kotlin owns Montoya state and exposes only the
+loopback gRPC adapter on `127.0.0.1:9877`; the retired HTTP/JSON/NanoHTTPD path,
+Bearer-token file, Bun bridge, and CyberChef runtime are not production
+dependencies.
 
 Override the fixed-loopback gRPC port before starting Burp when required:
 

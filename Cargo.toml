@@ -5,8 +5,7 @@ members = [
     "crates/burp-mcp",
     "crates/burp-tools",
     "crates/sitegraph",
-    "crates/utility-core",
-    "crates/utility-tools",
+    "crates/utility-engine",
 ]
 
 [workspace.package]
@@ -27,7 +26,6 @@ html-escape = "0.2.13"
 flate2 = "1.1.5"
 hmac = "0.12.1"
 md-5 = "0.10.6"
-rusqlite = { version = "0.32.1", features = ["bundled"] }
 http = "1.3.1"
 petgraph = "0.8.3"
 proptest = "1.9.0"

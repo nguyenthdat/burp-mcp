@@ -1,9 +1,10 @@
 mod edges;
 mod migrations;
 mod nodes;
+mod query;
 mod sqlite;
 
-pub use sqlite::SqliteGraph;
+pub use sqlite::SiteGraph;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {

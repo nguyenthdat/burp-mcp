@@ -1,8 +1,8 @@
-# Burp MCP v3 — Migration Plan
+# Burp MCP v3 — Architecture and Delivery Plan
 
-> **Status:** Implemented; automated repository verification complete, manual Burp/JDK 25 host validation remains external
+> **Status:** Native Rust/Kotlin gRPC architecture implemented; structural hardening in progress.
 > **Created:** 2026-08-21  
-> **Target:** Replace the TypeScript/Bun bridge and CyberChef runtime with a native Rust MCP server; connect Rust to the Kotlin Burp extension through gRPC; add a persistent sitemap graph.
+> **Target:** Native Rust MCP server, typed loopback gRPC boundary, and persistent sitemap graph.
 
 ## 1. Goals
 
