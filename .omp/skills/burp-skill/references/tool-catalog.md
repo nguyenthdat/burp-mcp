@@ -125,8 +125,10 @@ to leave the connection open.
 | `burp_intercept_state` | `{enabled?}` | Omit `enabled` to read; provide it to mutate. Restore the original value. |
 | `burp_register_http_handler` | `{header_name?, header_value?, match?, replace?}` | Add-header or replace-text rule. Cleanup: `burp_remove_http_handler`. |
 | `burp_remove_http_handler` | `{}` | Clear HTTP handler rules. |
-| `burp_register_proxy_rule` | `{url_contains, intercept?}` | Register an intercept/pass-through rule. Cleanup: `burp_remove_proxy_rule`. |
-| `burp_remove_proxy_rule` | `{}` | Clear proxy rules. |
+| `burp_register_proxy_rule` | `{url_contains, id?, phase?, action?, intercept?, match?, replace?, header_name?, header_value?, enabled?}` | Create/replace a request or response rule. Actions: `forward`, `intercept`, `drop`, `edit`. Cleanup: `burp_remove_proxy_rule`. |
+| `burp_list_proxy_rules` | `{}` | List configured Proxy rules and their enabled state. |
+| `burp_remove_proxy_rule` | `{id?}` | Remove one rule by ID, or clear all rules when `id` is omitted. |
+| `burp_proxy_intercept_config` | `{master_intercept_enabled?, request_do_intercept?, response_do_intercept?, request_rules?, response_rules?, websocket_*, response_*}` | Read or patch Burp Proxy capture rules. Supports request/response interception enablement, ordered `and`/`or` rules, WebSocket directions/scope, automatic Content-Length updates, and response modification flags. Rule replacement requires `replace_request_rules` or `replace_response_rules`. |
 | `burp_cookie_jar` | `{limit?, domain?}` | List cookies; values are sensitive. |
 | `burp_cookie_jar_set` | `{name, value, domain, path?, expiration?}` | Set a cookie. Verify by listing it; expire temporary cookies during cleanup. |
 | `burp_session_create_rule` | `{find, replace}` | Create a text replacement session rule. Cleanup: `burp_session_remove_rule`. |

@@ -80,6 +80,10 @@ enum Command {
         request: proto::InterceptStateRequest,
         response: oneshot::Sender<Result<proto::InterceptStateResponse, ClientError>>,
     },
+    ProxyInterceptConfig {
+        request: proto::ProxyInterceptConfigRequest,
+        response: oneshot::Sender<Result<proto::ProxyInterceptConfigResponse, ClientError>>,
+    },
     ProxyWebSocketHistory {
         request: proto::ProxyWebSocketHistoryRequest,
         response: oneshot::Sender<Result<proto::ProxyWebSocketHistoryResponse, ClientError>>,
@@ -147,6 +151,10 @@ enum Command {
     CreateSessionRule {
         request: proto::CreateSessionRuleRequest,
         response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
+    ListProxyRules {
+        request: proto::ListProxyRulesRequest,
+        response: oneshot::Sender<Result<proto::ListProxyRulesResponse, ClientError>>,
     },
     ListSessionRules {
         request: proto::ListSessionRulesRequest,
@@ -346,6 +354,13 @@ impl BurpClient {
         self.send(|response| Command::InterceptState { request, response })
             .await
     }
+    pub async fn proxy_intercept_config(
+        &self,
+        request: proto::ProxyInterceptConfigRequest,
+    ) -> Result<proto::ProxyInterceptConfigResponse, ClientError> {
+        self.send(|response| Command::ProxyInterceptConfig { request, response })
+            .await
+    }
 
     pub async fn proxy_websocket_history(
         &self,
@@ -470,6 +485,13 @@ impl BurpClient {
         self.send(|response| Command::ClearProxyRules { request, response })
             .await
     }
+    pub async fn list_proxy_rules(
+        &self,
+        request: proto::ListProxyRulesRequest,
+    ) -> Result<proto::ListProxyRulesResponse, ClientError> {
+        self.send(|response| Command::ListProxyRules { request, response })
+            .await
+    }
 
     pub async fn create_session_rule(
         &self,
@@ -499,28 +521,32 @@ impl BurpClient {
         &self,
         request: proto::CreateMacroRequest,
     ) -> Result<proto::ActionResponse, ClientError> {
-        self.send(|response| Command::CreateMacro { request, response }).await
+        self.send(|response| Command::CreateMacro { request, response })
+            .await
     }
 
     pub async fn list_macros(
         &self,
         request: proto::ListMacrosRequest,
     ) -> Result<proto::ListMacrosResponse, ClientError> {
-        self.send(|response| Command::ListMacros { request, response }).await
+        self.send(|response| Command::ListMacros { request, response })
+            .await
     }
 
     pub async fn run_macro(
         &self,
         request: proto::RunMacroRequest,
     ) -> Result<proto::RunMacroResponse, ClientError> {
-        self.send(|response| Command::RunMacro { request, response }).await
+        self.send(|response| Command::RunMacro { request, response })
+            .await
     }
 
     pub async fn remove_macro(
         &self,
         request: proto::RemoveMacroRequest,
     ) -> Result<proto::ActionResponse, ClientError> {
-        self.send(|response| Command::RemoveMacro { request, response }).await
+        self.send(|response| Command::RemoveMacro { request, response })
+            .await
     }
 
     pub async fn start_concurrent_request_check(
@@ -882,6 +908,16 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::ProxyInterceptConfig { request, response } => {
+            let result = client
+                .proxy_intercept_config(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
         Command::ProxyWebSocketHistory { request, response } => {
             let result = client
                 .proxy_web_socket_history(with_deadline(request, config.call_timeout))
@@ -1025,6 +1061,16 @@ async fn execute(
         Command::RegisterProxyRule { request, response } => {
             let result = client
                 .register_proxy_rule(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::ListProxyRules { request, response } => {
+            let result = client
+                .list_proxy_rules(with_deadline(request, config.call_timeout))
                 .await
                 .map(|response| response.into_inner())
                 .map_err(ClientError::Rpc);
@@ -1347,6 +1393,9 @@ fn respond_offline(command: Command) {
         Command::InterceptState { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
+        Command::ProxyInterceptConfig { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
         Command::ProxyWebSocketHistory { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
@@ -1411,6 +1460,9 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::StartBoundedInputMatrix { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ListProxyRules { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::StartCrawl { response, .. } => {

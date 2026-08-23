@@ -12,6 +12,10 @@ import io.github.nguyenthdat.burpmcp.HttpHandlerRule
 import io.github.nguyenthdat.burpmcp.ProxyFacade
 import io.github.nguyenthdat.burpmcp.ProxyHistoryQuery
 import io.github.nguyenthdat.burpmcp.ProxyRuleFacade
+import io.github.nguyenthdat.burpmcp.ProxyRule
+import io.github.nguyenthdat.burpmcp.ProxyInterceptConfigFacade
+import io.github.nguyenthdat.burpmcp.ProxyInterceptConfigPatch
+import io.github.nguyenthdat.burpmcp.ProxyInterceptRuleConfig
 import io.github.nguyenthdat.burpmcp.ScannerFacade
 import io.github.nguyenthdat.burpmcp.ScanIssueQuery
 import io.github.nguyenthdat.burpmcp.SitemapFacade
@@ -46,12 +50,18 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.ExtensionInfoRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ExtensionInfoResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptStateRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptStateResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyInterceptConfigRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyInterceptConfigResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyInterceptRule
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketEntry
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketHistoryRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketHistoryResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ManagedWebSocketHistoryRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ManagedWebSocketHistoryResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ManagedWebSocketMessageEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListProxyRulesRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ListProxyRulesResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyRuleEntry
 import io.github.nguyenthdat.burpmcp.grpc.v1.ScanIssueDetailRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.SetCookieRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.SendToIntruderRequest
@@ -313,6 +323,7 @@ internal class BurpRpcService(
     private val configFacade: ConfigFacade = ConfigFacade(api),
     private val httpHandlerFacade: HttpHandlerFacade = HttpHandlerFacade(api),
     private val proxyRuleFacade: ProxyRuleFacade = ProxyRuleFacade(api),
+    private val proxyInterceptConfigFacade: ProxyInterceptConfigFacade = ProxyInterceptConfigFacade(api),
     private val macroFacade: io.github.nguyenthdat.burpmcp.MacroFacade = io.github.nguyenthdat.burpmcp.MacroFacade(api),
     private val sessionRuleFacade: SessionRuleFacade = SessionRuleFacade(api) { description -> macroFacade.run(description) },
     private val jobFacade: JobFacade = JobFacade(),
@@ -673,6 +684,55 @@ internal class BurpRpcService(
         responseObserver.onNext(InterceptStateResponse.newBuilder().setEnabled(enabled).build())
         responseObserver.onCompleted()
     }
+    override fun proxyInterceptConfig(
+        request: ProxyInterceptConfigRequest,
+        responseObserver: StreamObserver<ProxyInterceptConfigResponse>,
+    ) {
+        val config =
+            proxyInterceptConfigFacade.update(
+                ProxyInterceptConfigPatch(
+                    masterInterceptEnabled = request.masterInterceptEnabled.takeIf { request.hasMasterInterceptEnabled() },
+                    requestDoIntercept = request.requestDoIntercept.takeIf { request.hasRequestDoIntercept() },
+                    requestAutoContentLength = request.requestAutoContentLength.takeIf { request.hasRequestAutoContentLength() },
+                    requestFixMissingNewLines = request.requestFixMissingNewLines.takeIf { request.hasRequestFixMissingNewLines() },
+                    responseDoIntercept = request.responseDoIntercept.takeIf { request.hasResponseDoIntercept() },
+                    responseAutoContentLength = request.responseAutoContentLength.takeIf { request.hasResponseAutoContentLength() },
+                    websocketClientToServer = request.websocketClientToServer.takeIf { request.hasWebsocketClientToServer() },
+                    websocketServerToClient = request.websocketServerToClient.takeIf { request.hasWebsocketServerToClient() },
+                    websocketInScopeOnly = request.websocketInScopeOnly.takeIf { request.hasWebsocketInScopeOnly() },
+                    requestRules = request.requestRulesList.map { it.toDomain() },
+                    responseRules = request.responseRulesList.map { it.toDomain() },
+                    replaceRequestRules = request.replaceRequestRules,
+                    replaceResponseRules = request.replaceResponseRules,
+                    responseUnhideHiddenFields = request.responseUnhideHiddenFields.takeIf { request.hasResponseUnhideHiddenFields() },
+                    responseEnableDisabledFields = request.responseEnableDisabledFields.takeIf { request.hasResponseEnableDisabledFields() },
+                    responseRemoveInputLengthLimits = request.responseRemoveInputLengthLimits.takeIf { request.hasResponseRemoveInputLengthLimits() },
+                    responseRemoveJavaScriptValidation = request.responseRemoveJavascriptValidation.takeIf { request.hasResponseRemoveJavascriptValidation() },
+                    responseRemoveAllJavaScript = request.responseRemoveAllJavascript.takeIf { request.hasResponseRemoveAllJavascript() },
+                ),
+            )
+        responseObserver.onNext(
+            ProxyInterceptConfigResponse.newBuilder()
+                .setMasterInterceptEnabled(config.masterInterceptEnabled)
+                .setRequestDoIntercept(config.requestDoIntercept)
+                .setRequestAutoContentLength(config.requestAutoContentLength)
+                .setRequestFixMissingNewLines(config.requestFixMissingNewLines)
+                .setResponseDoIntercept(config.responseDoIntercept)
+                .setResponseAutoContentLength(config.responseAutoContentLength)
+                .setWebsocketClientToServer(config.websocketClientToServer)
+                .setWebsocketServerToClient(config.websocketServerToClient)
+                .setWebsocketInScopeOnly(config.websocketInScopeOnly)
+                .addAllRequestRules(config.requestRules.map { it.toProto() })
+                .addAllResponseRules(config.responseRules.map { it.toProto() })
+                .setResponseUnhideHiddenFields(config.responseUnhideHiddenFields)
+                .setResponseEnableDisabledFields(config.responseEnableDisabledFields)
+                .setResponseRemoveInputLengthLimits(config.responseRemoveInputLengthLimits)
+                .setResponseRemoveJavascriptValidation(config.responseRemoveJavaScriptValidation)
+                .setResponseRemoveAllJavascript(config.responseRemoveAllJavaScript)
+                .build(),
+        )
+        responseObserver.onCompleted()
+    }
 
     override fun proxyWebSocketHistory(
         request: ProxyWebSocketHistoryRequest,
@@ -856,16 +916,53 @@ internal class BurpRpcService(
         request: RegisterProxyRuleRequest,
         responseObserver: StreamObserver<ActionResponse>,
     ) {
-        proxyRuleFacade.register(request.urlContains, request.intercept)
+        proxyRuleFacade.register(
+            ProxyRule(
+                id = request.id.ifBlank { "default" },
+                urlContains = request.urlContains,
+                phase = request.phase.ifBlank { "request" },
+                action = request.action.ifBlank { "intercept" },
+                match = request.match,
+                replacement = request.replacement,
+                headerName = request.headerName,
+                headerValue = request.headerValue,
+                enabled = request.enabled,
+            ),
+        )
         responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("proxy rule registered").build())
         responseObserver.onCompleted()
     }
 
+    override fun listProxyRules(
+        @Suppress("UNUSED_PARAMETER") request: ListProxyRulesRequest,
+        responseObserver: StreamObserver<ListProxyRulesResponse>,
+    ) {
+        responseObserver.onNext(
+            ListProxyRulesResponse.newBuilder()
+                .addAllItems(
+                    proxyRuleFacade.list().map { rule ->
+                        ProxyRuleEntry.newBuilder()
+                            .setId(rule.id)
+                            .setUrlContains(rule.urlContains)
+                            .setPhase(rule.phase)
+                            .setAction(rule.action)
+                            .setMatch(rule.match)
+                            .setReplacement(rule.replacement)
+                            .setHeaderName(rule.headerName)
+                            .setHeaderValue(rule.headerValue)
+                            .setEnabled(rule.enabled)
+                            .build()
+                    },
+                ).build(),
+        )
+        responseObserver.onCompleted()
+    }
+
     override fun clearProxyRules(
-        @Suppress("UNUSED_PARAMETER") request: ClearProxyRulesRequest,
+        request: ClearProxyRulesRequest,
         responseObserver: StreamObserver<ActionResponse>,
     ) {
-        proxyRuleFacade.clear()
+        proxyRuleFacade.clear(request.id.takeIf(String::isNotEmpty))
         responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("proxy rules cleared").build())
         responseObserver.onCompleted()
     }
@@ -1252,7 +1349,7 @@ internal class BurpRpcService(
     fun close() {
         jobFacade.close()
         httpHandlerFacade.clear()
-        proxyRuleFacade.clear()
+        proxyRuleFacade.close()
         sessionRuleFacade.remove()
         webSocketFacade.close()
     }
@@ -1260,6 +1357,25 @@ internal class BurpRpcService(
 
     private fun extensionVersion(): String =
         BurpRpcService::class.java.`package`.implementationVersion ?: "development"
+
+    private fun ProxyInterceptRule.toDomain(): ProxyInterceptRuleConfig =
+        ProxyInterceptRuleConfig(
+            enabled = enabled,
+            booleanOperator = booleanOperator.ifBlank { "and" },
+            matchType = matchType,
+            matchRelationship = matchRelationship,
+            matchCondition = matchCondition,
+        )
+
+    private fun ProxyInterceptRuleConfig.toProto(): ProxyInterceptRule =
+        ProxyInterceptRule.newBuilder()
+            .setEnabled(enabled)
+            .setBooleanOperator(booleanOperator)
+            .setMatchType(matchType)
+            .setMatchRelationship(matchRelationship)
+            .setMatchCondition(matchCondition)
+            .build()
+
     private fun MacroDefinitionProto.toDomain(): MacroDefinition =
         MacroDefinition(
             description = description,

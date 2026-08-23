@@ -1,21 +1,21 @@
 use burp_protocol::BurpClient;
 use burp_protocol::proto::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
-    CloseWebSocketRequest, ConfigResponse, CookieJarRequest, CreateMacroRequest, CreateSessionRuleRequest,
-    CreateWebSocketRequest, ExportConfigRequest, ExtensionInfoRequest,
+    CloseWebSocketRequest, ConfigResponse, CookieJarRequest, CreateMacroRequest,
+    CreateSessionRuleRequest, CreateWebSocketRequest, ExportConfigRequest, ExtensionInfoRequest,
     GenerateCollaboratorPayloadsRequest, GetJobResultRequest, GetJobStatusRequest, HttpHeaderEntry,
     ImportBCheckRequest, ImportBambdaRequest, ImportConfigRequest, InterceptStateRequest,
-    ListMacrosRequest, ListSessionRulesRequest, ListWebSocketsRequest, ManagedWebSocketHistoryRequest,
-    MacroDefinition,
-    MacroItem, MacroParameter, MutateScopeRequest, PageRequest, PollCollaboratorInteractionsRequest,
-    ProxyDetailRequest, ProxyHistoryRequest, ProxyWebSocketHistoryRequest, RegisterHttpHandlerRequest,
-    RegisterProxyRuleRequest, RemoveMacroRequest,
+    ListMacrosRequest, ListProxyRulesRequest, ListSessionRulesRequest, ListWebSocketsRequest,
+    MacroDefinition, MacroItem, MacroParameter, ManagedWebSocketHistoryRequest, MutateScopeRequest,
+    PageRequest, PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
+    ProxyInterceptConfigRequest, ProxyInterceptRule, ProxyWebSocketHistoryRequest,
+    RegisterHttpHandlerRequest, RegisterProxyRuleRequest, RemoveMacroRequest,
     RemoveSessionRulesRequest, RunMacroRequest, ScanIssueDetailRequest, ScanIssuesRequest,
     ScopeCheckRequest, SendRequestRequest, SendRequestsRequest, SendToIntruderRequest,
-    SendToRepeaterRequest, SendWebSocketBinaryRequest, SendWebSocketTextRequest,
-    SetCookieRequest, SetHighlightRequest, SetNoteRequest, SitemapSnapshotRequest,
-    StartAuditRequest, StartBoundedInputMatrixRequest, StartConcurrentRequestCheckRequest,
-    StartCrawlRequest, TargetInfoRequest,
+    SendToRepeaterRequest, SendWebSocketBinaryRequest, SendWebSocketTextRequest, SetCookieRequest,
+    SetHighlightRequest, SetNoteRequest, SitemapSnapshotRequest, StartAuditRequest,
+    StartBoundedInputMatrixRequest, StartConcurrentRequestCheckRequest, StartCrawlRequest,
+    TargetInfoRequest,
 };
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
@@ -192,6 +192,48 @@ pub struct ScanIssueDetailInput {
 pub struct InterceptStateInput {
     pub enabled: Option<bool>,
 }
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ProxyInterceptRuleInput {
+    pub enabled: Option<bool>,
+    pub boolean_operator: Option<String>,
+    pub match_type: String,
+    pub match_relationship: String,
+    pub match_condition: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ProxyInterceptConfigInput {
+    pub master_intercept_enabled: Option<bool>,
+    pub request_do_intercept: Option<bool>,
+    pub request_auto_content_length: Option<bool>,
+    pub request_fix_missing_new_lines: Option<bool>,
+    pub response_do_intercept: Option<bool>,
+    pub response_auto_content_length: Option<bool>,
+    pub websocket_client_to_server: Option<bool>,
+    pub websocket_server_to_client: Option<bool>,
+    pub websocket_in_scope_only: Option<bool>,
+    pub request_rules: Option<Vec<ProxyInterceptRuleInput>>,
+    pub response_rules: Option<Vec<ProxyInterceptRuleInput>>,
+    pub replace_request_rules: Option<bool>,
+    pub replace_response_rules: Option<bool>,
+    pub response_unhide_hidden_fields: Option<bool>,
+    pub response_enable_disabled_fields: Option<bool>,
+    pub response_remove_input_length_limits: Option<bool>,
+    pub response_remove_javascript_validation: Option<bool>,
+    pub response_remove_all_javascript: Option<bool>,
+}
+
+impl ProxyInterceptRuleInput {
+    fn into_proto(self) -> ProxyInterceptRule {
+        ProxyInterceptRule {
+            enabled: self.enabled.unwrap_or(true),
+            boolean_operator: self.boolean_operator.unwrap_or_else(|| "and".to_owned()),
+            match_type: self.match_type,
+            match_relationship: self.match_relationship,
+            match_condition: self.match_condition.unwrap_or_default(),
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ProxyWebSocketHistoryInput {
@@ -309,8 +351,22 @@ pub struct RegisterHttpHandlerInput {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RegisterProxyRuleInput {
+    pub id: Option<String>,
     pub url_contains: String,
+    pub phase: Option<String>,
+    pub action: Option<String>,
     pub intercept: Option<bool>,
+    #[serde(rename = "match")]
+    pub match_text: Option<String>,
+    pub replace: Option<String>,
+    pub header_name: Option<String>,
+    pub header_value: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct RemoveProxyRuleInput {
+    pub id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -970,33 +1026,78 @@ impl BurpTools {
 
     #[tool(
         name = "burp_register_proxy_rule",
-        description = "Register a proxy intercept rule (intercept URLs containing a string)"
+        description = "Register a request or response Proxy rule: forward, intercept, drop, or edit"
     )]
     async fn register_proxy_rule(
         &self,
         Parameters(input): Parameters<RegisterProxyRuleInput>,
     ) -> String {
+        let action = input
+            .action
+            .or_else(|| {
+                input.intercept.map(|value| {
+                    if value {
+                        "intercept".to_owned()
+                    } else {
+                        "forward".to_owned()
+                    }
+                })
+            })
+            .unwrap_or_else(|| "forward".to_owned());
         action_json(
             self.client
                 .register_proxy_rule(RegisterProxyRuleRequest {
+                    id: input.id.unwrap_or_else(|| "default".to_owned()),
                     url_contains: input.url_contains,
-                    intercept: input.intercept.unwrap_or(true),
+                    phase: input.phase.unwrap_or_else(|| "request".to_owned()),
+                    action,
+                    r#match: input.match_text.unwrap_or_default(),
+                    replacement: input.replace.unwrap_or_default(),
+                    header_name: input.header_name.unwrap_or_default(),
+                    header_value: input.header_value.unwrap_or_default(),
+                    enabled: input.enabled.unwrap_or(true),
                 })
                 .await,
         )
     }
+
+    #[tool(
+        name = "burp_list_proxy_rules",
+        description = "List configured Proxy request and response rules"
+    )]
+    async fn list_proxy_rules(&self) -> String {
+        match self.client.list_proxy_rules(ListProxyRulesRequest {}).await {
+            Ok(response) => serde_json::json!({"rules": response.items.into_iter().map(|rule| serde_json::json!({
+                "id": rule.id,
+                "url_contains": rule.url_contains,
+                "phase": rule.phase,
+                "action": rule.action,
+                "match": rule.r#match,
+                "replace": rule.replacement,
+                "header_name": rule.header_name,
+                "header_value": rule.header_value,
+                "enabled": rule.enabled,
+            })).collect::<Vec<_>>()}).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
     #[tool(
         name = "burp_remove_proxy_rule",
-        description = "Remove/clear proxy intercept rules"
+        description = "Remove one Proxy rule or clear all Proxy rules"
     )]
-    async fn remove_proxy_rule(&self) -> String {
+    async fn remove_proxy_rule(
+        &self,
+        Parameters(input): Parameters<RemoveProxyRuleInput>,
+    ) -> String {
         action_json(
             self.client
-                .clear_proxy_rules(ClearProxyRulesRequest {})
+                .clear_proxy_rules(ClearProxyRulesRequest {
+                    id: input.id.unwrap_or_default(),
+                })
                 .await,
         )
     }
-
 
     #[tool(
         name = "burp_session_create_rule",
@@ -1014,7 +1115,9 @@ impl BurpTools {
                     description: input
                         .description
                         .unwrap_or_else(|| "Burp MCP session rule".to_owned()),
-                    action_type: input.action_type.unwrap_or_else(|| "replace_text".to_owned()),
+                    action_type: input
+                        .action_type
+                        .unwrap_or_else(|| "replace_text".to_owned()),
                     header_name: input.header_name.unwrap_or_default(),
                     parameter_name: input.parameter_name.unwrap_or_default(),
                     macro_description: input.macro_description.unwrap_or_default(),
@@ -1026,7 +1129,10 @@ impl BurpTools {
         )
     }
 
-    #[tool(name = "burp_session_list_rules", description = "List registered MCP session actions and scope")]
+    #[tool(
+        name = "burp_session_list_rules",
+        description = "List registered MCP session actions and scope"
+    )]
     async fn session_list_rules(&self) -> String {
         match self.client.list_session_rules(ListSessionRulesRequest {}).await {
             Ok(response) => serde_json::json!({"rules": response.items.into_iter().map(|rule| serde_json::json!({
@@ -1045,7 +1151,10 @@ impl BurpTools {
         }
     }
 
-    #[tool(name = "burp_session_remove_rule", description = "Remove the registered MCP session action")]
+    #[tool(
+        name = "burp_session_remove_rule",
+        description = "Remove the registered MCP session action"
+    )]
     async fn session_remove_rule(&self) -> String {
         action_json(
             self.client
@@ -1054,7 +1163,10 @@ impl BurpTools {
         )
     }
 
-    #[tool(name = "burp_macro_create", description = "Create or replace a Burp Settings > Sessions > Macros definition")]
+    #[tool(
+        name = "burp_macro_create",
+        description = "Create or replace a Burp Settings > Sessions > Macros definition"
+    )]
     async fn macro_create(&self, Parameters(input): Parameters<CreateMacroInput>) -> String {
         action_json(
             self.client
@@ -1062,29 +1174,45 @@ impl BurpTools {
                     r#macro: Some(MacroDefinition {
                         description: input.description,
                         serial_number: input.serial_number.unwrap_or_default(),
-                        items: input.items.into_iter().map(|item| MacroItem {
-                            request: item.request,
-                            method: item.method.unwrap_or_default(),
-                            url: item.url,
-                            response: item.response.unwrap_or_default(),
-                            status_code: item.status_code.unwrap_or_default(),
-                            cookies_received: item.cookies_received.unwrap_or_default(),
-                            request_parameters: item.request_parameters.unwrap_or_default().into_iter().map(|parameter| MacroParameter {
-                                name: parameter.name,
-                                original_value: parameter.original_value.unwrap_or_default(),
-                                parameter_handling: parameter.parameter_handling.unwrap_or_else(|| "preset_value".to_owned()),
-                                preset_value: parameter.preset_value.unwrap_or_default(),
-                                r#type: parameter.r#type.unwrap_or_default(),
-                            }).collect(),
-                            custom_parameters: item.custom_parameters.unwrap_or_default(),
-                        }).collect(),
+                        items: input
+                            .items
+                            .into_iter()
+                            .map(|item| MacroItem {
+                                request: item.request,
+                                method: item.method.unwrap_or_default(),
+                                url: item.url,
+                                response: item.response.unwrap_or_default(),
+                                status_code: item.status_code.unwrap_or_default(),
+                                cookies_received: item.cookies_received.unwrap_or_default(),
+                                request_parameters: item
+                                    .request_parameters
+                                    .unwrap_or_default()
+                                    .into_iter()
+                                    .map(|parameter| MacroParameter {
+                                        name: parameter.name,
+                                        original_value: parameter
+                                            .original_value
+                                            .unwrap_or_default(),
+                                        parameter_handling: parameter
+                                            .parameter_handling
+                                            .unwrap_or_else(|| "preset_value".to_owned()),
+                                        preset_value: parameter.preset_value.unwrap_or_default(),
+                                        r#type: parameter.r#type.unwrap_or_default(),
+                                    })
+                                    .collect(),
+                                custom_parameters: item.custom_parameters.unwrap_or_default(),
+                            })
+                            .collect(),
                     }),
                 })
                 .await,
         )
     }
 
-    #[tool(name = "burp_macro_list", description = "List Burp Settings > Sessions > Macros definitions")]
+    #[tool(
+        name = "burp_macro_list",
+        description = "List Burp Settings > Sessions > Macros definitions"
+    )]
     async fn macro_list(&self) -> String {
         match self.client.list_macros(ListMacrosRequest {}).await {
             Ok(response) => serde_json::json!({"macros": response.macros.into_iter().map(macro_json).collect::<Vec<_>>()}).to_string(),
@@ -1092,7 +1220,10 @@ impl BurpTools {
         }
     }
 
-    #[tool(name = "burp_macro_run", description = "Execute requests from a Burp session macro definition")]
+    #[tool(
+        name = "burp_macro_run",
+        description = "Execute requests from a Burp session macro definition"
+    )]
     async fn macro_run(&self, Parameters(input): Parameters<MacroDescriptionInput>) -> String {
         match self.client.run_macro(RunMacroRequest { description: input.description }).await {
             Ok(response) => serde_json::json!({"items": response.items.into_iter().map(|item| serde_json::json!({"request": item.request, "response": item.response, "status_code": item.status_code, "has_response": item.has_response})).collect::<Vec<_>>()}).to_string(),
@@ -1100,9 +1231,18 @@ impl BurpTools {
         }
     }
 
-    #[tool(name = "burp_macro_remove", description = "Remove a Burp Settings > Sessions > Macros definition")]
+    #[tool(
+        name = "burp_macro_remove",
+        description = "Remove a Burp Settings > Sessions > Macros definition"
+    )]
     async fn macro_remove(&self, Parameters(input): Parameters<MacroDescriptionInput>) -> String {
-        action_json(self.client.remove_macro(RemoveMacroRequest { description: input.description }).await)
+        action_json(
+            self.client
+                .remove_macro(RemoveMacroRequest {
+                    description: input.description,
+                })
+                .await,
+        )
     }
 
     #[tool(
@@ -1152,7 +1292,10 @@ impl BurpTools {
         )
     }
 
-    #[tool(name = "burp_scan", description = "Start a bounded passive or legacy-active Burp audit job; active mode may be rejected by the installed Burp edition")]
+    #[tool(
+        name = "burp_scan",
+        description = "Start a bounded passive or legacy-active Burp audit job; active mode may be rejected by the installed Burp edition"
+    )]
     async fn scan(&self, Parameters(input): Parameters<AuditInput>) -> String {
         let active = match input.mode.as_deref().unwrap_or("passive") {
             "passive" => false,
@@ -1161,7 +1304,10 @@ impl BurpTools {
         };
         let started = self
             .client
-            .start_audit(StartAuditRequest { url: input.url, active })
+            .start_audit(StartAuditRequest {
+                url: input.url,
+                active,
+            })
             .await;
         match started {
             Ok(status) if !status.error.is_empty() => serde_json::json!({
@@ -1259,7 +1405,10 @@ impl BurpTools {
         name = "burp_websocket_history",
         description = "Read messages sent to or received from managed WebSocket connections"
     )]
-    async fn websocket_history(&self, Parameters(input): Parameters<ManagedWebSocketHistoryInput>) -> String {
+    async fn websocket_history(
+        &self,
+        Parameters(input): Parameters<ManagedWebSocketHistoryInput>,
+    ) -> String {
         let limit = input.limit.unwrap_or(100);
         if limit > MAX_PAGE_SIZE {
             return serde_json::json!({"error": "limit must be at most 500"}).to_string();
@@ -1268,7 +1417,10 @@ impl BurpTools {
             .client
             .managed_websocket_history(ManagedWebSocketHistoryRequest {
                 id: input.id.unwrap_or_default(),
-                page: Some(PageRequest { limit, cursor: input.cursor.unwrap_or_default() }),
+                page: Some(PageRequest {
+                    limit,
+                    cursor: input.cursor.unwrap_or_default(),
+                }),
             })
             .await
         {
@@ -1935,6 +2087,71 @@ impl BurpTools {
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
+    #[tool(
+        name = "burp_proxy_intercept_config",
+        description = "Read or patch Burp Proxy request, response, WebSocket interception filters and response modification settings"
+    )]
+    async fn proxy_intercept_config(
+        &self,
+        Parameters(input): Parameters<ProxyInterceptConfigInput>,
+    ) -> String {
+        let request_rules = input.request_rules.unwrap_or_default();
+        let response_rules = input.response_rules.unwrap_or_default();
+        let replace_request_rules = input.replace_request_rules.unwrap_or(false);
+        let replace_response_rules = input.replace_response_rules.unwrap_or(false);
+        match self
+            .client
+            .proxy_intercept_config(ProxyInterceptConfigRequest {
+                master_intercept_enabled: input.master_intercept_enabled,
+                request_do_intercept: input.request_do_intercept,
+                request_auto_content_length: input.request_auto_content_length,
+                response_do_intercept: input.response_do_intercept,
+                response_auto_content_length: input.response_auto_content_length,
+                websocket_client_to_server: input.websocket_client_to_server,
+                websocket_server_to_client: input.websocket_server_to_client,
+                websocket_in_scope_only: input.websocket_in_scope_only,
+                request_rules: request_rules.into_iter().map(ProxyInterceptRuleInput::into_proto).collect(),
+                response_rules: response_rules.into_iter().map(ProxyInterceptRuleInput::into_proto).collect(),
+                replace_request_rules,
+                replace_response_rules,
+                response_unhide_hidden_fields: input.response_unhide_hidden_fields,
+                response_enable_disabled_fields: input.response_enable_disabled_fields,
+                response_remove_input_length_limits: input.response_remove_input_length_limits,
+                response_remove_javascript_validation: input.response_remove_javascript_validation,
+                response_remove_all_javascript: input.response_remove_all_javascript,
+                request_fix_missing_new_lines: input.request_fix_missing_new_lines,
+            })
+            .await
+        {
+            Ok(response) => serde_json::json!({
+                "master_intercept_enabled": response.master_intercept_enabled,
+                "request": {
+                    "do_intercept": response.request_do_intercept,
+                    "auto_content_length": response.request_auto_content_length,
+                    "fix_missing_new_lines": response.request_fix_missing_new_lines,
+                    "rules": response.request_rules.into_iter().map(proxy_intercept_rule_json).collect::<Vec<_>>(),
+                },
+                "response": {
+                    "do_intercept": response.response_do_intercept,
+                    "auto_content_length": response.response_auto_content_length,
+                    "rules": response.response_rules.into_iter().map(proxy_intercept_rule_json).collect::<Vec<_>>(),
+                    "modification": {
+                        "unhide_hidden_fields": response.response_unhide_hidden_fields,
+                        "enable_disabled_fields": response.response_enable_disabled_fields,
+                        "remove_input_length_limits": response.response_remove_input_length_limits,
+                        "remove_javascript_validation": response.response_remove_javascript_validation,
+                        "remove_all_javascript": response.response_remove_all_javascript,
+                    },
+                },
+                "websocket": {
+                    "client_to_server": response.websocket_client_to_server,
+                    "server_to_client": response.websocket_server_to_client,
+                    "in_scope_only": response.websocket_in_scope_only,
+                },
+            }).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
 
     #[tool(
         name = "burp_proxy_websocket_history",
@@ -2080,6 +2297,16 @@ fn action_json(
         }
         Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
     }
+}
+
+fn proxy_intercept_rule_json(rule: ProxyInterceptRule) -> serde_json::Value {
+    serde_json::json!({
+        "enabled": rule.enabled,
+        "boolean_operator": rule.boolean_operator,
+        "match_type": rule.match_type,
+        "match_relationship": rule.match_relationship,
+        "match_condition": rule.match_condition,
+    })
 }
 fn script_import_json(
     result: Result<burp_protocol::proto::ScriptImportResponse, burp_protocol::ClientError>,
@@ -2376,6 +2603,8 @@ mod contract_tests {
                         | "burp_macro_list"
                         | "burp_macro_remove"
                         | "burp_macro_run"
+                        | "burp_proxy_intercept_config"
+                        | "burp_list_proxy_rules"
                         | "burp_scan_issues"
                         | "burp_websocket_history"
                         | "decoder"

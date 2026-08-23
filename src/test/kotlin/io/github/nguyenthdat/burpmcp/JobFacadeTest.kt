@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 class JobFacadeTest {
     @Test
@@ -156,6 +157,15 @@ class JobFacadeTest {
             )
 
         assertEquals(AuditJobOutput(2, 0, 0), result)
+    }
+    @Test
+    fun `proxy rule validation rejects invalid phase and action`() {
+        assertFailsWith<IllegalArgumentException> {
+            validateProxyRule(ProxyRule("r", "marker", "other", "forward", "", "", "", "", true))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            validateProxyRule(ProxyRule("r", "marker", "request", "unknown", "", "", "", "", true))
+        }
     }
 
 

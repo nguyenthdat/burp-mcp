@@ -86,6 +86,7 @@ internal class SessionRuleFacade(
     private fun validate(rule: SessionRule) {
         require(rule.description.isNotBlank()) { "description must not be blank" }
         require(rule.actionType in SUPPORTED_ACTIONS) { "unsupported session action: ${rule.actionType}" }
+        require(rule.tools.all { it in SUPPORTED_TOOLS }) { "unsupported session tool" }
         if (rule.actionType == "replace_text") require(rule.find.isNotEmpty()) { "find must not be empty" }
         if (rule.actionType == "set_header") require(rule.headerName.isNotBlank()) { "header_name must not be blank" }
         if (rule.actionType == "set_parameter") require(rule.parameterName.isNotBlank()) { "parameter_name must not be blank" }
@@ -94,6 +95,7 @@ internal class SessionRuleFacade(
 
     private companion object {
         val SUPPORTED_ACTIONS = setOf("replace_text", "set_header", "set_parameter", "run_macro")
+        val SUPPORTED_TOOLS = setOf("proxy", "target", "scanner", "intruder", "repeater", "sequencer", "decoder", "comparer", "logger", "extensions")
     }
 }
 

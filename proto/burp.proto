@@ -22,6 +22,7 @@ service BurpService {
   rpc AddIssue(AddIssueRequest) returns (ActionResponse);
   rpc ScanIssueDetail(ScanIssueDetailRequest) returns (ScanIssueEntry);
   rpc InterceptState(InterceptStateRequest) returns (InterceptStateResponse);
+  rpc ProxyInterceptConfig(ProxyInterceptConfigRequest) returns (ProxyInterceptConfigResponse);
   rpc ProxyWebSocketHistory(ProxyWebSocketHistoryRequest) returns (ProxyWebSocketHistoryResponse);
   rpc SendToIntruder(SendToIntruderRequest) returns (ActionResponse);
   rpc ExtensionInfo(ExtensionInfoRequest) returns (ExtensionInfoResponse);
@@ -39,6 +40,7 @@ service BurpService {
   rpc ClearProxyRules(ClearProxyRulesRequest) returns (ActionResponse);
   rpc CreateSessionRule(CreateSessionRuleRequest) returns (ActionResponse);
   rpc ListSessionRules(ListSessionRulesRequest) returns (ListSessionRulesResponse);
+  rpc ListProxyRules(ListProxyRulesRequest) returns (ListProxyRulesResponse);
   rpc RemoveSessionRules(RemoveSessionRulesRequest) returns (ActionResponse);
   rpc CreateMacro(CreateMacroRequest) returns (ActionResponse);
   rpc ListMacros(ListMacrosRequest) returns (ListMacrosResponse);
@@ -174,6 +176,51 @@ message AddIssueRequest {
 message ScanIssueDetailRequest { uint32 index = 1; }
 message InterceptStateRequest { optional bool enabled = 1; }
 message InterceptStateResponse { bool enabled = 1; }
+message ProxyInterceptConfigRequest {
+  optional bool master_intercept_enabled = 1;
+  optional bool request_do_intercept = 2;
+  optional bool request_auto_content_length = 3;
+  optional bool response_do_intercept = 4;
+  optional bool response_auto_content_length = 5;
+  optional bool websocket_client_to_server = 6;
+  optional bool websocket_server_to_client = 7;
+  optional bool websocket_in_scope_only = 8;
+  repeated ProxyInterceptRule request_rules = 9;
+  repeated ProxyInterceptRule response_rules = 10;
+  bool replace_request_rules = 11;
+  bool replace_response_rules = 12;
+  optional bool response_unhide_hidden_fields = 13;
+  optional bool response_enable_disabled_fields = 14;
+  optional bool response_remove_input_length_limits = 15;
+  optional bool response_remove_javascript_validation = 16;
+  optional bool response_remove_all_javascript = 17;
+  optional bool request_fix_missing_new_lines = 18;
+}
+message ProxyInterceptRule {
+  bool enabled = 1;
+  string boolean_operator = 2;
+  string match_type = 3;
+  string match_relationship = 4;
+  string match_condition = 5;
+}
+message ProxyInterceptConfigResponse {
+  bool master_intercept_enabled = 1;
+  bool request_do_intercept = 2;
+  bool request_auto_content_length = 3;
+  bool response_do_intercept = 4;
+  bool response_auto_content_length = 5;
+  bool websocket_client_to_server = 6;
+  bool websocket_server_to_client = 7;
+  bool websocket_in_scope_only = 8;
+  repeated ProxyInterceptRule request_rules = 9;
+  repeated ProxyInterceptRule response_rules = 10;
+  bool response_unhide_hidden_fields = 11;
+  bool response_enable_disabled_fields = 12;
+  bool response_remove_input_length_limits = 13;
+  bool response_remove_javascript_validation = 14;
+  bool response_remove_all_javascript = 15;
+  bool request_fix_missing_new_lines = 16;
+}
 message ProxyWebSocketHistoryRequest { PageRequest page = 1; }
 message ProxyWebSocketEntry {
   uint32 index = 1;
@@ -263,10 +310,30 @@ message RegisterHttpHandlerRequest {
 }
 message ClearHttpHandlerRequest {}
 message RegisterProxyRuleRequest {
-  string url_contains = 1;
-  bool intercept = 2;
+  string id = 1;
+  string url_contains = 2;
+  string phase = 3;
+  string action = 4;
+  string match = 5;
+  string replacement = 6;
+  string header_name = 7;
+  string header_value = 8;
+  bool enabled = 9;
 }
-message ClearProxyRulesRequest {}
+message ProxyRuleEntry {
+  string id = 1;
+  string url_contains = 2;
+  string phase = 3;
+  string action = 4;
+  string match = 5;
+  string replacement = 6;
+  string header_name = 7;
+  string header_value = 8;
+  bool enabled = 9;
+}
+message ListProxyRulesRequest {}
+message ListProxyRulesResponse { repeated ProxyRuleEntry items = 1; }
+message ClearProxyRulesRequest { string id = 1; }
 message CreateSessionRuleRequest {
   string find = 1;
   string replacement = 2;

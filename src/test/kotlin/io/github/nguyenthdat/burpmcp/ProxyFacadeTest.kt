@@ -7,11 +7,13 @@ import burp.api.montoya.http.message.requests.HttpRequest
 import burp.api.montoya.http.message.responses.HttpResponse
 import burp.api.montoya.proxy.Proxy
 import burp.api.montoya.proxy.ProxyHttpRequestResponse
+import burp.api.montoya.core.Registration
 import java.lang.reflect.Proxy as ReflectionProxy
 import java.time.ZonedDateTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ProxyFacadeTest {
     @Test
@@ -95,6 +97,63 @@ class ProxyFacadeTest {
         assertEquals(0, item.listenerPort)
         assertEquals("", item.upgradeUrl)
     }
+    @Test
+    fun `proxy rule lifecycle preserves handlers until close`() {
+        var requestHandler: burp.api.montoya.proxy.http.ProxyRequestHandler? = null
+        var responseHandler: burp.api.montoya.proxy.http.ProxyResponseHandler? = null
+        var requestDeregistered = false
+        var responseDeregistered = false
+        val requestRegistration = fake<Registration>(mapOf("deregister" to { requestDeregistered = true }))
+        val responseRegistration = fake<Registration>(mapOf("deregister" to { responseDeregistered = true }))
+        val proxy =
+            ReflectionProxy.newProxyInstance(Proxy::class.java.classLoader, arrayOf(Proxy::class.java)) { proxyObject, method, args ->
+                when (method.name) {
+                    "registerRequestHandler" -> {
+                        requestHandler = args!![0] as burp.api.montoya.proxy.http.ProxyRequestHandler
+                        requestRegistration
+                    }
+                    "registerResponseHandler" -> {
+                        responseHandler = args!![0] as burp.api.montoya.proxy.http.ProxyResponseHandler
+                        responseRegistration
+                    }
+                    "toString" -> "FakeProxy"
+                    "hashCode" -> System.identityHashCode(proxyObject)
+                    "equals" -> proxyObject === args?.firstOrNull()
+                    else -> defaultValue(method.returnType)
+                }
+            } as Proxy
+        val facade = ProxyRuleFacade(fake(mapOf("proxy" to { proxy })))
+
+        facade.register(ProxyRule("first", "example.test", "request", "forward", "", "", "", "", true))
+        facade.register(ProxyRule("second", "example.test", "response", "drop", "", "", "", "", true))
+        assertEquals(listOf("first", "second"), facade.list().map(ProxyRule::id))
+        assertTrue(requestHandler != null)
+        assertTrue(responseHandler != null)
+
+        facade.clear("first")
+        assertEquals(listOf("second"), facade.list().map(ProxyRule::id))
+        assertEquals(false, requestDeregistered)
+        assertEquals(false, responseDeregistered)
+
+        facade.close()
+        assertTrue(facade.list().isEmpty())
+        assertTrue(requestDeregistered)
+        assertTrue(responseDeregistered)
+    }
+
+    @Test
+    fun `proxy rule close is idempotent`() {
+        var deregisterCalls = 0
+        val registration = fake<Registration>(mapOf("deregister" to { deregisterCalls += 1 }))
+        val proxy = fake<Proxy>(mapOf("registerRequestHandler" to { registration }, "registerResponseHandler" to { registration }))
+        val facade = ProxyRuleFacade(fake(mapOf("proxy" to { proxy })))
+
+        facade.close()
+        facade.close()
+
+        assertEquals(2, deregisterCalls)
+    }
+
 
     @Suppress("UNCHECKED_CAST")
     private inline fun <reified T> fake(methods: Map<String, () -> Any?>): T =
