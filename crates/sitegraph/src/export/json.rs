@@ -1,7 +1,7 @@
 use crate::storage::StorageError;
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::{Row, SqlitePool};
+use sqlx::{Acquire, Row, SqlitePool};
 
 #[derive(Debug, Serialize)]
 pub struct JsonExport {
@@ -11,6 +11,7 @@ pub struct JsonExport {
     pub truncated: bool,
     pub next_cursor: Option<u64>,
     pub last_synced_at: Option<i64>,
+    pub snapshot_id: Option<String>,
     pub evidence: Value,
 }
 
@@ -20,18 +21,20 @@ pub async fn page(
     limit: u64,
     last_synced_at: Option<i64>,
 ) -> Result<JsonExport, StorageError> {
+    let mut transaction = pool.begin().await?;
+    let connection = transaction.acquire().await?;
     let node_total = sqlx::query("SELECT count(*) AS count FROM nodes")
-        .fetch_one(pool)
+        .fetch_one(&mut *connection)
         .await?
         .get::<i64, _>("count") as u64;
     let edge_total = sqlx::query("SELECT count(*) AS count FROM edges")
-        .fetch_one(pool)
+        .fetch_one(&mut *connection)
         .await?
         .get::<i64, _>("count") as u64;
     let rows = sqlx::query("SELECT id, kind, metadata FROM nodes ORDER BY id LIMIT ?1 OFFSET ?2")
         .bind(limit as i64)
         .bind(cursor as i64)
-        .fetch_all(pool)
+        .fetch_all(&mut *connection)
         .await?;
     let nodes = rows
         .into_iter()
@@ -43,18 +46,13 @@ pub async fn page(
             }))
         })
         .collect::<Result<Vec<_>, StorageError>>()?;
-    let node_ids = nodes
-        .iter()
-        .filter_map(|node| node["id"].as_str())
-        .collect::<Vec<_>>();
+    let node_ids = nodes.iter().filter_map(|node| node["id"].as_str()).collect::<Vec<_>>();
     let mut edges = Vec::new();
     for node_id in node_ids {
-        for row in sqlx::query(
-            "SELECT id, from_id, to_id, kind FROM edges WHERE from_id=?1 ORDER BY id LIMIT 500",
-        )
-        .bind(node_id)
-        .fetch_all(pool)
-        .await?
+        for row in sqlx::query("SELECT id, from_id, to_id, kind FROM edges WHERE from_id=?1 ORDER BY id")
+            .bind(node_id)
+            .fetch_all(&mut *connection)
+            .await?
         {
             edges.push(serde_json::json!({
                 "id": row.get::<String, _>("id"),
@@ -64,6 +62,11 @@ pub async fn page(
             }));
         }
     }
+    let snapshot_id = sqlx::query("SELECT value FROM graph_metadata WHERE key='last_synced_at'")
+        .fetch_optional(&mut *connection)
+        .await?
+        .map(|row| row.get::<String, _>("value"));
+    transaction.commit().await?;
     let next = cursor + nodes.len() as u64;
     Ok(JsonExport {
         nodes,
@@ -72,6 +75,7 @@ pub async fn page(
         truncated: next < node_total,
         next_cursor: (next < node_total).then_some(next),
         last_synced_at,
-        evidence: serde_json::json!({"source": "metadata-only SQLite graph export"}),
+        snapshot_id,
+        evidence: serde_json::json!({"source": "metadata-only SQLite read transaction"}),
     })
 }

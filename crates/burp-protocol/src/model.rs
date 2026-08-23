@@ -28,4 +28,8 @@ pub struct ServerInfo {
     pub max_page_size: u32,
     pub max_concurrent_calls_per_connection: u32,
     pub max_rpc_timeout_seconds: u32,
+    pub project_id: String,
+    pub project_name: String,
+    pub graph_id: String,
+    pub project_temporary: bool,
 }

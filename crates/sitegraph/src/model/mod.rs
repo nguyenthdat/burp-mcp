@@ -5,6 +5,6 @@ mod node;
 pub use edge::{Edge, EdgeKind};
 pub use endpoint::{
     ArtifactObservation, Endpoint, EndpointPage, GraphStatus, IssueObservation, SitemapObservation,
-    SyncBatch, SyncSummary, TechnologyObservation,
+    SyncBatch, SyncContext, SyncCoverage, SyncSummary, TechnologyObservation,
 };
 pub use node::{Node, NodeKind};

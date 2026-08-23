@@ -351,6 +351,10 @@ impl BurpClient {
             max_page_size: response.max_page_size,
             max_concurrent_calls_per_connection: response.max_concurrent_calls_per_connection,
             max_rpc_timeout_seconds: response.max_rpc_timeout_seconds,
+            project_id: response.project_id,
+            project_name: response.project_name,
+            graph_id: response.graph_id,
+            project_temporary: response.project_temporary,
         })
     }
     pub async fn probe_proxy_history(&self, query: ProxyHistoryQuery) -> Result<(), ClientError> {

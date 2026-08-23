@@ -30,6 +30,14 @@ pub struct ServeArgs {
     #[arg(long, env = "BURP_MCP_GRAPH_PATH")]
     pub graph_path: Option<String>,
 
+    /// Sitegraph indexing mode. Auto-index is opt-in.
+    #[arg(long, env = "BURP_MCP_SITEGRAPH_MODE", default_value = "off", value_parser = parse_sitegraph_mode)]
+    pub sitegraph_mode: String,
+
+    /// Poll interval for watch mode.
+    #[arg(long, env = "BURP_MCP_SITEGRAPH_INTERVAL_SECONDS", default_value_t = 30)]
+    pub sitegraph_interval_seconds: u64,
+
     /// Serve MCP over standard input and output.
     #[arg(long, default_value_t = true)]
     pub stdio: bool,
@@ -42,6 +50,8 @@ impl Default for ServeArgs {
             port: None,
             stdio: true,
             graph_path: None,
+            sitegraph_mode: "off".to_owned(),
+            sitegraph_interval_seconds: 30,
         }
     }
 }
@@ -112,6 +122,13 @@ fn parse_port(port: &str) -> Result<u16, String> {
         return Err("Burp RPC endpoint port must be positive".to_owned());
     }
     Ok(port)
+}
+
+fn parse_sitegraph_mode(value: &str) -> Result<String, String> {
+    match value {
+        "off" | "startup" | "watch" => Ok(value.to_owned()),
+        _ => Err("sitegraph mode must be off, startup, or watch".to_owned()),
+    }
 }
 
 #[cfg(test)]

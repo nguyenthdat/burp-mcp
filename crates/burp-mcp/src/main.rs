@@ -35,12 +35,19 @@ async fn run_server(config: ServeArgs) -> Result<()> {
         ..BurpClientConfig::default()
     })?;
     let graph_path = config.resolved_graph_path();
-    let service = BurpTools::new(actor, &graph_path)
+    let tools = BurpTools::new(actor, &graph_path)
         .await
-        .map_err(|error| anyhow!(error))?
-        .serve(stdio())
-        .await?;
+        .map_err(|error| anyhow!(error))?;
+    tools
+        .start_auto_index(
+            &config.sitegraph_mode,
+            std::time::Duration::from_secs(config.sitegraph_interval_seconds.max(1)),
+        )
+        .await
+        .map_err(|error| anyhow!(error))?;
+    let service = tools.clone().serve(stdio()).await?;
     service.waiting().await?;
+    tools.shutdown().await;
     Ok(())
 }
 

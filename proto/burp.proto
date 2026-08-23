@@ -627,4 +627,9 @@ message ServerInfoResponse {
   string burp_version = 10;
   string burp_edition = 11;
   uint64 burp_build_number = 12;
+  string project_id = 13;
+  string project_name = 14;
+  string graph_id = 15;
+  bool project_temporary = 16;
 }
+

@@ -1,4 +1,5 @@
 mod sitegraph_sync;
+mod sitegraph_indexer;
 mod utility_tools;
 
 use burp_protocol::BurpClient;
@@ -36,7 +37,7 @@ use sitegraph::SiteGraph;
 use std::path::Path;
 use std::sync::Arc;
 use utility_engine::{self as utility, DataValue};
-use crate::sitegraph_sync::SiteGraphSynchronizer;
+use crate::sitegraph_indexer::SitegraphIndexer;
 
 const MAX_PAGE_SIZE: u32 = 500;
 const MAX_KOTLIN_INDEX: u32 = i32::MAX as u32;
@@ -640,6 +641,12 @@ pub struct SiteGraphSyncInput {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SiteGraphConfigInput {
+    pub mode: Option<String>,
+    pub interval_seconds: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SiteGraphSearchInput {
     pub query: String,
     pub limit: Option<u32>,
@@ -683,20 +690,85 @@ pub struct SiteGraphExportInput {
 pub struct BurpTools {
     client: BurpClient,
     sitegraph: Arc<SiteGraph>,
+    sitegraph_indexer: SitegraphIndexer,
+    auto_index_shutdown: Arc<tokio::sync::watch::Sender<bool>>,
 }
 
 
 #[tool_router(router = burp_router)]
 impl BurpTools {
     pub async fn new(client: BurpClient, graph_path: &Path) -> Result<Self, String> {
+        let identity = client
+            .server_info(burp_protocol::protocol::ServerInfoRequest {})
+            .await
+            .ok();
+        let (resolved_path, graph_id) = match identity {
+            Some(info) if !info.graph_id.is_empty() => {
+                let root = if graph_path.extension().is_some() {
+                    graph_path.parent().unwrap_or_else(|| Path::new("."))
+                } else {
+                    graph_path
+                };
+                let file_name = if info.project_temporary {
+                    format!("temp-{}.sqlite", info.graph_id)
+                } else {
+                    format!("{}.sqlite", info.graph_id)
+                };
+                (root.join("projects").join(file_name), info.graph_id)
+            }
+            _ => (
+                graph_path.to_path_buf(),
+                graph_path.file_stem().and_then(|value| value.to_str()).unwrap_or("offline").to_owned(),
+            ),
+        };
+        let sitegraph = Arc::new(
+            SiteGraph::open_with_id(&resolved_path, graph_id)
+                .await
+                .map_err(|error| error.to_string())?,
+        );
+        let sitegraph_indexer = SitegraphIndexer::spawn(client.clone(), Arc::clone(&sitegraph));
+        let (auto_index_shutdown, _) = tokio::sync::watch::channel(false);
         Ok(Self {
             client,
-            sitegraph: Arc::new(
-                SiteGraph::open(graph_path)
-                    .await
-                    .map_err(|error| error.to_string())?,
-            ),
+            sitegraph,
+            sitegraph_indexer,
+            auto_index_shutdown: Arc::new(auto_index_shutdown),
         })
+    }
+
+    pub async fn start_auto_index(&self, mode: &str, interval: std::time::Duration) -> Result<(), String> {
+        match mode {
+            "off" => Ok(()),
+            "startup" => {
+                self.sitegraph_indexer.sync(String::new()).await?;
+                Ok(())
+            }
+            "watch" => {
+                let indexer = self.sitegraph_indexer.clone();
+                let mut shutdown = self.auto_index_shutdown.subscribe();
+                tokio::spawn(async move {
+                    loop {
+                        tokio::select! {
+                            _ = shutdown.changed() => break,
+                            result = indexer.sync(String::new()) => {
+                                let _ = result;
+                            }
+                        }
+                        tokio::select! {
+                            _ = shutdown.changed() => break,
+                            _ = tokio::time::sleep(interval) => {}
+                        }
+                    }
+                });
+                Ok(())
+            }
+            _ => Err(format!("unsupported sitegraph mode: {mode}")),
+        }
+    }
+
+    pub async fn shutdown(&self) {
+        let _ = self.auto_index_shutdown.send(true);
+        self.sitegraph_indexer.shutdown().await;
     }
 
     #[tool(
@@ -2083,8 +2155,7 @@ impl BurpTools {
         description = "Synchronize bounded Burp sitemap metadata into the local SQLite graph"
     )]
     async fn sitegraph_sync(&self, Parameters(input): Parameters<SiteGraphSyncInput>) -> String {
-        let synchronizer = SiteGraphSynchronizer::new(self.client.clone(), Arc::clone(&self.sitegraph));
-        match synchronizer.run(input.url_prefix.unwrap_or_default()).await {
+        match self.sitegraph_indexer.sync(input.url_prefix.unwrap_or_default()).await {
             Ok(summary) => serde_json::to_string(&summary).expect("sync summary serializes"),
             Err(error) => serde_json::json!({"error": error}).to_string(),
         }
@@ -2131,8 +2202,49 @@ impl BurpTools {
         description = "Get local sitegraph synchronization and schema status"
     )]
     async fn sitegraph_status(&self) -> String {
-        match self.sitegraph.status().await {
+        match self.sitegraph_indexer.status().await {
             Ok(status) => serde_json::to_string(&status).expect("graph status serializes"),
+            Err(error) => serde_json::json!({"error": error}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "sitegraph_config",
+        description = "Read or validate sitegraph auto-index configuration; mode is off, startup, or watch"
+    )]
+    async fn sitegraph_config(&self, Parameters(input): Parameters<SiteGraphConfigInput>) -> String {
+        let mode = input.mode.unwrap_or_else(|| "off".to_owned());
+        if !matches!(mode.as_str(), "off" | "startup" | "watch") {
+            return serde_json::json!({"error": "mode must be off, startup, or watch"}).to_string();
+        }
+        let interval_seconds = input.interval_seconds.unwrap_or(30).max(1);
+        serde_json::json!({
+            "mode": mode,
+            "interval_seconds": interval_seconds,
+            "page_size": 500,
+            "queue_capacity": 32,
+            "max_items": null,
+            "note": "configuration changes apply on the next process start"
+        }).to_string()
+    }
+
+    #[tool(
+        name = "sitegraph_projects",
+        description = "List the active project-scoped graph identity"
+    )]
+    async fn sitegraph_projects(&self) -> String {
+        match self.sitegraph.status().await {
+            Ok(status) => serde_json::json!({
+                "active_graph_id": status.graph_id,
+                "items": [{
+                    "graph_id": status.graph_id,
+                    "state": status.state,
+                    "last_success_at": status.last_success_at
+                }],
+                "total": 1,
+                "truncated": false,
+                "next_cursor": null
+            }).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }

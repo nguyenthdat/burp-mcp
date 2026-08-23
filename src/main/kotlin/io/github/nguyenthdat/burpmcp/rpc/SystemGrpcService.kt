@@ -1,6 +1,7 @@
 package io.github.nguyenthdat.burpmcp.rpc
 
 import burp.api.montoya.MontoyaApi
+import io.github.nguyenthdat.burpmcp.ProjectFacade
 import io.github.nguyenthdat.burpmcp.grpc.v1.BurpServiceGrpc
 import io.github.nguyenthdat.burpmcp.grpc.v1.EchoBytesRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.EchoBytesResponse
@@ -56,19 +57,32 @@ internal class SystemGrpcService(
 
     override fun serverInfo(request: ServerInfoRequest, responseObserver: StreamObserver<ServerInfoResponse>) {
         val version = api.burpSuite().version()
+        val project = ProjectFacade(api).identity()
         val builder = ServerInfoResponse.newBuilder()
-            .setExtension("Burp MCP")
+            .setExtension("burp-mcp-kotlin")
             .setVersion(extensionVersion())
-            .addAllCapabilities(listOf("proxy.read", "sitemap.read", "scanner.read", "cookies.read", "transport.echo", "lifecycle.restart"))
+            .addAllCapabilities(
+                listOf(
+                    "proxy.read",
+                    "sitemap.read",
+                    "scanner.read",
+                    "cookies.read",
+                    "transport.echo",
+                    "lifecycle.restart",
+                ),
+            )
             .setMaxMessageBytes(GRPC_MAX_MESSAGE_BYTES)
             .setMaxPageSize(GRPC_MAX_PAGE_SIZE)
             .setMaxConcurrentCallsPerConnection(GRPC_MAX_CONCURRENT_CALLS_PER_CONNECTION)
             .setMaxRpcTimeoutSeconds(GRPC_MAX_RPC_TIMEOUT_SECONDS.toInt())
             .setMaxResponseBytes(GRPC_MAX_RESPONSE_BYTES)
-            .setBurpVersion(version?.toString().orEmpty())
-            .setBurpEdition(version?.edition()?.name ?: "UNKNOWN")
-            .setBurpBuildNumber(version?.buildNumber() ?: 0)
+            .setProjectId(project.projectId)
+            .setProjectName(project.projectName)
+            .setGraphId(project.graphId)
+            .setProjectTemporary(project.temporary)
         version?.name()?.let(builder::setBurpName)
+        version?.edition()?.name?.let(builder::setBurpEdition)
+        version?.buildNumber()?.let(builder::setBurpBuildNumber)
         responseObserver.onNext(builder.build())
         responseObserver.onCompleted()
     }

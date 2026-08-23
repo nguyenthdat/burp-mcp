@@ -44,6 +44,46 @@ pub struct SyncBatch {
     pub artifacts: Vec<ArtifactObservation>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncContext {
+    pub graph_id: String,
+    pub source: String,
+    pub scope: String,
+    pub run_id: String,
+    pub cursor: Option<String>,
+    pub source_total: Option<u64>,
+    pub pages_seen: u64,
+    pub items_seen: u64,
+    pub complete: bool,
+}
+
+impl SyncContext {
+    pub fn snapshot(graph_id: impl Into<String>, scope: impl Into<String>) -> Self {
+        Self {
+            graph_id: graph_id.into(),
+            source: "burp_sitemap".to_owned(),
+            scope: scope.into(),
+            run_id: String::new(),
+            cursor: None,
+            source_total: None,
+            pages_seen: 1,
+            items_seen: 0,
+            complete: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncCoverage {
+    pub complete: bool,
+    pub items_indexed: u64,
+    pub source_total: Option<u64>,
+    pub pages_read: u64,
+    pub end_of_source: bool,
+    pub cancelled: bool,
+    pub last_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyncSummary {
     pub sync_id: String,
     pub upserted_nodes: u64,
@@ -51,6 +91,25 @@ pub struct SyncSummary {
     pub total_nodes: u64,
     pub total_edges: u64,
     pub last_synced_at: i64,
+    pub complete: bool,
+    pub items_seen: u64,
+    pub pages_seen: u64,
+    pub tombstoned_nodes: u64,
+    pub tombstoned_edges: u64,
+
+}
+impl Default for SyncCoverage {
+    fn default() -> Self {
+        Self {
+            complete: false,
+            items_indexed: 0,
+            source_total: None,
+            pages_read: 0,
+            end_of_source: false,
+            cancelled: false,
+            last_cursor: None,
+        }
+    }
 }
 
 
@@ -79,8 +138,17 @@ pub struct EndpointPage {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GraphStatus {
+    pub graph_id: String,
     pub schema_version: i64,
+    pub state: String,
+    pub freshness: String,
     pub total_nodes: u64,
     pub total_edges: u64,
+    pub active_nodes: u64,
+    pub active_edges: u64,
     pub last_synced_at: Option<i64>,
+    pub last_success_at: Option<i64>,
+    pub current_run_id: Option<String>,
+    pub coverage: SyncCoverage,
+    pub last_error: Option<String>,
 }

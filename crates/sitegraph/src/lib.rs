@@ -8,6 +8,6 @@ mod storage;
 
 pub use model::{
     ArtifactObservation, Endpoint, EndpointPage, GraphStatus, IssueObservation, SitemapObservation,
-    SyncBatch, SyncSummary, TechnologyObservation,
+    SyncBatch, SyncContext, SyncCoverage, SyncSummary, TechnologyObservation,
 };
 pub use storage::SiteGraph;

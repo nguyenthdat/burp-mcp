@@ -2,7 +2,9 @@ use crate::graph::neighbors::{Neighbor, NeighborPage};
 use crate::graph::traversal::{TracePage, TraceStep};
 use crate::ingest::sitemap::relationships;
 use crate::limits::{PageLimit, TraversalDepth};
-use crate::model::{Endpoint, EndpointPage, GraphStatus, NodeKind, SyncBatch, SyncSummary};
+use crate::model::{
+    Endpoint, EndpointPage, GraphStatus, NodeKind, SyncBatch, SyncContext, SyncCoverage, SyncSummary,
+};
 use crate::normalize::{fingerprint, headers, url};
 use crate::storage::{StorageError, edges, migrations::MIGRATOR, nodes, query::validated_limit};
 use serde_json::json;
@@ -13,10 +15,110 @@ use time::OffsetDateTime;
 
 pub struct SiteGraph {
     pool: SqlitePool,
+    graph_id: String,
+}
+
+async fn upsert_source_node(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    node: &crate::model::Node,
+    search: nodes::SearchFields<'_>,
+    context: &SyncContext,
+    run_id: &str,
+    timestamp: i64,
+) -> Result<(), StorageError> {
+    nodes::upsert(transaction, node, search).await?;
+    sqlx::query(
+        "INSERT INTO source_nodes(graph_id, source, scope, node_id, last_seen_run_id, last_seen_at, active)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, 1)
+         ON CONFLICT(graph_id, source, scope, node_id) DO UPDATE SET
+           last_seen_run_id=excluded.last_seen_run_id,
+           last_seen_at=excluded.last_seen_at,
+           active=1",
+    )
+    .bind(&context.graph_id)
+    .bind(&context.source)
+    .bind(&context.scope)
+    .bind(&node.id)
+    .bind(run_id)
+    .bind(timestamp)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        "DELETE FROM tombstones
+         WHERE graph_id=?1 AND entity_type='node' AND entity_id=?2 AND source=?3 AND scope=?4",
+    )
+    .bind(&context.graph_id)
+    .bind(&node.id)
+    .bind(&context.source)
+    .bind(&context.scope)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
+async fn upsert_source_edge(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    from_id: &str,
+    to_id: &str,
+    kind: crate::model::EdgeKind,
+    evidence_id: &str,
+    context: &SyncContext,
+    run_id: &str,
+    timestamp: i64,
+) -> Result<String, StorageError> {
+    let edge_id = edges::upsert(
+        transaction,
+        from_id,
+        to_id,
+        kind,
+        evidence_id,
+        timestamp,
+    )
+    .await?;
+    sqlx::query(
+        "INSERT INTO source_edges(graph_id, source, scope, edge_id, last_seen_run_id, last_seen_at, active)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, 1)
+         ON CONFLICT(graph_id, source, scope, edge_id) DO UPDATE SET
+           last_seen_run_id=excluded.last_seen_run_id,
+           last_seen_at=excluded.last_seen_at,
+           active=1",
+    )
+    .bind(&context.graph_id)
+    .bind(&context.source)
+    .bind(&context.scope)
+    .bind(&edge_id)
+    .bind(run_id)
+    .bind(timestamp)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        "DELETE FROM tombstones
+         WHERE graph_id=?1 AND entity_type='edge' AND entity_id=?2 AND source=?3 AND scope=?4",
+    )
+    .bind(&context.graph_id)
+    .bind(&edge_id)
+    .bind(&context.source)
+    .bind(&context.scope)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(edge_id)
 }
 
 impl SiteGraph {
     pub async fn open(path: &Path) -> Result<Self, StorageError> {
+        let graph_id = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("default")
+            .to_owned();
+        Self::open_with_id(path, graph_id).await
+    }
+
+    pub async fn open_with_id(
+        path: &Path,
+        graph_id: impl Into<String>,
+    ) -> Result<Self, StorageError> {
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
@@ -27,7 +129,15 @@ impl SiteGraph {
             .disable_statement_logging();
         let pool = SqlitePool::connect_with(options).await?;
         MIGRATOR.run(&pool).await?;
-        Ok(Self { pool })
+        let graph_id = graph_id.into();
+        sqlx::query(
+            "INSERT INTO graph_metadata(key, value) VALUES('graph_id', ?1)
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        )
+        .bind(&graph_id)
+        .execute(&pool)
+        .await?;
+        Ok(Self { pool, graph_id })
     }
 
     #[cfg(test)]
@@ -36,16 +146,47 @@ impl SiteGraph {
     }
 
     pub async fn sync(&self, batch: &SyncBatch) -> Result<SyncSummary, StorageError> {
-        let now = OffsetDateTime::now_utc().unix_timestamp();
-        let sync_id = fingerprint::stable_id(
-            "sync",
-            &[&now.to_string(), &batch.sitemap.len().to_string()],
+        let mut context = SyncContext::snapshot(&self.graph_id, "all");
+        context.items_seen = u64::try_from(batch.sitemap.len() + batch.issues.len())
+            .unwrap_or(u64::MAX);
+        self.sync_with_context(batch, &context).await
+    }
+
+    pub async fn sync_with_context(
+        &self,
+        batch: &SyncBatch,
+        context: &SyncContext,
+    ) -> Result<SyncSummary, StorageError> {
+        let started = OffsetDateTime::now_utc();
+        let now = started.unix_timestamp();
+        let sync_id = if context.run_id.is_empty() {
+            fingerprint::stable_id(
+                "sync_run",
+                &[&self.graph_id, &started.unix_timestamp_nanos().to_string()],
+            )
+        } else {
+            context.run_id.clone()
+        };
+        let evidence_id = fingerprint::stable_id(
+            "evidence",
+            &[&self.graph_id, &context.source, &context.scope],
         );
-        let evidence_id = fingerprint::stable_id("evidence", &[&sync_id, "burp_sitemap_snapshot"]);
         let mut transaction = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO sync_runs(id, graph_id, source, scope, started_at, status, complete, items_seen, pages_seen)
+             VALUES(?1, ?2, ?3, ?4, ?5, 'running', 0, 0, 0)
+             ON CONFLICT(id) DO NOTHING",
+        )
+        .bind(&sync_id)
+        .bind(&self.graph_id)
+        .bind(&context.source)
+        .bind(&context.scope)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
         sqlx::query("INSERT OR IGNORE INTO evidence(id, source, observed_at, summary) VALUES(?1, ?2, ?3, ?4)")
             .bind(&evidence_id)
-            .bind("Burp sitemap snapshot")
+            .bind(&context.source)
             .bind(now)
             .bind(json!({"sitemap_items": batch.sitemap.len(), "issue_items": batch.issues.len()}).to_string())
             .execute(&mut *transaction)
@@ -74,17 +215,12 @@ impl SiteGraph {
                     "parameter_names": normalized.parameter_names,
                 }),
             );
-            nodes::upsert(
-                &mut transaction,
-                &endpoint,
-                nodes::SearchFields {
-                    origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
-                    method: endpoint.metadata["method"].as_str().unwrap_or_default(),
-                    path: endpoint.metadata["path"].as_str().unwrap_or_default(),
-                    name: "",
-                },
-            )
-            .await?;
+            upsert_source_node(&mut transaction, &endpoint, nodes::SearchFields {
+                origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
+                method: endpoint.metadata["method"].as_str().unwrap_or_default(),
+                path: endpoint.metadata["path"].as_str().unwrap_or_default(),
+                name: "",
+            }, context, &sync_id, now).await?;
             upserted_nodes += 1;
             let origin = nodes::node(
                 NodeKind::Origin,
@@ -95,24 +231,54 @@ impl SiteGraph {
                 now,
                 json!({"origin": endpoint.metadata["origin"]}),
             );
-            nodes::upsert(
-                &mut transaction,
-                &origin,
-                nodes::SearchFields {
-                    origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
-                    ..nodes::SearchFields::default()
-                },
-            )
-            .await?;
-            edges::upsert(
-                &mut transaction,
-                &origin.id,
-                &endpoint.id,
-                crate::model::EdgeKind::Contains,
-                &evidence_id,
-                now,
-            )
-            .await?;
+            if !observation.response_body.is_empty() {
+                let body_hash = blake3::hash(&observation.response_body).to_hex().to_string();
+                let blob_id = fingerprint::stable_id("evidence_blob", &["response", &body_hash]);
+                sqlx::query(
+                    "INSERT OR IGNORE INTO evidence_blobs(id, sha256, blake3, source_entry_id, surface, direction, content_type, payload, byte_length, observed_at)
+                     VALUES(?1, ?2, ?2, ?3, 'response_body', 'response', ?4, ?5, ?6, ?7)",
+                )
+                .bind(&blob_id)
+                .bind(&body_hash)
+                .bind(&endpoint.id)
+                .bind(&observation.content_type)
+                .bind(&observation.response_body)
+                .bind(i64::try_from(observation.response_body.len()).unwrap_or(i64::MAX))
+                .bind(now)
+                .execute(&mut *transaction)
+                .await?;
+                let body_text = String::from_utf8_lossy(&observation.response_body);
+                let secret_pattern = regex::Regex::new(r#"(?i)(?:token|secret|api[_-]?key|authorization)\s*[:=]\s*([^\s&\"']+)"#)
+                    .map_err(|error| StorageError::InvalidInput(error.to_string()))?;
+                for capture in secret_pattern.captures_iter(&body_text).take(128) {
+                    let Some(found) = capture.get(1) else { continue };
+                    let capture_bytes = found.as_str().as_bytes();
+                    let finding_id = fingerprint::stable_id(
+                        "exact_finding",
+                        &[&endpoint.id, &blob_id, "secret_pattern", &found.start().to_string(), &found.end().to_string()],
+                    );
+                    sqlx::query(
+                        "INSERT OR IGNORE INTO enrichment_findings(id, node_id, evidence_blob_id, enricher_id, enricher_version, ruleset_id, ruleset_version, input_fingerprint, kind, severity, confidence, byte_start, byte_end, capture, incomplete, metadata, observed_at)
+                         VALUES(?1, ?2, ?3, 'secret_pattern', '1', 'default', '1', ?4, 'secret_like_value', 'high', 0.8, ?5, ?6, ?7, 0, ?8, ?9)",
+                    )
+                    .bind(&finding_id)
+                    .bind(&endpoint.id)
+                    .bind(&blob_id)
+                    .bind(&body_hash)
+                    .bind(i64::try_from(found.start()).unwrap_or(i64::MAX))
+                    .bind(i64::try_from(found.end()).unwrap_or(i64::MAX))
+                    .bind(capture_bytes)
+                    .bind(json!({"capture_policy": "exact", "source": "response_body"}).to_string())
+                    .bind(now)
+                    .execute(&mut *transaction)
+                    .await?;
+                }
+            }
+            upsert_source_node(&mut transaction, &origin, nodes::SearchFields {
+                origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
+                ..nodes::SearchFields::default()
+            }, context, &sync_id, now).await?;
+            upsert_source_edge(&mut transaction, &origin.id, &endpoint.id, crate::model::EdgeKind::Contains, &evidence_id, context, &sync_id, now).await?;
             upserted_nodes += 1;
             upserted_edges += 1;
             let mut parent_id = origin.id.clone();
@@ -137,25 +303,12 @@ impl SiteGraph {
                     now,
                     json!({"segment": segment, "path": accumulated}),
                 );
-                nodes::upsert(
-                    &mut transaction,
-                    &segment_node,
-                    nodes::SearchFields {
-                        origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
-                        path: segment_node.metadata["path"].as_str().unwrap_or_default(),
-                        ..nodes::SearchFields::default()
-                    },
-                )
-                .await?;
-                edges::upsert(
-                    &mut transaction,
-                    &parent_id,
-                    &segment_node.id,
-                    crate::model::EdgeKind::PathChild,
-                    &evidence_id,
-                    now,
-                )
-                .await?;
+                upsert_source_node(&mut transaction, &segment_node, nodes::SearchFields {
+                    origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
+                    path: segment_node.metadata["path"].as_str().unwrap_or_default(),
+                    ..nodes::SearchFields::default()
+                }, context, &sync_id, now).await?;
+                upsert_source_edge(&mut transaction, &parent_id, &segment_node.id, crate::model::EdgeKind::PathChild, &evidence_id, context, &sync_id, now).await?;
                 parent_id = segment_node.id.clone();
                 upserted_nodes += 1;
                 upserted_edges += 1;
@@ -172,24 +325,11 @@ impl SiteGraph {
                     now,
                     json!({"name": parameter_name, "location": "query"}),
                 );
-                nodes::upsert(
-                    &mut transaction,
-                    &parameter,
-                    nodes::SearchFields {
-                        name: parameter_name,
-                        ..nodes::SearchFields::default()
-                    },
-                )
-                .await?;
-                edges::upsert(
-                    &mut transaction,
-                    &endpoint.id,
-                    &parameter.id,
-                    crate::model::EdgeKind::AcceptsParameter,
-                    &evidence_id,
-                    now,
-                )
-                .await?;
+                upsert_source_node(&mut transaction, &parameter, nodes::SearchFields {
+                    name: parameter_name,
+                    ..nodes::SearchFields::default()
+                }, context, &sync_id, now).await?;
+                upsert_source_edge(&mut transaction, &endpoint.id, &parameter.id, crate::model::EdgeKind::AcceptsParameter, &evidence_id, context, &sync_id, now).await?;
                 upserted_nodes += 1;
                 upserted_edges += 1;
             }
@@ -200,16 +340,8 @@ impl SiteGraph {
                     now,
                     json!({"fingerprint": response_hash, "content_type": endpoint.metadata["content_type"]}),
                 );
-                nodes::upsert(&mut transaction, &response, nodes::SearchFields::default()).await?;
-                edges::upsert(
-                    &mut transaction,
-                    &endpoint.id,
-                    &response.id,
-                    crate::model::EdgeKind::RespondedWith,
-                    &evidence_id,
-                    now,
-                )
-                .await?;
+                upsert_source_node(&mut transaction, &response, nodes::SearchFields::default(), context, &sync_id, now).await?;
+                upsert_source_edge(&mut transaction, &endpoint.id, &response.id, crate::model::EdgeKind::RespondedWith, &evidence_id, context, &sync_id, now).await?;
                 upserted_nodes += 1;
                 upserted_edges += 1;
             }
@@ -224,17 +356,12 @@ impl SiteGraph {
                     now,
                     json!({"origin": target.origin, "method": "GET", "path": target.path}),
                 );
-                nodes::upsert(
-                    &mut transaction,
-                    &target_node,
-                    nodes::SearchFields {
-                        origin: target_node.metadata["origin"].as_str().unwrap_or_default(),
-                        method: "GET",
-                        path: target_node.metadata["path"].as_str().unwrap_or_default(),
-                        name: "",
-                    },
-                )
-                .await?;
+                upsert_source_node(&mut transaction, &target_node, nodes::SearchFields {
+                    origin: target_node.metadata["origin"].as_str().unwrap_or_default(),
+                    method: "GET",
+                    path: target_node.metadata["path"].as_str().unwrap_or_default(),
+                    name: "",
+                }, context, &sync_id, now).await?;
                 upserted_nodes += 1;
                 let kind = match relationship.kind {
                     "form" => crate::model::EdgeKind::FormSubmitsTo,
@@ -242,15 +369,7 @@ impl SiteGraph {
                     "redirect" => crate::model::EdgeKind::RedirectsTo,
                     _ => crate::model::EdgeKind::LinksTo,
                 };
-                edges::upsert(
-                    &mut transaction,
-                    &endpoint.id,
-                    &target_node.id,
-                    kind,
-                    &evidence_id,
-                    now,
-                )
-                .await?;
+                upsert_source_edge(&mut transaction, &endpoint.id, &target_node.id, kind, &evidence_id, context, &sync_id, now).await?;
                 upserted_edges += 1;
             }
         }
@@ -279,17 +398,12 @@ impl SiteGraph {
                 now,
                 json!({"origin": normalized.origin, "method": "GET", "path": normalized.path}),
             );
-            nodes::upsert(
-                &mut transaction,
-                &endpoint,
-                nodes::SearchFields {
-                    origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
-                    method: "GET",
-                    path: endpoint.metadata["path"].as_str().unwrap_or_default(),
-                    name: "",
-                },
-            )
-            .await?;
+            upsert_source_node(&mut transaction, &endpoint, nodes::SearchFields {
+                origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
+                method: "GET",
+                path: endpoint.metadata["path"].as_str().unwrap_or_default(),
+                name: "",
+            }, context, &sync_id, now).await?;
             let issue_hash = fingerprint::stable_id(
                 "issue",
                 &[
@@ -309,24 +423,11 @@ impl SiteGraph {
                     "confidence": issue.confidence,
                 }),
             );
-            nodes::upsert(
-                &mut transaction,
-                &issue_node,
-                nodes::SearchFields {
-                    name: &issue.name,
-                    ..nodes::SearchFields::default()
-                },
-            )
-            .await?;
-            edges::upsert(
-                &mut transaction,
-                &endpoint.id,
-                &issue_node.id,
-                crate::model::EdgeKind::HasIssue,
-                &evidence_id,
-                now,
-            )
-            .await?;
+            upsert_source_node(&mut transaction, &issue_node, nodes::SearchFields {
+                name: &issue.name,
+                ..nodes::SearchFields::default()
+            }, context, &sync_id, now).await?;
+            upsert_source_edge(&mut transaction, &endpoint.id, &issue_node.id, crate::model::EdgeKind::HasIssue, &evidence_id, context, &sync_id, now).await?;
             upserted_nodes += 2;
             upserted_edges += 1;
         }
@@ -341,17 +442,12 @@ impl SiteGraph {
                 now,
                 json!({"origin": normalized.origin, "method": "GET", "path": normalized.path}),
             );
-            nodes::upsert(
-                &mut transaction,
-                &endpoint,
-                nodes::SearchFields {
-                    origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
-                    method: "GET",
-                    path: endpoint.metadata["path"].as_str().unwrap_or_default(),
-                    name: "",
-                },
-            )
-            .await?;
+            upsert_source_node(&mut transaction, &endpoint, nodes::SearchFields {
+                origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
+                method: "GET",
+                path: endpoint.metadata["path"].as_str().unwrap_or_default(),
+                name: "",
+            }, context, &sync_id, now).await?;
             let normalized_name = technology.name.trim().to_ascii_lowercase();
             let technology_node = nodes::node(
                 NodeKind::Technology,
@@ -359,26 +455,13 @@ impl SiteGraph {
                 now,
                 json!({"name": normalized_name}),
             );
-            nodes::upsert(
-                &mut transaction,
-                &technology_node,
-                nodes::SearchFields {
-                    name: technology_node.metadata["name"]
-                        .as_str()
-                        .unwrap_or_default(),
-                    ..nodes::SearchFields::default()
-                },
-            )
-            .await?;
-            edges::upsert(
-                &mut transaction,
-                &endpoint.id,
-                &technology_node.id,
-                crate::model::EdgeKind::HasTechnology,
-                &evidence_id,
-                now,
-            )
-            .await?;
+            upsert_source_node(&mut transaction, &technology_node, nodes::SearchFields {
+                name: technology_node.metadata["name"]
+                    .as_str()
+                    .unwrap_or_default(),
+                ..nodes::SearchFields::default()
+            }, context, &sync_id, now).await?;
+            upsert_source_edge(&mut transaction, &endpoint.id, &technology_node.id, crate::model::EdgeKind::HasTechnology, &evidence_id, context, &sync_id, now).await?;
             upserted_nodes += 2;
             upserted_edges += 1;
         }
@@ -393,17 +476,12 @@ impl SiteGraph {
                 now,
                 json!({"origin": normalized.origin, "method": "GET", "path": normalized.path}),
             );
-            nodes::upsert(
-                &mut transaction,
-                &endpoint,
-                nodes::SearchFields {
-                    origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
-                    method: "GET",
-                    path: endpoint.metadata["path"].as_str().unwrap_or_default(),
-                    name: "",
-                },
-            )
-            .await?;
+            upsert_source_node(&mut transaction, &endpoint, nodes::SearchFields {
+                origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
+                method: "GET",
+                path: endpoint.metadata["path"].as_str().unwrap_or_default(),
+                name: "",
+            }, context, &sync_id, now).await?;
             let kind = artifact.kind.trim().to_ascii_lowercase();
             let name = artifact.name.trim();
             let artifact_node = nodes::node(
@@ -412,27 +490,130 @@ impl SiteGraph {
                 now,
                 json!({"kind": kind, "name": name, "fingerprint": artifact.fingerprint}),
             );
-            nodes::upsert(
-                &mut transaction,
-                &artifact_node,
-                nodes::SearchFields {
-                    name: artifact_node.metadata["name"].as_str().unwrap_or_default(),
-                    ..nodes::SearchFields::default()
-                },
-            )
-            .await?;
-            edges::upsert(
-                &mut transaction,
-                &endpoint.id,
-                &artifact_node.id,
-                crate::model::EdgeKind::HasArtifact,
-                &evidence_id,
-                now,
-            )
-            .await?;
+            upsert_source_node(&mut transaction, &artifact_node, nodes::SearchFields {
+                name: artifact_node.metadata["name"].as_str().unwrap_or_default(),
+                ..nodes::SearchFields::default()
+            }, context, &sync_id, now).await?;
+            upsert_source_edge(&mut transaction, &endpoint.id, &artifact_node.id, crate::model::EdgeKind::HasArtifact, &evidence_id, context, &sync_id, now).await?;
             upserted_nodes += 2;
             upserted_edges += 1;
         }
+        let mut tombstoned_nodes = 0_u64;
+        let mut tombstoned_edges = 0_u64;
+        if context.complete {
+            tombstoned_nodes = sqlx::query(
+                "SELECT count(*) AS count FROM source_nodes
+                 WHERE graph_id=?1 AND source=?2 AND scope=?3 AND active=1 AND last_seen_run_id<>?4",
+            )
+            .bind(&self.graph_id)
+            .bind(&context.source)
+            .bind(&context.scope)
+            .bind(&sync_id)
+            .fetch_one(&mut *transaction)
+            .await?
+            .get::<i64, _>("count") as u64;
+            tombstoned_edges = sqlx::query(
+                "SELECT count(*) AS count FROM source_edges
+                 WHERE graph_id=?1 AND source=?2 AND scope=?3 AND active=1 AND last_seen_run_id<>?4",
+            )
+            .bind(&self.graph_id)
+            .bind(&context.source)
+            .bind(&context.scope)
+            .bind(&sync_id)
+            .fetch_one(&mut *transaction)
+            .await?
+            .get::<i64, _>("count") as u64;
+            sqlx::query(
+                "INSERT INTO tombstones(graph_id, entity_type, entity_id, source, scope, first_missing_at, last_confirmed_at, reason)
+                 SELECT graph_id, 'node', node_id, source, scope, ?5, ?5, 'missing_from_complete_snapshot'
+                 FROM source_nodes
+                 WHERE graph_id=?1 AND source=?2 AND scope=?3 AND active=1 AND last_seen_run_id<>?4
+                 ON CONFLICT(graph_id, entity_type, entity_id, source, scope)
+                 DO UPDATE SET last_confirmed_at=excluded.last_confirmed_at",
+            )
+            .bind(&self.graph_id)
+            .bind(&context.source)
+            .bind(&context.scope)
+            .bind(&sync_id)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
+            sqlx::query(
+                "INSERT INTO tombstones(graph_id, entity_type, entity_id, source, scope, first_missing_at, last_confirmed_at, reason)
+                 SELECT graph_id, 'edge', edge_id, source, scope, ?5, ?5, 'missing_from_complete_snapshot'
+                 FROM source_edges
+                 WHERE graph_id=?1 AND source=?2 AND scope=?3 AND active=1 AND last_seen_run_id<>?4
+                 ON CONFLICT(graph_id, entity_type, entity_id, source, scope)
+                 DO UPDATE SET last_confirmed_at=excluded.last_confirmed_at",
+            )
+            .bind(&self.graph_id)
+            .bind(&context.source)
+            .bind(&context.scope)
+            .bind(&sync_id)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
+            sqlx::query(
+                "UPDATE source_nodes SET active=0
+                 WHERE graph_id=?1 AND source=?2 AND scope=?3 AND active=1 AND last_seen_run_id<>?4",
+            )
+            .bind(&self.graph_id)
+            .bind(&context.source)
+            .bind(&context.scope)
+            .bind(&sync_id)
+            .execute(&mut *transaction)
+            .await?;
+            sqlx::query(
+                "UPDATE source_edges SET active=0
+                 WHERE graph_id=?1 AND source=?2 AND scope=?3 AND active=1 AND last_seen_run_id<>?4",
+            )
+            .bind(&self.graph_id)
+            .bind(&context.source)
+            .bind(&context.scope)
+            .bind(&sync_id)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        let coverage = SyncCoverage {
+            complete: context.complete,
+            items_indexed: context.items_seen,
+            source_total: context.source_total,
+            pages_read: context.pages_seen,
+            end_of_source: context.complete,
+            cancelled: false,
+            last_cursor: context.cursor.clone(),
+        };
+        sqlx::query(
+            "UPDATE sync_runs SET finished_at=?2, status=?3, complete=?4, items_seen=?5, pages_seen=?6, error=NULL
+             WHERE id=?1",
+        )
+        .bind(&sync_id)
+        .bind(now)
+        .bind(if context.complete { "completed" } else { "running" })
+        .bind(context.complete)
+        .bind(i64::try_from(context.items_seen).unwrap_or(i64::MAX))
+        .bind(i64::try_from(context.pages_seen).unwrap_or(i64::MAX))
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO source_checkpoints(graph_id, source, scope, last_cursor, last_snapshot_id, last_success_at, coverage_json)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(graph_id, source, scope) DO UPDATE SET
+               last_cursor=excluded.last_cursor,
+               last_snapshot_id=excluded.last_snapshot_id,
+               last_success_at=CASE WHEN excluded.last_success_at IS NULL THEN source_checkpoints.last_success_at ELSE excluded.last_success_at END,
+               coverage_json=excluded.coverage_json",
+        )
+        .bind(&self.graph_id)
+        .bind(&context.source)
+        .bind(&context.scope)
+        .bind(&context.cursor)
+        .bind(&sync_id)
+        .bind(context.complete.then_some(now))
+        .bind(serde_json::to_string(&coverage)?)
+        .execute(&mut *transaction)
+        .await?;
         sqlx::query("INSERT INTO graph_metadata(key, value) VALUES('last_synced_at', ?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
             .bind(now.to_string())
             .execute(&mut *transaction)
@@ -446,6 +627,11 @@ impl SiteGraph {
             total_nodes: status.total_nodes,
             total_edges: status.total_edges,
             last_synced_at: now,
+            complete: context.complete,
+            items_seen: context.items_seen,
+            pages_seen: context.pages_seen,
+            tombstoned_nodes,
+            tombstoned_edges,
         })
     }
 
@@ -458,15 +644,72 @@ impl SiteGraph {
             .fetch_one(&self.pool)
             .await?
             .get::<i64, _>("count");
-        let last = sqlx::query("SELECT value FROM graph_metadata WHERE key='last_synced_at'")
-            .fetch_optional(&self.pool)
-            .await?
-            .and_then(|row| row.get::<String, _>("value").parse().ok());
+        let active_nodes = sqlx::query(
+            "SELECT count(*) AS count FROM source_nodes WHERE graph_id=?1 AND active=1",
+        )
+        .bind(&self.graph_id)
+        .fetch_one(&self.pool)
+        .await?
+        .get::<i64, _>("count");
+        let active_edges = sqlx::query(
+            "SELECT count(*) AS count FROM source_edges WHERE graph_id=?1 AND active=1",
+        )
+        .bind(&self.graph_id)
+        .fetch_one(&self.pool)
+        .await?
+        .get::<i64, _>("count");
+        let last_synced_at = sqlx::query(
+            "SELECT value FROM graph_metadata WHERE key='last_synced_at'",
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .and_then(|row| row.get::<String, _>("value").parse().ok());
+        let checkpoint = sqlx::query(
+            "SELECT last_success_at, last_snapshot_id, coverage_json
+             FROM source_checkpoints WHERE graph_id=?1
+             ORDER BY last_success_at DESC LIMIT 1",
+        )
+        .bind(&self.graph_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let (last_success_at, current_run_id, coverage) = match checkpoint {
+            Some(row) => (
+                row.get::<Option<i64>, _>("last_success_at"),
+                row.get::<Option<String>, _>("last_snapshot_id"),
+                serde_json::from_str::<SyncCoverage>(&row.get::<String, _>("coverage_json"))?,
+            ),
+            None => (None, None, SyncCoverage::default()),
+        };
+        let last_error = sqlx::query(
+            "SELECT error FROM sync_runs
+             WHERE graph_id=?1 AND error IS NOT NULL
+             ORDER BY started_at DESC LIMIT 1",
+        )
+        .bind(&self.graph_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(|row| row.get::<String, _>("error"));
         Ok(GraphStatus {
-            schema_version: 2,
+            graph_id: self.graph_id.clone(),
+            schema_version: 3,
+            state: if last_synced_at.is_none() {
+                "disabled"
+            } else if coverage.complete {
+                "ready"
+            } else {
+                "catching_up"
+            }
+            .to_owned(),
+            freshness: if coverage.complete { "fresh" } else { "partial" }.to_owned(),
             total_nodes: node_count as u64,
             total_edges: edge_count as u64,
-            last_synced_at: last,
+            active_nodes: active_nodes as u64,
+            active_edges: active_edges as u64,
+            last_synced_at,
+            last_success_at,
+            current_run_id,
+            coverage,
+            last_error,
         })
     }
 
@@ -664,13 +907,13 @@ impl SiteGraph {
     ) -> Result<TracePage, StorageError> {
         let depth = TraversalDepth::new(max_depth)?.get();
         let limit = PageLimit::new(limit)?.get();
-        let rows = sqlx::query("WITH RECURSIVE walk(depth, edge_id, edge_kind, from_id, to_id, path) AS (SELECT 1, e.id, e.kind, e.from_id, e.to_id, printf('%s>%s', e.from_id, e.to_id) FROM edges e WHERE e.from_id=?1 UNION ALL SELECT walk.depth+1, e.id, e.kind, e.from_id, e.to_id, printf('%s>%s', walk.path, e.to_id) FROM walk JOIN edges e ON e.from_id=walk.to_id WHERE walk.depth < ?2) SELECT depth, edge_id, edge_kind, from_id, to_id, path FROM walk ORDER BY depth, edge_id LIMIT ?3")
+        let rows = sqlx::query("WITH RECURSIVE walk(depth, edge_id, edge_kind, from_id, to_id, path, visited) AS (SELECT 1, e.id, e.kind, e.from_id, e.to_id, printf('%s>%s', e.from_id, e.to_id), printf('|%s|%s|', e.from_id, e.to_id) FROM edges e WHERE e.from_id=?1 UNION ALL SELECT walk.depth+1, e.id, e.kind, e.from_id, e.to_id, printf('%s>%s', walk.path, e.to_id), walk.visited || e.to_id || '|' FROM walk JOIN edges e ON e.from_id=walk.to_id WHERE walk.depth < ?2 AND instr(walk.visited, printf('|%s|', e.to_id)) = 0) SELECT depth, edge_id, edge_kind, from_id, to_id, path FROM walk ORDER BY depth, edge_id LIMIT ?3")
             .bind(start_id)
             .bind(depth as i64)
-            .bind(limit as i64)
+            .bind(i64::from(limit) + 1)
             .fetch_all(&self.pool)
             .await?;
-        let items = rows
+        let mut items = rows
             .into_iter()
             .map(|row| TraceStep {
                 depth: row.get::<i64, _>("depth") as u32,
@@ -681,9 +924,11 @@ impl SiteGraph {
                 path: row.get("path"),
             })
             .collect::<Vec<_>>();
+        let truncated = items.len() > limit as usize;
+        items.truncate(limit as usize);
         Ok(TracePage {
-            total: items.len() as u64,
-            truncated: items.len() == limit as usize,
+            total: items.len() as u64 + u64::from(truncated),
+            truncated,
             next_cursor: None,
             last_synced_at: self.status().await?.last_synced_at,
             items,
@@ -709,7 +954,7 @@ mod tests {
     async fn graph() -> SiteGraph {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         MIGRATOR.run(&pool).await.unwrap();
-        SiteGraph { pool }
+        SiteGraph { pool, graph_id: "test".to_owned() }
     }
 
     fn observation(path: &str, body: &[u8]) -> SitemapObservation {
@@ -945,7 +1190,7 @@ mod tests {
         graph.pool().close().await;
 
         let reopened = SiteGraph::open(&path).await.unwrap();
-        assert_eq!(reopened.status().await.unwrap().schema_version, 2);
+        assert_eq!(reopened.status().await.unwrap().schema_version, 3);
         assert!(reopened.search("persistent", 0, 10).await.unwrap().total > 0);
         let interrupted = sqlx::query("SELECT value FROM graph_metadata WHERE key='interrupted'")
             .fetch_optional(reopened.pool())
@@ -1012,4 +1257,119 @@ mod tests {
         assert!(!stored.contains("private"));
         assert!(!stored.contains("secret"));
     }
+
+
+    #[tokio::test]
+    async fn complete_snapshot_tombstones_missing_nodes_but_partial_snapshot_does_not() {
+        let graph = graph().await;
+        let mut first = SyncContext::snapshot("test", "all");
+        first.run_id = "first".to_owned();
+        first.items_seen = 2;
+        graph
+            .sync_with_context(
+                &SyncBatch {
+                    sitemap: vec![observation("kept", b""), observation("removed", b"")],
+                    ..SyncBatch::default()
+                },
+                &first,
+            )
+            .await
+            .unwrap();
+
+        let mut partial = SyncContext::snapshot("test", "all");
+        partial.run_id = "partial".to_owned();
+        partial.items_seen = 1;
+        partial.complete = false;
+        let partial_summary = graph
+            .sync_with_context(
+                &SyncBatch {
+                    sitemap: vec![observation("kept", b"")],
+                    ..SyncBatch::default()
+                },
+                &partial,
+            )
+            .await
+            .unwrap();
+        assert_eq!(partial_summary.tombstoned_nodes, 0);
+
+        let mut complete = SyncContext::snapshot("test", "all");
+        complete.run_id = "complete".to_owned();
+        complete.items_seen = 1;
+        let complete_summary = graph
+            .sync_with_context(
+                &SyncBatch {
+                    sitemap: vec![observation("kept", b"")],
+                    ..SyncBatch::default()
+                },
+                &complete,
+            )
+            .await
+            .unwrap();
+        assert!(complete_summary.tombstoned_nodes > 0);
+        let status = graph.status().await.unwrap();
+        assert!(status.coverage.complete);
+        assert_eq!(status.coverage.items_indexed, 1);
+    }
+
+    #[tokio::test]
+    async fn repeated_sync_keeps_edge_and_evidence_identity_stable() {
+        let graph = graph().await;
+        let batch = SyncBatch {
+            sitemap: vec![observation("stable", b"")],
+            ..SyncBatch::default()
+        };
+        graph.sync(&batch).await.unwrap();
+        let first_edge_ids = sqlx::query("SELECT id FROM edges ORDER BY id")
+            .fetch_all(graph.pool())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.get::<String, _>("id"))
+            .collect::<Vec<_>>();
+        let first_evidence_ids = sqlx::query("SELECT id FROM evidence ORDER BY id")
+            .fetch_all(graph.pool())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.get::<String, _>("id"))
+            .collect::<Vec<_>>();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        graph.sync(&batch).await.unwrap();
+        let second_edge_ids = sqlx::query("SELECT id FROM edges ORDER BY id")
+            .fetch_all(graph.pool())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.get::<String, _>("id"))
+            .collect::<Vec<_>>();
+        let second_evidence_ids = sqlx::query("SELECT id FROM evidence ORDER BY id")
+            .fetch_all(graph.pool())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.get::<String, _>("id"))
+            .collect::<Vec<_>>();
+        assert_eq!(first_edge_ids, second_edge_ids);
+        assert_eq!(first_evidence_ids, second_evidence_ids);
+    }
+
+    #[tokio::test]
+    async fn exact_response_evidence_round_trips_byte_for_byte() {
+        let graph = graph().await;
+        let body = b"token=secret-cookie-value\0\xff";
+        graph
+            .sync(&SyncBatch {
+                sitemap: vec![observation("evidence", body)],
+                ..SyncBatch::default()
+            })
+            .await
+            .unwrap();
+        let stored = sqlx::query("SELECT payload, byte_length FROM evidence_blobs")
+            .fetch_one(graph.pool())
+            .await
+            .unwrap();
+        assert_eq!(stored.get::<Vec<u8>, _>("payload"), body);
+        assert_eq!(stored.get::<i64, _>("byte_length"), body.len() as i64);
+    }
+
 }
