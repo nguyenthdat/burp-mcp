@@ -79,8 +79,7 @@ busy loop.
 Use the smallest useful path:
 
 1. Inventory: `burp_target_info` and `burp_sitemap` with a target URL prefix.
-2. Traffic: `burp_proxy_history_filtered` for a URL/notes/color filter, or
-   `burp_proxy_history` for method/status filtering.
+2. Traffic: `burp_proxy_history` with URL, method, status, notes, or highlight filters.
 3. Detail: call `burp_proxy_detail` only for selected history indexes.
 4. WebSockets: use `burp_proxy_websocket_history`; decode a payload with
    `decoder` only when needed.

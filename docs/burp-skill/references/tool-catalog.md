@@ -47,8 +47,7 @@ Fields ending in `?` are optional. `{}` means no arguments.
 
 | Tool | Input | Purpose |
 |---|---|---|
-| `burp_proxy_history` | `{limit?, offset?, cursor?, url_filter?, method_filter?, status_filter?}` | Page/filter HTTP history. Prefer `cursor` after the first page. |
-| `burp_proxy_history_filtered` | `{url_filter?, has_notes?, color?, limit?, offset?, cursor?}` | Filter by URL, notes, or highlight color. |
+| `burp_proxy_history` | `{limit?, offset?, cursor?, url_filter?, method_filter?, status_filter?, has_notes?, color?}` | Page/filter HTTP history. Prefer `cursor` after the first page. |
 | `burp_proxy_detail` | `{index}` | Read the raw request/response, notes, and highlight for one index. |
 | `burp_proxy_websocket_history` | `{limit?, cursor?}` | Read observed WebSocket messages; payloads are base64. |
 | `burp_highlight` | `{index, color?}` | Persist a Proxy history highlight. Empty/default color clears it. |
@@ -126,13 +125,15 @@ to leave the connection open.
 
 | Tool | Input | Purpose and cleanup |
 |---|---|---|
-| `burp_intercept_state` | `{enabled?}` | Omit `enabled` to read; provide it to mutate. Restore the original value. |
+| `burp_intercept_state` | `{}` | Read the current Proxy interception state. |
+| `burp_set_intercept_state` | `{enabled}` | Set Proxy interception state. Read and restore the original state around temporary changes. |
 | `burp_register_http_handler` | `{header_name?, header_value?, match?, replace?}` | Add-header or replace-text rule. Cleanup: `burp_remove_http_handler`. |
 | `burp_remove_http_handler` | `{}` | Clear HTTP handler rules. |
 | `burp_register_proxy_rule` | `{url_contains, id?, phase?, action?, intercept?, match?, replace?, header_name?, header_value?, enabled?}` | Create/replace a request or response rule. Actions: `forward`, `intercept`, `drop`, `edit`. Cleanup: `burp_remove_proxy_rule`. |
 | `burp_list_proxy_rules` | `{}` | List configured Proxy rules and their enabled state. |
 | `burp_remove_proxy_rule` | `{id?}` | Remove one rule by ID, or clear all rules when `id` is omitted. |
-| `burp_proxy_intercept_config` | `{master_intercept_enabled?, request_do_intercept?, response_do_intercept?, request_rules?, response_rules?, websocket_*, response_*}` | Read or patch Burp Proxy capture rules. Supports request/response interception enablement, ordered `and`/`or` rules, WebSocket directions/scope, automatic Content-Length updates, and response modification flags. Rule replacement requires `replace_request_rules` or `replace_response_rules`. |
+| `burp_proxy_intercept_config` | `{}` | Read Proxy request, response, WebSocket interception filters and response modification settings. |
+| `burp_update_proxy_intercept_config` | `{master_intercept_enabled?, request_do_intercept?, response_do_intercept?, request_rules?, response_rules?, websocket_client_to_server?, websocket_server_to_client?, websocket_in_scope_only?, ...}` | Patch interception configuration; save and restore the baseline around temporary changes. |
 | `burp_cookie_jar` | `{limit?, domain?}` | List cookies; values are sensitive. |
 | `burp_cookie_jar_set` | `{name, value, domain, path?, expiration?}` | Set a cookie. Verify by listing it; expire temporary cookies during cleanup. |
 | `burp_session_create_rule` | `{id?, find?, replace?, description?, action_type?, header_name?, parameter_name?, macro_description?, url_contains?, tools?, enabled?}` | Create a session rule and return its stable ID. |

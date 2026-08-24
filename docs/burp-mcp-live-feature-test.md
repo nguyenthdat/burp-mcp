@@ -81,13 +81,11 @@ TEMP_PAYLOAD_LIST_ID=<record-after-create>
 
 **Expected:** returns extension/process metadata when supported.
 
-### LIVE-003 — `burp_intercept_state`
+### LIVE-003 — `burp_intercept_state` / `burp_set_intercept_state`
 
-```json
-{}
-```
+Call `burp_intercept_state` with `{}`. If mutation is authorized, pass `{"enabled":false}` to `burp_set_intercept_state`, verify the response, then restore the captured original value.
 
-**Expected:** the interception state can be read. Before any automated request, the value must be disabled; if enabled, stop and handle it manually.
+**Expected:** read calls do not mutate state; set calls return the requested state and restoration succeeds.
 
 ### LIVE-004 — `burp_get_scope`
 
@@ -110,20 +108,12 @@ TEMP_PAYLOAD_LIST_ID=<record-after-create>
 ### LIVE-010 — `burp_proxy_history`
 
 ```json
-{"limit":20}
-```
-
-Method/status filters can be added according to the runtime schema.
-
-**Expected:** history page; verify `total`, `truncated`, `next_cursor`, URL/method/status.
-
-### LIVE-011 — `burp_proxy_history_filtered`
-
-```json
 {"url_filter":"${TARGET_PREFIX}","limit":20}
 ```
 
-**Expected:** returns only entries matching the URL filter. Repeat using `cursor` if truncated.
+Method, status, notes, and highlight filters can be added according to the runtime schema.
+
+**Expected:** history page matches every supplied filter; verify `total`, `truncated`, `next_cursor`, URL/method/status. Repeat using `cursor` if truncated.
 
 ### LIVE-012 — `burp_proxy_detail`
 
@@ -157,9 +147,9 @@ Method/status filters can be added according to the runtime schema.
 
 **Expected:** issue details match the index.
 
-### LIVE-016 — `burp_proxy_intercept_config`
+### LIVE-016 — `burp_proxy_intercept_config` / `burp_update_proxy_intercept_config`
 
-First call with `{}` to read the current configuration and save the baseline. Test mutations only while an operator is monitoring the Burp UI.
+First call `burp_proxy_intercept_config` with `{}` and save the baseline. Test authorized mutations with `burp_update_proxy_intercept_config` only while an operator is monitoring the Burp UI, then restore the baseline.
 
 Safe change example:
 

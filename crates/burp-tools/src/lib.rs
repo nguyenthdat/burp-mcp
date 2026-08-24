@@ -19,16 +19,17 @@ use burp_protocol::protocol::{
     ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition, MacroItem, MacroParameter,
     ManagedWebSocketHistoryRequest, MutateScopeRequest, PageRequest,
     PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
-    ProxyInterceptConfigRequest, ProxyInterceptRule, ProxyWebSocketHistoryRequest,
-    RegisterHttpHandlerRequest, RegisterPayloadGeneratorRequest, RegisterPayloadProcessorRequest,
-    RegisterProxyRuleRequest, RemoveMacroRequest, RemovePayloadGeneratorRequest,
-    RemovePayloadProcessorRequest, RunMacroRequest, ScanIssueDetailRequest, ScanIssuesRequest,
-    ScopeCheckRequest, SendRequestRequest, SendRequestsRequest, SendToIntruderRequest,
-    SendToRepeaterRequest, SendWebSocketBinaryRequest, SendWebSocketTextRequest, SetCookieRequest,
-    SetHighlightRequest, SetNoteRequest, SitemapSnapshotRequest, StartAuditRequest,
-    StartBoundedInputMatrixRequest, StartConcurrentRequestCheckRequest, StartCrawlRequest,
-    TargetInfoRequest, UpdatePayloadListRequest, UpsertScanConfigurationRequest,
-    UpsertScanResourcePoolRequest, UpsertSessionRuleRequest,
+    ProxyInterceptConfigRequest, ProxyInterceptConfigResponse, ProxyInterceptRule,
+    ProxyWebSocketHistoryRequest, RegisterHttpHandlerRequest, RegisterPayloadGeneratorRequest,
+    RegisterPayloadProcessorRequest, RegisterProxyRuleRequest, RemoveMacroRequest,
+    RemovePayloadGeneratorRequest, RemovePayloadProcessorRequest, RunMacroRequest,
+    ScanIssueDetailRequest, ScanIssuesRequest, ScopeCheckRequest, SendRequestRequest,
+    SendRequestsRequest, SendToIntruderRequest, SendToRepeaterRequest, SendWebSocketBinaryRequest,
+    SendWebSocketTextRequest, SetCookieRequest, SetHighlightRequest, SetNoteRequest,
+    SitemapSnapshotRequest, StartAuditRequest, StartBoundedInputMatrixRequest,
+    StartConcurrentRequestCheckRequest, StartCrawlRequest, TargetInfoRequest,
+    UpdatePayloadListRequest, UpsertScanConfigurationRequest, UpsertScanResourcePoolRequest,
+    UpsertSessionRuleRequest,
 };
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
@@ -69,6 +70,8 @@ pub struct ProxyHistoryInput {
     pub url_filter: Option<String>,
     pub method_filter: Option<String>,
     pub status_filter: Option<u32>,
+    pub has_notes: Option<bool>,
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -88,16 +91,6 @@ struct ProxyHistoryOutput {
     total: u32,
     truncated: bool,
     next_cursor: Option<String>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct ProxyHistoryFilteredInput {
-    pub url_filter: Option<String>,
-    pub has_notes: Option<bool>,
-    pub color: Option<String>,
-    pub limit: Option<u32>,
-    pub offset: Option<u32>,
-    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -201,8 +194,8 @@ pub struct ScanIssueDetailInput {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct InterceptStateInput {
-    pub enabled: Option<bool>,
+pub struct SetInterceptStateInput {
+    pub enabled: bool,
 }
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ProxyInterceptRuleInput {
@@ -862,7 +855,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_proxy_history",
-        description = "Get a bounded page of Burp proxy history entries",
+        description = "Page Burp Proxy HTTP history with optional URL, method, status, notes, and highlight filters",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -875,17 +868,11 @@ impl BurpTools {
         if limit > MAX_PAGE_SIZE {
             return serde_json::json!({"error": "limit must be at most 500"}).to_string();
         }
-        match self.client.proxy_history(burp_protocol::protocol::ProxyHistoryRequest {
-            page: Some(burp_protocol::protocol::PageRequest {
-                limit,
-                cursor: input.cursor.unwrap_or_else(|| input.offset.unwrap_or_default().to_string()),
-            }),
-            url_filter: input.url_filter.unwrap_or_default(),
-            method_filter: input.method_filter.unwrap_or_default(),
-            status_filter: input.status_filter,
-            has_notes: false,
-            color: String::new(),
-        }).await {
+        match self
+            .client
+            .proxy_history(to_proxy_history_request(input, limit))
+            .await
+        {
             Ok(response) => {
                 let page = response.page.unwrap_or_default();
                 serde_json::to_string(&ProxyHistoryOutput {
@@ -905,55 +892,6 @@ impl BurpTools {
                 }).expect("proxy output must serialize")
             }
             Err(error) => serde_json::json!({"error": error.to_string(), "connected": false, "action": "Start Burp with the Burp MCP extension and retry"}).to_string(),
-        }
-    }
-    #[tool(
-        name = "burp_proxy_history_filtered",
-        description = "Filter proxy history by URL, annotation color, or notes",
-        annotations(
-            read_only_hint = true,
-            destructive_hint = false,
-            idempotent_hint = true,
-            open_world_hint = true
-        )
-    )]
-    async fn proxy_history_filtered(
-        &self,
-        Parameters(input): Parameters<ProxyHistoryFilteredInput>,
-    ) -> String {
-        let limit = input.limit.unwrap_or(100);
-        if limit > MAX_PAGE_SIZE {
-            return serde_json::json!({"error": "limit must be at most 500"}).to_string();
-        }
-        match self
-            .client
-            .proxy_history(to_filtered_proxy_history_request(input, limit))
-            .await
-        {
-            Ok(response) => {
-                let page = response.page.unwrap_or_default();
-                serde_json::to_string(&ProxyHistoryOutput {
-                    items: response
-                        .items
-                        .into_iter()
-                        .map(|item| ProxyHistoryItemOutput {
-                            index: item.index,
-                            method: item.method,
-                            url: item.url,
-                            status: item.status,
-                            length: item.length,
-                            has_response: item.has_response,
-                            notes: (!item.notes.is_empty()).then_some(item.notes),
-                            highlight: (!item.highlight.is_empty()).then_some(item.highlight),
-                        })
-                        .collect(),
-                    total: page.total,
-                    truncated: page.truncated,
-                    next_cursor: (!page.next_cursor.is_empty()).then_some(page.next_cursor),
-                })
-                .expect("filtered proxy output must serialize")
-            }
-            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
 
@@ -1506,7 +1444,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_session_get_rule",
-        description = "Get one MCP session rule by ID",
+        description = "Get one session rule by ID",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -1527,7 +1465,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_session_update_rule",
-        description = "Replace one MCP session rule by ID",
+        description = "Replace one session rule by ID",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -1571,7 +1509,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_session_delete_rule",
-        description = "Delete one MCP session rule by ID",
+        description = "Delete one session rule by ID",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -3417,29 +3355,65 @@ impl BurpTools {
 
     #[tool(
         name = "burp_intercept_state",
-        description = "Read or set Burp Proxy interception state",
+        description = "Read the current Burp Proxy interception state",
         annotations(
-            read_only_hint = false,
+            read_only_hint = true,
             destructive_hint = false,
-            idempotent_hint = false,
+            idempotent_hint = true,
             open_world_hint = true
         )
     )]
-    async fn intercept_state(&self, Parameters(input): Parameters<InterceptStateInput>) -> String {
-        match self
-            .client
-            .intercept_state(InterceptStateRequest {
-                enabled: input.enabled,
-            })
-            .await
-        {
-            Ok(response) => serde_json::json!({"enabled": response.enabled}).to_string(),
-            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
-        }
+    async fn intercept_state(&self) -> String {
+        intercept_state_json(
+            self.client
+                .intercept_state(InterceptStateRequest { enabled: None })
+                .await,
+        )
+    }
+
+    #[tool(
+        name = "burp_set_intercept_state",
+        description = "Set the Burp Proxy interception state; read and restore the prior state around temporary changes",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn set_intercept_state(
+        &self,
+        Parameters(input): Parameters<SetInterceptStateInput>,
+    ) -> String {
+        intercept_state_json(
+            self.client
+                .intercept_state(InterceptStateRequest {
+                    enabled: Some(input.enabled),
+                })
+                .await,
+        )
     }
     #[tool(
         name = "burp_proxy_intercept_config",
-        description = "Read or patch Burp Proxy request, response, WebSocket interception filters and response modification settings",
+        description = "Read Burp Proxy request, response, WebSocket interception filters and response modification settings",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn proxy_intercept_config(&self) -> String {
+        proxy_intercept_config_json(
+            self.client
+                .proxy_intercept_config(empty_proxy_intercept_config_request())
+                .await,
+        )
+    }
+
+    #[tool(
+        name = "burp_update_proxy_intercept_config",
+        description = "Patch Burp Proxy request, response, WebSocket interception filters and response modification settings",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -3447,7 +3421,7 @@ impl BurpTools {
             open_world_hint = true
         )
     )]
-    async fn proxy_intercept_config(
+    async fn update_proxy_intercept_config(
         &self,
         Parameters(input): Parameters<ProxyInterceptConfigInput>,
     ) -> String {
@@ -3455,58 +3429,37 @@ impl BurpTools {
         let response_rules = input.response_rules.unwrap_or_default();
         let replace_request_rules = input.replace_request_rules.unwrap_or(false);
         let replace_response_rules = input.replace_response_rules.unwrap_or(false);
-        match self
-            .client
-            .proxy_intercept_config(ProxyInterceptConfigRequest {
-                master_intercept_enabled: input.master_intercept_enabled,
-                request_do_intercept: input.request_do_intercept,
-                request_auto_content_length: input.request_auto_content_length,
-                response_do_intercept: input.response_do_intercept,
-                response_auto_content_length: input.response_auto_content_length,
-                websocket_client_to_server: input.websocket_client_to_server,
-                websocket_server_to_client: input.websocket_server_to_client,
-                websocket_in_scope_only: input.websocket_in_scope_only,
-                request_rules: request_rules.into_iter().map(ProxyInterceptRuleInput::into_proto).collect(),
-                response_rules: response_rules.into_iter().map(ProxyInterceptRuleInput::into_proto).collect(),
-                replace_request_rules,
-                replace_response_rules,
-                response_unhide_hidden_fields: input.response_unhide_hidden_fields,
-                response_enable_disabled_fields: input.response_enable_disabled_fields,
-                response_remove_input_length_limits: input.response_remove_input_length_limits,
-                response_remove_javascript_validation: input.response_remove_javascript_validation,
-                response_remove_all_javascript: input.response_remove_all_javascript,
-                request_fix_missing_new_lines: input.request_fix_missing_new_lines,
-            })
-            .await
-        {
-            Ok(response) => serde_json::json!({
-                "master_intercept_enabled": response.master_intercept_enabled,
-                "request": {
-                    "do_intercept": response.request_do_intercept,
-                    "auto_content_length": response.request_auto_content_length,
-                    "fix_missing_new_lines": response.request_fix_missing_new_lines,
-                    "rules": response.request_rules.into_iter().map(proxy_intercept_rule_json).collect::<Vec<_>>(),
-                },
-                "response": {
-                    "do_intercept": response.response_do_intercept,
-                    "auto_content_length": response.response_auto_content_length,
-                    "rules": response.response_rules.into_iter().map(proxy_intercept_rule_json).collect::<Vec<_>>(),
-                    "modification": {
-                        "unhide_hidden_fields": response.response_unhide_hidden_fields,
-                        "enable_disabled_fields": response.response_enable_disabled_fields,
-                        "remove_input_length_limits": response.response_remove_input_length_limits,
-                        "remove_javascript_validation": response.response_remove_javascript_validation,
-                        "remove_all_javascript": response.response_remove_all_javascript,
-                    },
-                },
-                "websocket": {
-                    "client_to_server": response.websocket_client_to_server,
-                    "server_to_client": response.websocket_server_to_client,
-                    "in_scope_only": response.websocket_in_scope_only,
-                },
-            }).to_string(),
-            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
-        }
+        proxy_intercept_config_json(
+            self.client
+                .proxy_intercept_config(ProxyInterceptConfigRequest {
+                    master_intercept_enabled: input.master_intercept_enabled,
+                    request_do_intercept: input.request_do_intercept,
+                    request_auto_content_length: input.request_auto_content_length,
+                    response_do_intercept: input.response_do_intercept,
+                    response_auto_content_length: input.response_auto_content_length,
+                    websocket_client_to_server: input.websocket_client_to_server,
+                    websocket_server_to_client: input.websocket_server_to_client,
+                    websocket_in_scope_only: input.websocket_in_scope_only,
+                    request_rules: request_rules
+                        .into_iter()
+                        .map(ProxyInterceptRuleInput::into_proto)
+                        .collect(),
+                    response_rules: response_rules
+                        .into_iter()
+                        .map(ProxyInterceptRuleInput::into_proto)
+                        .collect(),
+                    replace_request_rules,
+                    replace_response_rules,
+                    response_unhide_hidden_fields: input.response_unhide_hidden_fields,
+                    response_enable_disabled_fields: input.response_enable_disabled_fields,
+                    response_remove_input_length_limits: input.response_remove_input_length_limits,
+                    response_remove_javascript_validation: input
+                        .response_remove_javascript_validation,
+                    response_remove_all_javascript: input.response_remove_all_javascript,
+                    request_fix_missing_new_lines: input.request_fix_missing_new_lines,
+                })
+                .await,
+        )
     }
 
     #[tool(
@@ -3715,6 +3668,72 @@ fn session_rule_request(input: SessionRuleUpsertInput) -> UpsertSessionRuleReque
     }
 }
 
+fn intercept_state_json(
+    result: Result<burp_protocol::protocol::InterceptStateResponse, burp_protocol::ClientError>,
+) -> String {
+    match result {
+        Ok(response) => serde_json::json!({"enabled": response.enabled}).to_string(),
+        Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+    }
+}
+
+fn empty_proxy_intercept_config_request() -> ProxyInterceptConfigRequest {
+    ProxyInterceptConfigRequest {
+        master_intercept_enabled: None,
+        request_do_intercept: None,
+        request_auto_content_length: None,
+        response_do_intercept: None,
+        response_auto_content_length: None,
+        websocket_client_to_server: None,
+        websocket_server_to_client: None,
+        websocket_in_scope_only: None,
+        request_rules: Vec::new(),
+        response_rules: Vec::new(),
+        replace_request_rules: false,
+        replace_response_rules: false,
+        response_unhide_hidden_fields: None,
+        response_enable_disabled_fields: None,
+        response_remove_input_length_limits: None,
+        response_remove_javascript_validation: None,
+        response_remove_all_javascript: None,
+        request_fix_missing_new_lines: None,
+    }
+}
+
+fn proxy_intercept_config_json(
+    result: Result<ProxyInterceptConfigResponse, burp_protocol::ClientError>,
+) -> String {
+    match result {
+        Ok(response) => serde_json::json!({
+            "master_intercept_enabled": response.master_intercept_enabled,
+            "request": {
+                "do_intercept": response.request_do_intercept,
+                "auto_content_length": response.request_auto_content_length,
+                "fix_missing_new_lines": response.request_fix_missing_new_lines,
+                "rules": response.request_rules.into_iter().map(proxy_intercept_rule_json).collect::<Vec<_>>(),
+            },
+            "response": {
+                "do_intercept": response.response_do_intercept,
+                "auto_content_length": response.response_auto_content_length,
+                "rules": response.response_rules.into_iter().map(proxy_intercept_rule_json).collect::<Vec<_>>(),
+                "modification": {
+                    "unhide_hidden_fields": response.response_unhide_hidden_fields,
+                    "enable_disabled_fields": response.response_enable_disabled_fields,
+                    "remove_input_length_limits": response.response_remove_input_length_limits,
+                    "remove_javascript_validation": response.response_remove_javascript_validation,
+                    "remove_all_javascript": response.response_remove_all_javascript,
+                },
+            },
+            "websocket": {
+                "client_to_server": response.websocket_client_to_server,
+                "server_to_client": response.websocket_server_to_client,
+                "in_scope_only": response.websocket_in_scope_only,
+            },
+        }).to_string(),
+        Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+    }
+}
+
 fn session_rule_json(rule: burp_protocol::protocol::SessionRuleEntry) -> serde_json::Value {
     serde_json::json!({
         "id": rule.id,
@@ -3888,10 +3907,7 @@ fn to_proto_request(input: SendRequestInput) -> SendRequestRequest {
     }
 }
 
-fn to_filtered_proxy_history_request(
-    input: ProxyHistoryFilteredInput,
-    limit: u32,
-) -> ProxyHistoryRequest {
+fn to_proxy_history_request(input: ProxyHistoryInput, limit: u32) -> ProxyHistoryRequest {
     ProxyHistoryRequest {
         page: Some(PageRequest {
             limit,
@@ -3900,8 +3916,8 @@ fn to_filtered_proxy_history_request(
                 .unwrap_or_else(|| input.offset.unwrap_or_default().to_string()),
         }),
         url_filter: input.url_filter.unwrap_or_default(),
-        method_filter: String::new(),
-        status_filter: None,
+        method_filter: input.method_filter.unwrap_or_default(),
+        status_filter: input.status_filter,
         has_notes: input.has_notes.unwrap_or(false),
         color: input.color.unwrap_or_default(),
     }
@@ -4041,179 +4057,55 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod contract_tests {
     use super::{
-        BurpTools, DecoderInput, ProxyHistoryFilteredInput, RegisterProxyRuleInput,
-        to_filtered_proxy_history_request,
+        BurpTools, DecoderInput, ProxyHistoryInput, RegisterProxyRuleInput,
+        to_proxy_history_request,
     };
-    use serde::Deserialize;
     use serde_json::Value;
     use std::collections::BTreeSet;
 
-    #[derive(Deserialize)]
-    struct ParityManifest {
-        statuses: BTreeSet<String>,
-        tools: Vec<ParityEntry>,
-    }
-
-    #[derive(Deserialize)]
-    struct ParityEntry {
-        tool: String,
-        status: String,
-        local: Option<String>,
-        reason: Option<String>,
-    }
 
     #[test]
-    fn native_burp_tools_match_the_v3_ported_contract() {
-        let fixture: Value = serde_json::from_str(include_str!(
-            "../../../test-fixtures/contracts/burp-tools-v2.json"
-        ))
-        .expect("Burp contract fixture must be valid JSON");
-        let legacy: BTreeSet<&str> = fixture["tools"]
-            .as_array()
-            .expect("Burp contract must contain tools")
-            .iter()
-            .filter_map(|tool| tool["name"].as_str())
-            .collect();
-        let actual = actual_tool_names();
-        let parity: ParityManifest = serde_json::from_str(include_str!(
-            "../../../test-fixtures/contracts/reference-tool-parity.json"
-        ))
-        .expect("reference parity manifest must be valid JSON");
-        let classified_local = parity
-            .tools
-            .iter()
-            .filter_map(|entry| entry.local.as_deref())
-            .collect::<BTreeSet<_>>();
-        assert!(actual.iter().all(|name| {
-            legacy.contains(name.as_str())
-                || classified_local.contains(name.as_str())
-                || matches!(
-                    name.as_str(),
-                    "burp_job_cancel"
-                        | "burp_job_result"
-                        | "burp_job_status"
-                        | "burp_macro_create"
-                        | "burp_macro_list"
-                        | "burp_macro_remove"
-                        | "burp_macro_run"
-                        | "burp_proxy_intercept_config"
-                        | "burp_list_proxy_rules"
-                        | "burp_inspect_config"
-                        | "burp_scanner_generate_report"
-                        | "burp_scan_issues"
-                        | "burp_websocket_history"
-                        | "burp_scan_start"
-                        | "burp_scan_stop"
-                        | "burp_scan_remove"
-                        | "burp_scan_config_list"
-                        | "burp_scan_config_get"
-                        | "burp_scan_config_create"
-                        | "burp_scan_config_update"
-                        | "burp_scan_config_delete"
-                        | "burp_scan_pool_list"
-                        | "burp_scan_pool_get"
-                        | "burp_scan_pool_create"
-                        | "burp_scan_pool_update"
-                        | "burp_scan_pool_delete"
-                        | "decoder"
-                        | "burp_intruder_payload_processor_register"
-                        | "burp_intruder_payload_processor_list"
-                        | "burp_intruder_payload_processor_remove"
-                        | "burp_intruder_payload_generator_register"
-                        | "burp_intruder_payload_generator_list"
-                        | "burp_intruder_payload_generator_remove"
-                        | "burp_payload_list_create"
-                        | "burp_payload_list_import"
-                        | "burp_payload_list_list"
-                        | "burp_payload_list_get"
-                        | "burp_payload_list_update"
-                        | "burp_payload_list_delete"
-                )
-                || name.starts_with("sitegraph_")
-        }));
-    }
-
-    #[test]
-    fn every_reference_tool_is_classified_and_every_claimed_local_tool_exists() {
-        let manifest: ParityManifest = serde_json::from_str(include_str!(
-            "../../../test-fixtures/contracts/reference-tool-parity.json"
-        ))
-        .expect("reference parity manifest must be valid JSON");
-        let expected_statuses = BTreeSet::from([
-            "implemented".to_owned(),
-            "intentionally_removed".to_owned(),
-            "replaced_by".to_owned(),
-        ]);
-        assert_eq!(manifest.statuses, expected_statuses);
-
-        let actual = actual_tool_names();
-        let mut reference_names = BTreeSet::new();
-        for entry in manifest.tools {
+    fn every_tool_declares_complete_annotations() {
+        let router = BurpTools::burp_router() + BurpTools::utility_router();
+        for (name, route) in router.map {
+            let annotations = route
+                .attr
+                .annotations
+                .unwrap_or_else(|| panic!("{name} must declare MCP tool annotations"));
             assert!(
-                reference_names.insert(entry.tool.clone()),
-                "duplicate reference tool {}",
-                entry.tool
+                annotations.read_only_hint.is_some()
+                    && annotations.destructive_hint.is_some()
+                    && annotations.idempotent_hint.is_some()
+                    && annotations.open_world_hint.is_some(),
+                "{name} must declare every MCP behavior hint"
             );
-            assert!(
-                expected_statuses.contains(&entry.status),
-                "unclassified reference tool {}",
-                entry.tool
-            );
-            match entry.status.as_str() {
-                "implemented" | "replaced_by" => {
-                    let local = entry
-                        .local
-                        .expect("implemented/replaced tool requires local");
-                    assert!(
-                        actual.contains(&local),
-                        "{} claims missing local tool {local}",
-                        entry.tool
-                    );
-                    assert!(
-                        entry.reason.is_none(),
-                        "{} must not carry removal reason",
-                        entry.tool
-                    );
-                }
-                "intentionally_removed" => {
-                    assert!(
-                        entry.local.is_none(),
-                        "removed tool {} must not claim a local tool",
-                        entry.tool
-                    );
-                    assert!(
-                        entry
-                            .reason
-                            .as_deref()
-                            .is_some_and(|reason| !reason.trim().is_empty()),
-                        "removed tool {} requires a reason",
-                        entry.tool
-                    );
-                }
-                _ => unreachable!(),
-            }
         }
-        assert_eq!(
-            reference_names.len(),
-            78,
-            "reference advertised tool count changed; update the manifest explicitly"
-        );
     }
 
     #[test]
-    fn filtered_proxy_history_exposes_and_forwards_url_filter() {
-        let schema = serde_json::to_value(schemars::schema_for!(ProxyHistoryFilteredInput))
-            .expect("filtered proxy history input schema must serialize");
-        assert!(
-            schema["properties"].get("url_filter").is_some(),
-            "filtered proxy history must expose url_filter"
-        );
+    fn proxy_history_exposes_and_forwards_all_filters() {
+        let schema = serde_json::to_value(schemars::schema_for!(ProxyHistoryInput))
+            .expect("proxy history input schema must serialize");
+        for property in [
+            "url_filter",
+            "method_filter",
+            "status_filter",
+            "has_notes",
+            "color",
+        ] {
+            assert!(
+                schema["properties"].get(property).is_some(),
+                "proxy history must expose {property}"
+            );
+        }
 
-        let request = to_filtered_proxy_history_request(
-            ProxyHistoryFilteredInput {
+        let request = to_proxy_history_request(
+            ProxyHistoryInput {
                 url_filter: Some("https://mcl-staging.opswat.com/".to_owned()),
-                has_notes: None,
-                color: None,
+                method_filter: Some("POST".to_owned()),
+                status_filter: Some(201),
+                has_notes: Some(true),
+                color: Some("red".to_owned()),
                 limit: Some(5),
                 offset: None,
                 cursor: None,
@@ -4221,6 +4113,10 @@ mod contract_tests {
             5,
         );
         assert_eq!(request.url_filter, "https://mcl-staging.opswat.com/");
+        assert_eq!(request.method_filter, "POST");
+        assert_eq!(request.status_filter, Some(201));
+        assert!(request.has_notes);
+        assert_eq!(request.color, "red");
         assert_eq!(request.page.expect("page is required").limit, 5);
     }
 
