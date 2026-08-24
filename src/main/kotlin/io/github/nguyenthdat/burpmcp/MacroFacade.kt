@@ -81,8 +81,8 @@ internal class MacroFacade(
         val request = HttpRequest.httpRequest(service, item.request)
         val exchange = api.http().sendRequest(request)
         return HttpExchange(
-            request = exchange.request().toString(),
-            response = exchange.response()?.toString(),
+            request = exchange.request().toByteArray().bytes,
+            response = exchange.response()?.toByteArray()?.bytes,
             status = exchange.response()?.statusCode()?.toInt(),
         )
     }

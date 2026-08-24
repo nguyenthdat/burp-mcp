@@ -1,3 +1,4 @@
+use crate::analysis;
 use crate::graph::neighbors::{Neighbor, NeighborPage};
 use crate::graph::traversal::{TracePage, TraceStep};
 use crate::ingest::sitemap::relationships;
@@ -7,6 +8,7 @@ use crate::model::{
     SyncSummary,
 };
 use crate::normalize::{fingerprint, headers, url};
+use crate::storage::evidence::{persist_rule_findings, upsert_evidence_blob};
 use crate::storage::{StorageError, edges, migrations::MIGRATOR, nodes, query::validated_limit};
 use serde_json::json;
 use sqlx::{ConnectOptions, Row, SqlitePool, sqlite::SqliteConnectOptions};
@@ -165,6 +167,9 @@ impl SiteGraph {
             &[&self.graph_id, &context.source, &context.scope],
         );
         let mut transaction = self.pool.begin().await?;
+        let rule_pack =
+            crate::enrichment::RulePack::default_exact().map_err(StorageError::InvalidInput)?;
+
         sqlx::query(
             "INSERT INTO sync_runs(id, graph_id, source, scope, started_at, status, complete, items_seen, pages_seen)
              VALUES(?1, ?2, ?3, ?4, ?5, 'running', 0, 0, 0)
@@ -247,101 +252,48 @@ impl SiteGraph {
                 if payload.is_empty() {
                     continue;
                 }
-                let payload_hash = blake3::hash(payload).to_hex().to_string();
-                let blob_id = fingerprint::stable_id("evidence_blob", &[surface, &payload_hash]);
-                sqlx::query(
-                    "INSERT OR IGNORE INTO evidence_blobs(id, sha256, blake3, source_entry_id, surface, direction, content_type, payload, byte_length, observed_at)
-                     VALUES(?1, ?2, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                let blob_id = upsert_evidence_blob(
+                    &mut transaction,
+                    &endpoint.id,
+                    surface,
+                    direction,
+                    &observation.content_type,
+                    payload,
+                    now,
                 )
-                .bind(&blob_id)
-                .bind(&payload_hash)
-                .bind(&endpoint.id)
-                .bind(surface)
-                .bind(direction)
-                .bind(&observation.content_type)
-                .bind(payload)
-                .bind(i64::try_from(payload.len()).unwrap_or(i64::MAX))
-                .bind(now)
-                .execute(&mut *transaction)
+                .await?;
+                persist_rule_findings(
+                    &mut transaction,
+                    &endpoint.id,
+                    &blob_id,
+                    surface,
+                    payload,
+                    &rule_pack,
+                    now,
+                )
                 .await?;
             }
             if !observation.response_body.is_empty() {
-                let body_hash = blake3::hash(&observation.response_body)
-                    .to_hex()
-                    .to_string();
-                let blob_id = fingerprint::stable_id("evidence_blob", &["response", &body_hash]);
-                sqlx::query(
-                    "INSERT OR IGNORE INTO evidence_blobs(id, sha256, blake3, source_entry_id, surface, direction, content_type, payload, byte_length, observed_at)
-                     VALUES(?1, ?2, ?2, ?3, 'response_body', 'response', ?4, ?5, ?6, ?7)",
+                let blob_id = upsert_evidence_blob(
+                    &mut transaction,
+                    &endpoint.id,
+                    "response_body",
+                    "response",
+                    &observation.content_type,
+                    &observation.response_body,
+                    now,
                 )
-                .bind(&blob_id)
-                .bind(&body_hash)
-                .bind(&endpoint.id)
-                .bind(&observation.content_type)
-                .bind(&observation.response_body)
-                .bind(i64::try_from(observation.response_body.len()).unwrap_or(i64::MAX))
-                .bind(now)
-                .execute(&mut *transaction)
                 .await?;
-                let rule_pack = crate::enrichment::RulePack::default_exact()
-                    .map_err(|error| StorageError::InvalidInput(error.to_string()))?;
-                for rule_match in rule_pack.matches(&observation.response_body) {
-                    let finding_id = fingerprint::stable_id(
-                        "exact_finding",
-                        &[
-                            &endpoint.id,
-                            &blob_id,
-                            rule_match.kind,
-                            &rule_match.byte_start.to_string(),
-                            &rule_match.byte_end.to_string(),
-                        ],
-                    );
-                    let stored_payload =
-                        sqlx::query("SELECT payload, blake3 FROM evidence_blobs WHERE id=?1")
-                            .bind(&blob_id)
-                            .fetch_one(&mut *transaction)
-                            .await?;
-                    let stored_bytes = stored_payload.get::<Vec<u8>, _>("payload");
-                    let stored_hash = stored_payload.get::<String, _>("blake3");
-                    if blake3::hash(&stored_bytes).to_hex().to_string() != stored_hash {
-                        return Err(StorageError::InvalidInput(format!(
-                            "evidence blob {blob_id} failed integrity verification"
-                        )));
-                    }
-                    sqlx::query(
-                        "INSERT INTO enrichment_findings(id, node_id, evidence_blob_id, enricher_id, enricher_version, ruleset_id, ruleset_version, input_fingerprint, kind, severity, confidence, byte_start, byte_end, capture, incomplete, metadata, observed_at)
-                         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'high', 0.8, ?10, ?11, ?12, 0, ?13, ?14)
-                         ON CONFLICT(id) DO UPDATE SET
-                           evidence_blob_id=excluded.evidence_blob_id,
-                           enricher_version=excluded.enricher_version,
-                           ruleset_version=excluded.ruleset_version,
-                           input_fingerprint=excluded.input_fingerprint,
-                           kind=excluded.kind,
-                           severity=excluded.severity,
-                           confidence=excluded.confidence,
-                           capture=excluded.capture,
-                           incomplete=excluded.incomplete,
-                           limit_reason=excluded.limit_reason,
-                           metadata=excluded.metadata,
-                           observed_at=excluded.observed_at",
-                    )
-                    .bind(&finding_id)
-                    .bind(&endpoint.id)
-                    .bind(&blob_id)
-                    .bind(rule_match.kind)
-                    .bind(rule_pack.version)
-                    .bind(rule_pack.id)
-                    .bind(rule_pack.version)
-                    .bind(&body_hash)
-                    .bind(rule_match.kind)
-                    .bind(i64::try_from(rule_match.byte_start).unwrap_or(i64::MAX))
-                    .bind(i64::try_from(rule_match.byte_end).unwrap_or(i64::MAX))
-                    .bind(&rule_match.capture)
-                    .bind(json!({"capture_policy": "exact", "source": "response_body", "rule_pack": rule_pack.id}).to_string())
-                    .bind(now)
-                    .execute(&mut *transaction)
-                    .await?;
-                }
+                persist_rule_findings(
+                    &mut transaction,
+                    &endpoint.id,
+                    &blob_id,
+                    "response_body",
+                    &observation.response_body,
+                    &rule_pack,
+                    now,
+                )
+                .await?;
             }
             upsert_source_node(
                 &mut transaction,
@@ -516,6 +468,7 @@ impl SiteGraph {
                     "form" => crate::model::EdgeKind::FormSubmitsTo,
                     "script" => crate::model::EdgeKind::LoadsScript,
                     "redirect" => crate::model::EdgeKind::RedirectsTo,
+                    "javascript_route" => crate::model::EdgeKind::DiscoversRoute,
                     _ => crate::model::EdgeKind::LinksTo,
                 };
                 upsert_source_edge(
@@ -736,6 +689,29 @@ impl SiteGraph {
             upserted_edges += 1;
         }
         for message in &batch.websocket_messages {
+            let channel_id = fingerprint::stable_id("websocket_channel", &[&message.web_socket_id]);
+            let channel = nodes::node(
+                NodeKind::Artifact,
+                channel_id.clone(),
+                now,
+                json!({
+                    "artifact_kind": "websocket_channel",
+                    "web_socket_id": message.web_socket_id,
+                    "upgrade_url": message.upgrade_url,
+                }),
+            );
+            upsert_source_node(
+                &mut transaction,
+                &channel,
+                nodes::SearchFields {
+                    name: &message.web_socket_id,
+                    ..nodes::SearchFields::default()
+                },
+                context,
+                &sync_id,
+                now,
+            )
+            .await?;
             let node_id =
                 fingerprint::stable_id("websocket_message", &[&message.web_socket_id, &message.id]);
             let node = nodes::node(
@@ -761,6 +737,17 @@ impl SiteGraph {
                 now,
             )
             .await?;
+            upsert_source_edge(
+                &mut transaction,
+                &channel_id,
+                &node_id,
+                crate::model::EdgeKind::HasMessage,
+                &evidence_id,
+                context,
+                &sync_id,
+                now,
+            )
+            .await?;
             for (surface, payload) in [
                 ("websocket_payload", message.payload.as_slice()),
                 (
@@ -771,24 +758,29 @@ impl SiteGraph {
                 if payload.is_empty() {
                     continue;
                 }
-                let payload_hash = blake3::hash(payload).to_hex().to_string();
-                let blob_id = fingerprint::stable_id("evidence_blob", &[surface, &payload_hash]);
-                sqlx::query(
-                    "INSERT OR IGNORE INTO evidence_blobs(id, sha256, blake3, source_entry_id, surface, direction, content_type, payload, byte_length, observed_at)
-                     VALUES(?1, ?2, ?2, ?3, ?4, ?5, 'application/octet-stream', ?6, ?7, ?8)",
+                let blob_id = upsert_evidence_blob(
+                    &mut transaction,
+                    &node_id,
+                    surface,
+                    &message.direction,
+                    "application/octet-stream",
+                    payload,
+                    now,
                 )
-                .bind(&blob_id)
-                .bind(&payload_hash)
-                .bind(&node_id)
-                .bind(surface)
-                .bind(&message.direction)
-                .bind(payload)
-                .bind(i64::try_from(payload.len()).unwrap_or(i64::MAX))
-                .bind(now)
-                .execute(&mut *transaction)
+                .await?;
+                persist_rule_findings(
+                    &mut transaction,
+                    &node_id,
+                    &blob_id,
+                    surface,
+                    payload,
+                    &rule_pack,
+                    now,
+                )
                 .await?;
             }
-            upserted_nodes += 1;
+            upserted_nodes += 2;
+            upserted_edges += 1;
         }
         let mut tombstoned_nodes = 0_u64;
         let mut tombstoned_edges = 0_u64;
@@ -1268,6 +1260,30 @@ impl SiteGraph {
             items,
         })
     }
+    pub async fn shortest_path(
+        &self,
+        from_id: &str,
+        to_id: &str,
+        max_depth: usize,
+    ) -> Result<crate::ShortestPath, StorageError> {
+        analysis::shortest_path(&self.pool, from_id, to_id, max_depth).await
+    }
+
+    pub async fn endpoint_clusters(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<crate::Cluster>, StorageError> {
+        analysis::clusters(&self.pool, limit).await
+    }
+
+    pub async fn impact(
+        &self,
+        start_id: &str,
+        max_depth: usize,
+        limit: usize,
+    ) -> Result<Vec<crate::ImpactNode>, StorageError> {
+        analysis::impact(&self.pool, start_id, max_depth, limit).await
+    }
 }
 
 fn literal_prefix_pattern(query: &str) -> String {
@@ -1290,6 +1306,7 @@ mod tests {
         MIGRATOR.run(&pool).await.unwrap();
         SiteGraph {
             pool,
+
             graph_id: "test".to_owned(),
         }
     }
@@ -1745,6 +1762,78 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sync_reuses_migrated_edge_with_legacy_primary_id() {
+        let graph = graph().await;
+        let endpoint = observation("legacy-edge", b"");
+        graph
+            .sync(&SyncBatch {
+                sitemap: vec![endpoint.clone()],
+                ..SyncBatch::default()
+            })
+            .await
+            .unwrap();
+        let existing =
+            sqlx::query("SELECT id, from_id, to_id, kind FROM edges WHERE kind='contains' LIMIT 1")
+                .fetch_one(graph.pool())
+                .await
+                .unwrap();
+        let stable_id = existing.get::<String, _>("id");
+        let legacy_id = format!("legacy-{stable_id}");
+        let evidence_id =
+            sqlx::query_scalar::<_, String>("SELECT evidence_id FROM edges WHERE id=?1")
+                .bind(&stable_id)
+                .fetch_one(graph.pool())
+                .await
+                .unwrap();
+        sqlx::query("DELETE FROM edge_evidence WHERE edge_id=?1")
+            .bind(&stable_id)
+            .execute(graph.pool())
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM source_edges WHERE edge_id=?1")
+            .bind(&stable_id)
+            .execute(graph.pool())
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM edges WHERE id=?1")
+            .bind(&stable_id)
+            .execute(graph.pool())
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO edges(id, from_id, to_id, kind, evidence_id, created_at, updated_at, metadata)
+             VALUES(?1, ?2, ?3, ?4, ?5, 1, 1, '{}')",
+        )
+        .bind(&legacy_id)
+        .bind(existing.get::<String, _>("from_id"))
+        .bind(existing.get::<String, _>("to_id"))
+        .bind(existing.get::<String, _>("kind"))
+        .bind(evidence_id)
+        .execute(graph.pool())
+        .await
+        .unwrap();
+
+        graph
+            .sync(&SyncBatch {
+                sitemap: vec![endpoint],
+                ..SyncBatch::default()
+            })
+            .await
+            .unwrap();
+
+        let stored_id = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM edges WHERE from_id=?1 AND to_id=?2 AND kind=?3",
+        )
+        .bind(existing.get::<String, _>("from_id"))
+        .bind(existing.get::<String, _>("to_id"))
+        .bind(existing.get::<String, _>("kind"))
+        .fetch_one(graph.pool())
+        .await
+        .unwrap();
+        assert_eq!(stored_id, legacy_id);
+    }
+
+    #[tokio::test]
     async fn exact_response_evidence_round_trips_byte_for_byte() {
         let graph = graph().await;
         let body = b"token=secret-cookie-value\0\xff";
@@ -1840,5 +1929,46 @@ mod tests {
                 .unwrap()
                 .get::<Vec<u8>, _>("payload");
         assert_eq!(payload, b"binary\0payload\xff");
+    }
+    #[tokio::test]
+    async fn javascript_routes_and_websocket_channels_persist_with_provenance_edges() {
+        let graph = graph().await;
+        let mut script = observation("app.js", b"fetch('/api/admin');");
+        script.content_type = "application/javascript".to_owned();
+        graph
+            .sync(&SyncBatch {
+                sitemap: vec![script],
+                websocket_messages: vec![crate::model::WebSocketObservation {
+                    id: "message-1".to_owned(),
+                    web_socket_id: "socket-1".to_owned(),
+                    direction: "server_to_client".to_owned(),
+                    upgrade_url: "wss://example.test/socket".to_owned(),
+                    payload: b"token=socket-secret".to_vec(),
+                    edited_payload: Vec::new(),
+                }],
+                ..SyncBatch::default()
+            })
+            .await
+            .unwrap();
+
+        let route_edges =
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM edges WHERE kind='discovers_route'")
+                .fetch_one(graph.pool())
+                .await
+                .unwrap();
+        let channel_edges =
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM edges WHERE kind='has_message'")
+                .fetch_one(graph.pool())
+                .await
+                .unwrap();
+        let channel_nodes = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM nodes WHERE json_extract(metadata, '$.artifact_kind')='websocket_channel'",
+        )
+        .fetch_one(graph.pool())
+        .await
+        .unwrap();
+        assert_eq!(route_edges, 1);
+        assert_eq!(channel_edges, 1);
+        assert_eq!(channel_nodes, 1);
     }
 }

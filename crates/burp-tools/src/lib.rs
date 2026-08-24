@@ -679,12 +679,30 @@ pub struct SiteGraphDiffInput {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SiteGraphShortestPathInput {
+    pub from_id: String,
+    pub to_id: String,
+    pub max_depth: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SiteGraphClustersInput {
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SiteGraphImpactInput {
+    pub id: String,
+    pub max_depth: Option<u32>,
+    pub limit: Option<u32>,
+}
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SiteGraphExportInput {
     pub profile: Option<String>,
     pub format: Option<String>,
     pub snapshot_id: Option<String>,
-    pub limit: Option<u32>,
     pub cursor: Option<u32>,
+    pub limit: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -717,7 +735,7 @@ impl BurpTools {
                 };
                 (root.join("projects").join(file_name), info.graph_id)
             }
-            _ => (
+            _ if graph_path.extension().is_some() => (
                 graph_path.to_path_buf(),
                 graph_path
                     .file_stem()
@@ -725,6 +743,12 @@ impl BurpTools {
                     .unwrap_or("offline")
                     .to_owned(),
             ),
+            _ => {
+                return Err(
+                    "project identity unavailable; refusing to open a shared fallback graph"
+                        .to_owned(),
+                );
+            }
         };
         let sitegraph = Arc::new(
             SiteGraph::open_with_id(&resolved_path, graph_id)
@@ -2349,6 +2373,84 @@ impl BurpTools {
         }
         match self.sitegraph.trace(&input.id, max_depth, limit).await {
             Ok(page) => serde_json::to_string(&page).expect("trace page serializes"),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "sitegraph_shortest_path",
+        description = "Find one bounded directed shortest path in the active project graph"
+    )]
+    async fn sitegraph_shortest_path(
+        &self,
+        Parameters(input): Parameters<SiteGraphShortestPathInput>,
+    ) -> String {
+        let max_depth = input.max_depth.unwrap_or(8);
+        if max_depth == 0 || max_depth > 16 {
+            return serde_json::json!({"error": "max_depth must be between 1 and 16"}).to_string();
+        }
+        match self
+            .sitegraph
+            .shortest_path(&input.from_id, &input.to_id, max_depth as usize)
+            .await
+        {
+            Ok(result) => serde_json::to_string(&result).expect("shortest path serializes"),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "sitegraph_clusters",
+        description = "Cluster active project endpoints by origin and first path segment"
+    )]
+    async fn sitegraph_clusters(
+        &self,
+        Parameters(input): Parameters<SiteGraphClustersInput>,
+    ) -> String {
+        let limit = match validated_graph_limit(input.limit) {
+            Ok(limit) => limit,
+            Err(error) => return serde_json::json!({"error": error}).to_string(),
+        };
+        match self.sitegraph.endpoint_clusters(limit as usize).await {
+            Ok(items) => serde_json::json!({
+                "items": items,
+                "total": items.len(),
+                "truncated": items.len() == limit as usize,
+                "next_cursor": null,
+            })
+            .to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "sitegraph_impact",
+        description = "List bounded downstream impact from one active project graph node"
+    )]
+    async fn sitegraph_impact(
+        &self,
+        Parameters(input): Parameters<SiteGraphImpactInput>,
+    ) -> String {
+        let limit = match validated_graph_limit(input.limit) {
+            Ok(limit) => limit,
+            Err(error) => return serde_json::json!({"error": error}).to_string(),
+        };
+        let max_depth = input.max_depth.unwrap_or(8);
+        if max_depth == 0 || max_depth > 16 {
+            return serde_json::json!({"error": "max_depth must be between 1 and 16"}).to_string();
+        }
+        match self
+            .sitegraph
+            .impact(&input.id, max_depth as usize, limit as usize)
+            .await
+        {
+            Ok(items) => serde_json::json!({
+                "items": items,
+                "total": items.len(),
+                "truncated": items.len() == limit as usize,
+                "next_cursor": null,
+            })
+            .to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }

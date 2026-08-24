@@ -1,4 +1,4 @@
-use super::html;
+use super::{html, javascript};
 use crate::model::SitemapObservation;
 use crate::normalize::url::metadata_url;
 
@@ -36,6 +36,20 @@ pub fn relationships(observation: &SitemapObservation) -> Vec<Relationship> {
                 reference.kind,
                 &observation.url,
                 &reference.value,
+            );
+        }
+    }
+    if observation
+        .content_type
+        .to_ascii_lowercase()
+        .contains("javascript")
+    {
+        for route in javascript::routes(&observation.response_body) {
+            push(
+                &mut values,
+                "javascript_route",
+                &observation.url,
+                &route.value,
             );
         }
     }

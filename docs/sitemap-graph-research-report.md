@@ -727,6 +727,18 @@ Enrichment runner phải có `off|exact|metadata` mode; `exact` là security-tes
 5. Semantic search/vector embeddings, chỉ bật opt-in sau benchmark và privacy review.
 6. Cross-project/federated graph, chỉ khi đã có graph_id/source ownership chắc chắn.
 
+**Trạng thái triển khai 2026-08-24:**
+
+- Hoàn thành bounded JavaScript route extraction, không execute JavaScript; input, route length và match count đều có hard resource bound. Route được persist bằng edge `discovers_route`.
+- Hoàn thành WebSocket channel/message topology: channel artifact giữ `web_socket_id` và `upgrade_url`, liên kết message bằng edge `has_message`; exact payload/edited payload tiếp tục nằm trong evidence store.
+- Hoàn thành in-memory bounded clustering, directed shortest path và downstream impact analysis; MCP tools là `sitegraph_clusters`, `sitegraph_shortest_path`, `sitegraph_impact`. Implement bằng cấu trúc chuẩn thay vì thêm `petgraph`, tránh dependency khi bài toán hiện tại chỉ cần BFS/grouping.
+- Default exact rule pack nằm tại `src/main/resources/sitegraph/default-rules.json`, được Kotlin JAR đóng gói và Gradle kiểm tra checksum; Rust dùng `include_bytes!` cùng file để chỉ có một source of truth khi ship. Đây tốt hơn việc duplicate resource giữa JVM và Cargo.
+- Local UI chưa bật: cần local-only bind, CSRF/origin protection và explicit exact-evidence reveal trước khi mở HTTP surface.
+- Semantic search chưa bật: chưa có benchmark/privacy review và embedding runtime contract; FTS5 vẫn là default.
+- Federation chưa bật: query vẫn project-scoped; cần ADR cho trust, ownership và exact-evidence policy trước cross-project access.
+- Sửa blocker report v2: edge upsert conflict theo `(from_id, to_id, kind)` và lookup lại legacy edge ID trước khi ghi `edge_evidence`; regression fixture cover DB migration cũ.
+- Sửa report v2 request bridge sang byte-exact protobuf và từ chối duplicate scanner issue theo normalized `(name, URL)`.
+
 ---
 
 ## 8. Prioritized implementation roadmap

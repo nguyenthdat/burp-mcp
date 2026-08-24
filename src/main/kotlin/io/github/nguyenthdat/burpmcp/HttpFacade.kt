@@ -11,11 +11,10 @@ internal data class HttpRequestSpec(
 )
 
 internal data class HttpExchange(
-    val request: String,
-    val response: String?,
+    val request: ByteArray,
+    val response: ByteArray?,
     val status: Int?,
 )
-
 internal class HttpFacade(
     private val api: MontoyaApi,
 ) {
@@ -25,8 +24,8 @@ internal class HttpFacade(
         if (spec.body.isNotEmpty()) request = request.withBody(spec.body)
         val exchange = api.http().sendRequest(request)
         return HttpExchange(
-            request = exchange.request().toString(),
-            response = exchange.response()?.toString(),
+            request = exchange.request().toByteArray().bytes,
+            response = exchange.response()?.toByteArray()?.bytes,
             status = exchange.response()?.statusCode()?.toInt(),
         )
     }
@@ -41,8 +40,8 @@ internal class HttpFacade(
         }
         return api.http().sendRequests(requests).map { exchange ->
             HttpExchange(
-                request = exchange.request().toString(),
-                response = exchange.response()?.toString(),
+                request = exchange.request().toByteArray().bytes,
+                response = exchange.response()?.toByteArray()?.bytes,
                 status = exchange.response()?.statusCode()?.toInt(),
             )
         }

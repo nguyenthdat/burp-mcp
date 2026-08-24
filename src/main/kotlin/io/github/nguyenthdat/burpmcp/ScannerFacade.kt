@@ -82,25 +82,36 @@ internal class ScannerFacade(
         val normalizedConfidence = confidence.trim().uppercase()
         require(normalizedSeverity in SEVERITIES) { "severity must be high, medium, low, information, or false_positive" }
         require(normalizedConfidence in CONFIDENCES) { "confidence must be certain, firm, or tentative" }
+        val normalizedName = name.trim()
+        val normalizedUrl = normalizeIssueUrl(url)
+        val duplicate = api.siteMap().issues().any { existing ->
+            existing.name().trim() == normalizedName && normalizeIssueUrl(existing.baseUrl()) == normalizedUrl
+        }
+        require(!duplicate) { "issue already exists for name and URL" }
         val issue =
             burp.api.montoya.scanner.audit.issues.AuditIssue.auditIssue(
-                name,
+                normalizedName,
                 detail,
                 remediation,
-                url,
+                normalizedUrl,
                 burp.api.montoya.scanner.audit.issues.AuditIssueSeverity.valueOf(normalizedSeverity),
                 burp.api.montoya.scanner.audit.issues.AuditIssueConfidence.valueOf(normalizedConfidence),
                 null,
                 null,
                 burp.api.montoya.scanner.audit.issues.AuditIssueSeverity.valueOf(normalizedSeverity),
                 burp.api.montoya.http.message.HttpRequestResponse.httpRequestResponse(
-                    burp.api.montoya.http.message.requests.HttpRequest.httpRequestFromUrl(url),
+                    burp.api.montoya.http.message.requests.HttpRequest.httpRequestFromUrl(normalizedUrl),
                     null,
                 ),
             )
         api.siteMap().add(issue)
     }
 
+
+    private fun normalizeIssueUrl(value: String): String =
+        runCatching {
+            java.net.URI(value.trim()).normalize().toASCIIString().trimEnd('/').ifEmpty { value.trim() }
+        }.getOrElse { value.trim() }
     fun generateReport(
         format: String,
         path: String,

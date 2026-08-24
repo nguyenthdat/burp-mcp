@@ -1,10 +1,14 @@
 import com.google.protobuf.gradle.id
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.security.MessageDigest
+
 
 plugins {
     kotlin("jvm") version "2.4.10"
     id("com.google.protobuf") version "0.9.6"
 }
+
+val sitegraphRulePackSha256 = "5b63cb02091718b1c04ee30a9a89a7be1c01216a1365b266beb24fb6b3c6c3bf"
 
 group = "io.github.nguyenthdat.burpmcp"
 version = providers.gradleProperty("version").orElse("3.0.0-alpha.1").get()
@@ -94,6 +98,18 @@ tasks.withType<Test>().configureEach {
             languageVersion.set(JavaLanguageVersion.of(25))
         },
     )
+}
+
+tasks.processResources {
+    inputs.property("sitegraphRulePackSha256", sitegraphRulePackSha256)
+    doLast {
+        val packaged = destinationDir.resolve("sitegraph/default-rules.json")
+        check(packaged.isFile) { "missing packaged sitegraph default rule pack" }
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(packaged.readBytes())
+            .joinToString("") { byte -> "%02x".format(byte) }
+        check(digest == sitegraphRulePackSha256) { "sitegraph default rule pack checksum mismatch" }
+    }
 }
 
 tasks.jar {

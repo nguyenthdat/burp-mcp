@@ -12,8 +12,10 @@ pub enum EdgeKind {
     FormSubmitsTo,
     LoadsScript,
     RedirectsTo,
+    DiscoversRoute,
     HasIssue,
     HasTechnology,
+    HasMessage,
     HasArtifact,
 }
 
@@ -30,7 +32,9 @@ impl EdgeKind {
             Self::RedirectsTo => "redirects_to",
             Self::HasIssue => "has_issue",
             Self::HasTechnology => "has_technology",
+            Self::DiscoversRoute => "discovers_route",
             Self::HasArtifact => "has_artifact",
+            Self::HasMessage => "has_message",
         }
     }
 }

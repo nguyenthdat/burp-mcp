@@ -24,7 +24,7 @@ pub async fn upsert(
     sqlx::query(
         "INSERT INTO edges(id, from_id, to_id, kind, evidence_id, created_at, updated_at, metadata)
          VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7)
-         ON CONFLICT(id) DO UPDATE SET
+         ON CONFLICT(from_id, to_id, kind) DO UPDATE SET
            evidence_id=excluded.evidence_id,
            updated_at=excluded.updated_at,
            metadata=excluded.metadata",
@@ -38,12 +38,20 @@ pub async fn upsert(
     .bind(serde_json::to_string(&edge.metadata)?)
     .execute(&mut **transaction)
     .await?;
+    let id = sqlx::query_scalar::<_, String>(
+        "SELECT id FROM edges WHERE from_id=?1 AND to_id=?2 AND kind=?3",
+    )
+    .bind(&edge.from_id)
+    .bind(&edge.to_id)
+    .bind(edge.kind.as_str())
+    .fetch_one(&mut **transaction)
+    .await?;
     sqlx::query(
         "INSERT INTO edge_evidence(edge_id, evidence_id, first_seen_at, last_seen_at)
          VALUES(?1, ?2, ?3, ?3)
          ON CONFLICT(edge_id, evidence_id) DO UPDATE SET last_seen_at=excluded.last_seen_at",
     )
-    .bind(&edge.id)
+    .bind(&id)
     .bind(&edge.evidence_id)
     .bind(edge.created_at)
     .execute(&mut **transaction)

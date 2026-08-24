@@ -15,6 +15,7 @@ class JarPackagingTest {
 
         JarFile(jarPath.toFile()).use { jar ->
             assertNotNull(jar.getJarEntry("META-INF/extensions/burp-extension.properties"))
+            assertNotNull(jar.getJarEntry("sitegraph/default-rules.json"))
             assertNotNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/BurpMcpExtension.class"))
             assertNotNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/rpc/BurpRpcServer.class"))
             assertNotNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/grpc/v1/BurpServiceGrpc.class"))

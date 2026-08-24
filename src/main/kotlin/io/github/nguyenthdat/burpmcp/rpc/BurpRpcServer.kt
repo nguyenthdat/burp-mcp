@@ -1239,8 +1239,8 @@ internal class BurpRpcService(
             RunMacroResponse.newBuilder().addAllItems(
                 macroFacade.run(request.description).map { exchange ->
                     RunMacroItem.newBuilder()
-                        .setRequest(exchange.request)
-                        .setResponse(exchange.response.orEmpty())
+                        .setRequest(exchange.request.toString(Charsets.ISO_8859_1))
+                        .setResponse(exchange.response?.toString(Charsets.ISO_8859_1).orEmpty())
                         .setStatusCode(exchange.status ?: 0)
                         .setHasResponse(exchange.response != null)
                         .build()
@@ -1527,8 +1527,8 @@ internal class BurpRpcService(
     private fun io.github.nguyenthdat.burpmcp.HttpExchange.toProto(): SendRequestResponse =
         SendRequestResponse
             .newBuilder()
-            .setRequest(com.google.protobuf.ByteString.copyFromUtf8(request))
-            .setResponse(com.google.protobuf.ByteString.copyFromUtf8(response ?: ""))
+            .setRequest(com.google.protobuf.ByteString.copyFrom(request))
+            .setResponse(com.google.protobuf.ByteString.copyFrom(response ?: byteArrayOf()))
             .setStatus(status ?: 0)
             .setHasResponse(response != null)
             .build()
