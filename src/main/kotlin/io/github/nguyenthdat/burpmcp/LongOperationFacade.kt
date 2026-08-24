@@ -91,18 +91,13 @@ internal class LongOperationFacade(
         require(spec.resourcePoolId.isBlank() || spec.resourcePoolId == "built-in-default") {
             "Burp Scanner Montoya API 2026.7 cannot bind a resource pool; select built-in-default"
         }
+        val outOfScopeAtSubmission = spec.seedUrls.filterNot { api.scope().isInScope(it) }
+        require(spec.includeOutOfScope || outOfScopeAtSubmission.isEmpty()) {
+            "crawl seed is out of scope; set include_out_of_scope=true explicitly"
+        }
         return jobs.start("crawl") {
-            val scopeChanges = mutableListOf<String>()
-            if (spec.includeOutOfScope) {
-                spec.seedUrls.filterNot { api.scope().isInScope(it) }.forEach { url ->
-                    api.scope().includeInScope(url)
-                    scopeChanges += url
-                }
-            } else {
-                require(spec.seedUrls.all { api.scope().isInScope(it) }) {
-                    "crawl seed is out of scope; set include_out_of_scope=true explicitly"
-                }
-            }
+            val scopeChanges = spec.seedUrls.filterNot { api.scope().isInScope(it) }
+            scopeChanges.forEach(api.scope()::includeInScope)
             val observed = AtomicInteger()
             val origins = spec.seedUrls.map(::crawlOrigin).toSet()
             val registration = api.http().registerHttpHandler(scannerHandler(origins, observed))
@@ -190,8 +185,12 @@ internal class LongOperationFacade(
 
     fun removeAudit(id: String): JobSnapshot? {
         val snapshot = jobs.status(id) ?: return null
-        require(snapshot.operation == "scanner_audit" || snapshot.operation == "scanner_passive_snapshot") { "job is not a scanner audit" }
-        check(snapshot.state in setOf(JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED)) { "audit must be stopped before removal" }
+        require(snapshot.operation == "scanner_audit" || snapshot.operation == "scanner_passive_snapshot" || snapshot.operation == "crawl") {
+            "job is not a scanner task"
+        }
+        check(snapshot.state in setOf(JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED)) {
+            "scanner task must be terminal before removal"
+        }
         audits.remove(id)?.stop()
         return jobs.remove(id)
     }

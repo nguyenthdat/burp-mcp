@@ -25,6 +25,8 @@ service BurpService {
   rpc GenerateScannerReport(GenerateScannerReportRequest) returns (GenerateScannerReportResponse);
   rpc InterceptState(InterceptStateRequest) returns (InterceptStateResponse);
   rpc ProxyInterceptConfig(ProxyInterceptConfigRequest) returns (ProxyInterceptConfigResponse);
+  rpc ProxySettings(ProxySettingsRequest) returns (ProxySettingsResponse);
+  rpc ProxySettingsUpdate(ProxySettingsUpdateRequest) returns (ProxySettingsResponse);
   rpc ProxyWebSocketHistory(ProxyWebSocketHistoryRequest) returns (ProxyWebSocketHistoryResponse);
   rpc SendToIntruder(SendToIntruderRequest) returns (ActionResponse);
   rpc RegisterPayloadProcessor(RegisterPayloadProcessorRequest) returns (ActionResponse);
@@ -262,6 +264,35 @@ message ProxyInterceptRule {
   string match_type = 3;
   string match_relationship = 4;
   string match_condition = 5;
+}
+message ProxySettingsRequest {}
+message ProxySettingsResponse {
+  repeated ProxyListener listeners = 1;
+  repeated ProxyScriptFilter script_filters = 2;
+}
+message ProxySettingsUpdateRequest {
+  oneof operation {
+    ProxyListener listener_upsert = 1;
+    uint32 listener_delete_port = 2;
+    ProxyScriptFilter script_filter_upsert = 3;
+    string script_filter_delete_target = 4;
+  }
+}
+message ProxyListener {
+  uint32 port = 1;
+  bool running = 2;
+  string listen_mode = 3;
+  string listen_specific_address = 4;
+  string certificate_mode = 5;
+  bool enable_http2 = 6;
+  bool support_invisible_proxying = 7;
+}
+message ProxyScriptFilter {
+  string target = 1;
+  string mode = 2;
+  string script = 3;
+  string script_id = 4;
+  string script_name = 5;
 }
 message ProxyInterceptConfigResponse {
   bool master_intercept_enabled = 1;

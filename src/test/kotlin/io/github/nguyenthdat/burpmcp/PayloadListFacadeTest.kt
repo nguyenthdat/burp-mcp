@@ -32,6 +32,15 @@ class PayloadListFacadeTest {
     }
 
     @Test
+    fun `import accepts text as a line-list alias`() {
+        val lists = PayloadListFacade()
+
+        val imported = lists.import("text", "Text", "a\r\nb\r\n", "text", false)
+
+        assertEquals(listOf("a", "b"), imported.payloads)
+    }
+
+    @Test
     fun `delete and bounded slices are safe`() {
         val lists = PayloadListFacade()
         lists.create("words", "Words", (1..600).map(Int::toString))

@@ -16,6 +16,9 @@ import io.github.nguyenthdat.burpmcp.ProxyRule
 import io.github.nguyenthdat.burpmcp.ProxyInterceptConfigFacade
 import io.github.nguyenthdat.burpmcp.ProxyInterceptConfigPatch
 import io.github.nguyenthdat.burpmcp.ProxyInterceptRuleConfig
+import io.github.nguyenthdat.burpmcp.ProxyListenerConfig
+import io.github.nguyenthdat.burpmcp.ProxySettingsFacade
+import io.github.nguyenthdat.burpmcp.ScriptFilterConfig
 import io.github.nguyenthdat.burpmcp.ScannerFacade
 import io.github.nguyenthdat.burpmcp.ScanIssueQuery
 import io.github.nguyenthdat.burpmcp.ScanCatalogFacade
@@ -66,6 +69,11 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptStateResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyInterceptConfigRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyInterceptConfigResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyInterceptRule
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyListener
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyScriptFilter
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxySettingsRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxySettingsResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ProxySettingsUpdateRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketEntry
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketHistoryRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketHistoryResponse
@@ -379,6 +387,7 @@ internal class BurpRpcService(
     private val httpHandlerFacade: HttpHandlerFacade = resources.httpHandlers,
     private val proxyRuleFacade: ProxyRuleFacade = resources.proxyRules,
     private val proxyInterceptConfigFacade: ProxyInterceptConfigFacade = resources.proxyIntercept,
+    private val proxySettingsFacade: ProxySettingsFacade = resources.proxySettings,
     private val macroFacade: io.github.nguyenthdat.burpmcp.MacroFacade = resources.macros,
     private val sessionRuleFacade: SessionRuleFacade = resources.sessionRules,
     private val payloadListFacade: PayloadListFacade = resources.payloadLists,
@@ -791,6 +800,37 @@ internal class BurpRpcService(
             .setResponseRemoveAllJavascript(config.responseRemoveAllJavaScript)
             .build()
     }
+
+    override fun proxySettings(
+        request: ProxySettingsRequest,
+        responseObserver: StreamObserver<ProxySettingsResponse>,
+    ) = responseObserver.respond { proxySettingsResponse() }
+
+    override fun proxySettingsUpdate(
+        request: ProxySettingsUpdateRequest,
+        responseObserver: StreamObserver<ProxySettingsResponse>,
+    ) = responseObserver.respond {
+        when (request.operationCase) {
+            ProxySettingsUpdateRequest.OperationCase.LISTENER_UPSERT ->
+                proxySettingsFacade.upsertListener(request.listenerUpsert.toDomain())
+            ProxySettingsUpdateRequest.OperationCase.LISTENER_DELETE_PORT -> {
+                require(proxySettingsFacade.deleteListener(request.listenerDeletePort.toInt())) { "proxy listener not found" }
+            }
+            ProxySettingsUpdateRequest.OperationCase.SCRIPT_FILTER_UPSERT ->
+                proxySettingsFacade.upsertScriptFilter(request.scriptFilterUpsert.toDomain())
+            ProxySettingsUpdateRequest.OperationCase.SCRIPT_FILTER_DELETE_TARGET ->
+                proxySettingsFacade.deleteScriptFilter(request.scriptFilterDeleteTarget)
+            ProxySettingsUpdateRequest.OperationCase.OPERATION_NOT_SET ->
+                throw IllegalArgumentException("one proxy settings operation is required")
+        }
+        proxySettingsResponse()
+    }
+
+    private fun proxySettingsResponse(): ProxySettingsResponse =
+        ProxySettingsResponse.newBuilder()
+            .addAllListeners(proxySettingsFacade.listeners().map { it.toProto() })
+            .addAllScriptFilters(proxySettingsFacade.scriptFilters().map { it.toProto() })
+            .build()
 
     override fun proxyWebSocketHistory(
         request: ProxyWebSocketHistoryRequest,
@@ -1668,6 +1708,39 @@ internal class BurpRpcService(
             .setMatchType(matchType)
             .setMatchRelationship(matchRelationship)
             .setMatchCondition(matchCondition)
+            .build()
+    private fun ProxyListener.toDomain(): ProxyListenerConfig =
+        ProxyListenerConfig(
+            port = port.toInt(),
+            running = running,
+            listenMode = listenMode.ifBlank { "loopback_only" },
+            listenSpecificAddress = listenSpecificAddress,
+            certificateMode = certificateMode.ifBlank { "per_host" },
+            enableHttp2 = enableHttp2,
+            supportInvisibleProxying = supportInvisibleProxying,
+        )
+
+    private fun ProxyListenerConfig.toProto(): ProxyListener =
+        ProxyListener.newBuilder()
+            .setPort(port)
+            .setRunning(running)
+            .setListenMode(listenMode)
+            .setListenSpecificAddress(listenSpecificAddress)
+            .setCertificateMode(certificateMode)
+            .setEnableHttp2(enableHttp2)
+            .setSupportInvisibleProxying(supportInvisibleProxying)
+            .build()
+
+    private fun ProxyScriptFilter.toDomain(): ScriptFilterConfig =
+        ScriptFilterConfig(target, mode, script, scriptId, scriptName)
+
+    private fun ScriptFilterConfig.toProto(): ProxyScriptFilter =
+        ProxyScriptFilter.newBuilder()
+            .setTarget(target)
+            .setMode(mode)
+            .setScript(script)
+            .setScriptId(scriptId)
+            .setScriptName(scriptName)
             .build()
 
     private fun MacroDefinitionProto.toDomain(): MacroDefinition =

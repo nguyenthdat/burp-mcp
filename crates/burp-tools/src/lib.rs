@@ -19,7 +19,8 @@ use burp_protocol::protocol::{
     ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition, MacroItem, MacroParameter,
     ManagedWebSocketHistoryRequest, MutateScopeRequest, PageRequest,
     PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
-    ProxyInterceptConfigRequest, ProxyInterceptConfigResponse, ProxyInterceptRule,
+    ProxyInterceptConfigRequest, ProxyInterceptConfigResponse, ProxyInterceptRule, ProxyListener,
+    ProxyScriptFilter, ProxySettingsRequest, ProxySettingsResponse, ProxySettingsUpdateRequest,
     ProxyWebSocketHistoryRequest, RegisterHttpHandlerRequest, RegisterPayloadGeneratorRequest,
     RegisterPayloadProcessorRequest, RegisterProxyRuleRequest, RemoveMacroRequest,
     RemovePayloadGeneratorRequest, RemovePayloadProcessorRequest, RunMacroRequest,
@@ -351,6 +352,22 @@ pub struct ScopeMutationInput {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ImportConfigInput {
     pub config: String,
+}
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ProxySettingsUpdateInput {
+    pub operation: String,
+    pub port: Option<u32>,
+    pub running: Option<bool>,
+    pub listen_mode: Option<String>,
+    pub listen_specific_address: Option<String>,
+    pub certificate_mode: Option<String>,
+    pub enable_http2: Option<bool>,
+    pub support_invisible_proxying: Option<bool>,
+    pub target: Option<String>,
+    pub mode: Option<String>,
+    pub script: Option<String>,
+    pub script_id: Option<String>,
+    pub script_name: Option<String>,
 }
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RegisterHttpHandlerInput {
@@ -2241,7 +2258,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_scan_remove",
-        description = "Remove a stopped or completed Burp audit by job ID",
+        description = "Remove a terminal Burp audit, passive snapshot, or crawl by job ID",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -2541,7 +2558,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_bambda_import",
-        description = "Import a Bambda script into Burp without executing it",
+        description = "Import a complete Bambda YAML document with id, name, function, location, and source; does not execute it",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -2561,7 +2578,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_bcheck_import",
-        description = "Import a BCheck script into Burp without running it",
+        description = "Import a complete Burp BCheck definition with metadata and a given block; does not run it",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -2667,7 +2684,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_export_request",
-        description = "Export a request as curl or Python requests code",
+        description = "Export a request as raw text, curl, or Python requests code",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -3331,7 +3348,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_cookie_jar_set",
-        description = "Set one cookie in Burp's cookie jar",
+        description = "Set one cookie in Burp's cookie jar; Montoya API does not expose cookie deletion",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -3440,28 +3457,60 @@ impl BurpTools {
                     websocket_client_to_server: input.websocket_client_to_server,
                     websocket_server_to_client: input.websocket_server_to_client,
                     websocket_in_scope_only: input.websocket_in_scope_only,
-                    request_rules: request_rules
-                        .into_iter()
-                        .map(ProxyInterceptRuleInput::into_proto)
-                        .collect(),
-                    response_rules: response_rules
-                        .into_iter()
-                        .map(ProxyInterceptRuleInput::into_proto)
-                        .collect(),
+                    request_rules: request_rules.into_iter().map(ProxyInterceptRuleInput::into_proto).collect(),
+                    response_rules: response_rules.into_iter().map(ProxyInterceptRuleInput::into_proto).collect(),
                     replace_request_rules,
                     replace_response_rules,
                     response_unhide_hidden_fields: input.response_unhide_hidden_fields,
                     response_enable_disabled_fields: input.response_enable_disabled_fields,
                     response_remove_input_length_limits: input.response_remove_input_length_limits,
-                    response_remove_javascript_validation: input
-                        .response_remove_javascript_validation,
+                    response_remove_javascript_validation: input.response_remove_javascript_validation,
                     response_remove_all_javascript: input.response_remove_all_javascript,
                     request_fix_missing_new_lines: input.request_fix_missing_new_lines,
                 })
                 .await,
         )
     }
+    #[tool(
+        name = "burp_proxy_settings",
+        description = "Read Proxy listeners and script-mode filters for Proxy history, WebSockets, site map, and Logger",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn proxy_settings(&self) -> String {
+        proxy_settings_json(self.client.proxy_settings(ProxySettingsRequest {}).await)
+    }
 
+    #[tool(
+        name = "burp_update_proxy_settings",
+        description = "Create, update, or delete one Proxy listener or script-mode filter",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn update_proxy_settings(
+        &self,
+        Parameters(input): Parameters<ProxySettingsUpdateInput>,
+    ) -> String {
+        let operation = match proxy_settings_operation(input) {
+            Ok(operation) => operation,
+            Err(error) => return serde_json::json!({"error": error}).to_string(),
+        };
+        proxy_settings_json(
+            self.client
+                .proxy_settings_update(ProxySettingsUpdateRequest {
+                    operation: Some(operation),
+                })
+                .await,
+        )
+    }
     #[tool(
         name = "burp_proxy_websocket_history",
         description = "Get a bounded page of Burp Proxy WebSocket history",
@@ -3733,6 +3782,58 @@ fn proxy_intercept_config_json(
         Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
     }
 }
+fn proxy_settings_json(
+    result: Result<ProxySettingsResponse, burp_protocol::ClientError>,
+) -> String {
+    match result {
+        Ok(response) => serde_json::json!({
+            "listeners": response.listeners.into_iter().map(|listener| serde_json::json!({
+                "port": listener.port,
+                "running": listener.running,
+                "listen_mode": listener.listen_mode,
+                "listen_specific_address": listener.listen_specific_address,
+                "certificate_mode": listener.certificate_mode,
+                "enable_http2": listener.enable_http2,
+                "support_invisible_proxying": listener.support_invisible_proxying,
+            })).collect::<Vec<_>>(),
+            "script_filters": response.script_filters.into_iter().map(|filter| serde_json::json!({
+                "target": filter.target,
+                "mode": filter.mode,
+                "script": filter.script,
+                "script_id": filter.script_id,
+                "script_name": filter.script_name,
+            })).collect::<Vec<_>>(),
+        }).to_string(),
+        Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+    }
+}
+
+fn proxy_settings_operation(
+    input: ProxySettingsUpdateInput,
+) -> Result<burp_protocol::protocol::proxy_settings_update_request::Operation, &'static str> {
+    use burp_protocol::protocol::proxy_settings_update_request::Operation;
+    match input.operation.as_str() {
+        "listener_upsert" => Ok(Operation::ListenerUpsert(ProxyListener {
+            port: input.port.ok_or("port is required")?,
+            running: input.running.unwrap_or(true),
+            listen_mode: input.listen_mode.unwrap_or_else(|| "loopback_only".to_owned()),
+            listen_specific_address: input.listen_specific_address.unwrap_or_default(),
+            certificate_mode: input.certificate_mode.unwrap_or_else(|| "per_host".to_owned()),
+            enable_http2: input.enable_http2.unwrap_or(true),
+            support_invisible_proxying: input.support_invisible_proxying.unwrap_or(false),
+        })),
+        "listener_delete" => Ok(Operation::ListenerDeletePort(input.port.ok_or("port is required")?)),
+        "script_filter_upsert" => Ok(Operation::ScriptFilterUpsert(ProxyScriptFilter {
+            target: input.target.ok_or("target is required")?,
+            mode: input.mode.unwrap_or_else(|| "script".to_owned()),
+            script: input.script.unwrap_or_default(),
+            script_id: input.script_id.unwrap_or_default(),
+            script_name: input.script_name.unwrap_or_default(),
+        })),
+        "script_filter_delete" => Ok(Operation::ScriptFilterDeleteTarget(input.target.ok_or("target is required")?)),
+        _ => Err("operation must be listener_upsert, listener_delete, script_filter_upsert, or script_filter_delete"),
+    }
+}
 
 fn session_rule_json(rule: burp_protocol::protocol::SessionRuleEntry) -> serde_json::Value {
     serde_json::json!({
@@ -3798,13 +3899,13 @@ fn decoder_json(input: DecoderInput) -> String {
         return serde_json::json!({"suggestions": utility_engine_api::magic(&value)}).to_string();
     }
     let result = match (input.operation, input.steps.is_empty()) {
-        (Some(operation), true) => utility_engine_api::run(&operation, value, &input.args),
+        (Some(operation), true) => utility_engine_api::run(normalize_decoder_operation(&operation), value, &input.args),
         (None, false) => {
             let steps = input
                 .steps
                 .iter()
                 .map(|step| utility_engine_api::RecipeStep {
-                    operation: step.op.clone(),
+                    operation: normalize_decoder_operation(&step.op).to_owned(),
                     args: step.args.clone(),
                 })
                 .collect::<Vec<_>>();
@@ -3818,6 +3919,20 @@ fn decoder_json(input: DecoderInput) -> String {
         )),
     };
     decoder_result_json(result)
+}
+
+fn normalize_decoder_operation(operation: &str) -> &str {
+    match operation {
+        "base64_encode" => "base64.encode",
+        "base64_decode" => "base64.decode",
+        "base64url_encode" => "base64url.encode",
+        "base64url_decode" => "base64url.decode",
+        "hex_encode" => "hex.encode",
+        "hex_decode" => "hex.decode",
+        "url_encode" => "url.encode",
+        "url_decode" => "url.decode",
+        _ => operation,
+    }
 }
 
 fn decoder_result_json(result: utility_engine_api::UtilityResult<DataValue>) -> String {
@@ -4008,14 +4123,16 @@ fn export_request_text(input: ExportRequestInput) -> Result<String, String> {
     let target = parts
         .next()
         .ok_or_else(|| "request line has no target".to_owned())?;
-    let host = input
-        .host
-        .or_else(|| {
-            lines
-                .clone()
-                .find_map(|line| line.strip_prefix("Host: ").map(str::to_owned))
+    let host = input.host.or_else(|| {
+        lines.clone().find_map(|line| {
+            line.strip_prefix("Host: ").or_else(|| line.strip_prefix("host: ")).map(str::to_owned)
         })
-        .ok_or_else(|| "host is required when the request has no Host header".to_owned())?;
+    });
+    let format = input.format.clone().unwrap_or_else(|| "curl".to_owned()).to_ascii_lowercase();
+    if format == "raw" {
+        return Ok(input.request);
+    }
+    let host = host.ok_or_else(|| "host is required when the request has no Host header".to_owned())?;
     let scheme = if input.https.unwrap_or(true) {
         "https"
     } else {
@@ -4026,17 +4143,13 @@ fn export_request_text(input: ExportRequestInput) -> Result<String, String> {
     } else {
         format!("{scheme}://{host}{target}")
     };
-    let format = input
-        .format
-        .unwrap_or_else(|| "curl".to_owned())
-        .to_ascii_lowercase();
     if format == "python" {
         return Ok(format!(
             "requests.request({method:?}, {url:?}, data={body:?})"
         ));
     }
     if format != "curl" {
-        return Err("format must be curl or python".to_owned());
+        return Err("format must be raw, curl, or python".to_owned());
     }
     let mut command = format!("curl -X {} {}", shell_quote(method), shell_quote(&url));
     for line in lines.filter(|line| !line.to_ascii_lowercase().starts_with("content-length:")) {
@@ -4057,8 +4170,8 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod contract_tests {
     use super::{
-        BurpTools, DecoderInput, ProxyHistoryInput, RegisterProxyRuleInput,
-        to_proxy_history_request,
+        BurpTools, DecoderInput, ExportRequestInput, ProxyHistoryInput, RegisterProxyRuleInput,
+        export_request_text, normalize_decoder_operation, to_proxy_history_request,
     };
     use serde_json::Value;
     use std::collections::BTreeSet;
@@ -4118,6 +4231,26 @@ mod contract_tests {
         assert!(request.has_notes);
         assert_eq!(request.color, "red");
         assert_eq!(request.page.expect("page is required").limit, 5);
+    }
+
+    #[test]
+    fn raw_request_export_preserves_input_without_host() {
+        let request = "GET /health HTTP/1.1\r\n\r\n".to_owned();
+        let exported = export_request_text(ExportRequestInput {
+            request: request.clone(),
+            host: None,
+            format: Some("raw".to_owned()),
+            https: None,
+        })
+        .expect("raw export must not require a host");
+
+        assert_eq!(request, exported);
+    }
+
+    #[test]
+    fn decoder_accepts_legacy_base64_operation_name() {
+        assert_eq!("base64.encode", normalize_decoder_operation("base64_encode"));
+        assert_eq!("base64.decode", normalize_decoder_operation("base64_decode"));
     }
 
     #[test]

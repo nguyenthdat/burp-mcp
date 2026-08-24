@@ -42,10 +42,12 @@ internal class PayloadListFacade {
             "payload list content exceeds $MAX_PAYLOAD_LIST_BYTES UTF-8 bytes"
         }
         val normalized = content.replace("\r\n", "\n").replace('\r', '\n')
-        val payloads = when (format.ifBlank { "lines" }) {
-            "lines" -> normalized.split('\n').let { values -> if (keepEmpty) values else values.filter(String::isNotEmpty) }
-            "json" -> parseJsonStringList(content)
-            else -> throw IllegalArgumentException("format must be lines or json")
+        val payloads = when (format.trim().lowercase().ifBlank { "lines" }) {
+            "lines", "text" -> normalized.split('\n').let { lines ->
+                if (keepEmpty) lines else lines.filter(String::isNotEmpty)
+            }
+            "json" -> parseJsonStringList(normalized)
+            else -> throw IllegalArgumentException("format must be lines, text, or json")
         }
         return create(id, displayName, payloads)
     }

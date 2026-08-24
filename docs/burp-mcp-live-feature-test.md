@@ -349,7 +349,7 @@ Add/remove one test payload.
 
 ### LIVE-065 — `burp_payload_list_import`
 
-Import a small text/JSON payload list.
+Import a small line-delimited (`lines` or `text`) or JSON payload list.
 
 **Expected:** the list is created successfully with the selected format; verify through get.
 
@@ -440,14 +440,13 @@ Run only against an authorized target; set `audit_type: active`, configure the s
 
 ```json
 {
-  "seed_urls":["${TARGET_URL}"],
-  "timeout_seconds":60,
-  "stable_seconds":2,
-  "include_out_of_scope":false
+  "seed_urls": ["http://127.0.0.1:3000/health"],
+  "include_out_of_scope": false,
+  "timeout_seconds": 30
 }
 ```
 
-**Expected:** job ID; bounded crawl; request/error counts; cleanup when terminal. An out-of-scope seed must fail without explicit opt-in.
+**Expected:** an out-of-scope seed fails before queueing unless `include_out_of_scope: true` is explicit. For an opted-in crawl, scope inclusion is applied inside the queued job and reverted during cleanup; terminal crawl jobs can be removed with `burp_scan_remove`.
 
 ### LIVE-079 — Generic job tools
 
@@ -549,9 +548,9 @@ Convert the fixture `GET` request to `POST`.
 
 ### LIVE-111 — `burp_export_request`
 
-Export the fixture request in raw/text form.
+Export the fixture request with `format: raw`; also exercise `curl` or `python` when command generation is desired.
 
-**Expected:** valid raw request; binary-safe if the input contains bytes.
+**Expected:** raw mode preserves the request without requiring a Host header; generated command formats are syntactically valid.
 
 ### LIVE-112 — `burp_extract_from_response`
 
@@ -561,7 +560,7 @@ Extract the status/header/body fragment from the fixture response.
 
 ### LIVE-113 — Decoder/utility
 
-Use the corresponding decoder/runtime-schema tool for a JSON, base64, URL, or raw HTTP sample.
+Use a canonical operation such as `base64.encode`, or its supported legacy alias `base64_encode`, against a bounded text sample.
 
 **Expected:** deterministic output; no network, filesystem, browser, or arbitrary-code side effects.
 

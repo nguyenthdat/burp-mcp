@@ -96,6 +96,14 @@ enum Command {
         request: proto::ProxyInterceptConfigRequest,
         response: oneshot::Sender<Result<proto::ProxyInterceptConfigResponse, ClientError>>,
     },
+    ProxySettings {
+        request: proto::ProxySettingsRequest,
+        response: oneshot::Sender<Result<proto::ProxySettingsResponse, ClientError>>,
+    },
+    ProxySettingsUpdate {
+        request: proto::ProxySettingsUpdateRequest,
+        response: oneshot::Sender<Result<proto::ProxySettingsResponse, ClientError>>,
+    },
     ProxyWebSocketHistory {
         request: proto::ProxyWebSocketHistoryRequest,
         response: oneshot::Sender<Result<proto::ProxyWebSocketHistoryResponse, ClientError>>,
@@ -524,6 +532,19 @@ impl BurpClient {
     ) -> Result<proto::ProxyInterceptConfigResponse, ClientError> {
         self.send(|response| Command::ProxyInterceptConfig { request, response })
             .await
+    }
+    pub async fn proxy_settings(
+        &self,
+        request: proto::ProxySettingsRequest,
+    ) -> Result<proto::ProxySettingsResponse, ClientError> {
+        self.send(|response| Command::ProxySettings { request, response }).await
+    }
+
+    pub async fn proxy_settings_update(
+        &self,
+        request: proto::ProxySettingsUpdateRequest,
+    ) -> Result<proto::ProxySettingsResponse, ClientError> {
+        self.send(|response| Command::ProxySettingsUpdate { request, response }).await
     }
 
     pub async fn proxy_websocket_history(
@@ -1290,6 +1311,12 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::ProxySettings { request, response } => {
+            rpc_command!(client, proxy_settings, request, response, config)
+        }
+        Command::ProxySettingsUpdate { request, response } => {
+            rpc_command!(client, proxy_settings_update, request, response, config)
+        }
         Command::ProxyWebSocketHistory { request, response } => {
             let result = client
                 .proxy_web_socket_history(with_deadline(request, config.call_timeout))
@@ -1923,6 +1950,12 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::ProxyWebSocketHistory { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ProxySettings { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ProxySettingsUpdate { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::SendToIntruder { response, .. } => {
