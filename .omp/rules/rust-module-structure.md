@@ -1,3 +1,9 @@
+---
+description: Rust module structure and organization conventions for this project
+globs:
+  - "**/*.rs"
+---
+
 # Rust Module Structure
 
 These rules are mandatory when creating or reorganizing Rust production and test code.
