@@ -16,6 +16,7 @@ Burp MCP connects MCP-compatible clients to Burp Suite through a native Rust std
 - Convert, export, and analyze text, JSON, binary data, and raw HTTP messages.
 - Import Bambdas and BChecks without executing them automatically.
 - Apply HTTP handlers, proxy rules, and session rules.
+- Read and mutate Proxy listeners, script filters, and request/response interception rules through one operation-based configuration tool.
 - Persist a privacy-preserving SQLite site graph containing endpoint metadata and parameter names, never parameter values or message bodies.
 - Run deterministic, binary-safe utility recipes without network, filesystem, browser, or arbitrary-code capabilities.
 

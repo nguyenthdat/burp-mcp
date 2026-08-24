@@ -19,7 +19,8 @@ use burp_protocol::protocol::{
     ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition, MacroItem, MacroParameter,
     ManagedWebSocketHistoryRequest, MutateScopeRequest, PageRequest,
     PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
-    ProxyInterceptConfigRequest, ProxyInterceptConfigResponse, ProxyInterceptRule, ProxyListener,
+    ProxyInterceptConfigRequest, ProxyInterceptConfigResponse, ProxyInterceptRule,
+    ProxyInterceptRuleDelete, ProxyInterceptRuleMutation, ProxyInterceptToggle, ProxyListener,
     ProxyScriptFilter, ProxySettingsRequest, ProxySettingsResponse, ProxySettingsUpdateRequest,
     ProxyWebSocketHistoryRequest, RegisterHttpHandlerRequest, RegisterPayloadGeneratorRequest,
     RegisterPayloadProcessorRequest, RegisterProxyRuleRequest, RemoveMacroRequest,
@@ -355,6 +356,8 @@ pub struct ImportConfigInput {
 }
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ProxySettingsUpdateInput {
+    /// listener_upsert, listener_delete, script_filter_upsert, script_filter_delete,
+    /// intercept_rule_upsert, intercept_rule_delete, or intercept_toggle.
     pub operation: String,
     pub port: Option<u32>,
     pub running: Option<bool>,
@@ -368,6 +371,14 @@ pub struct ProxySettingsUpdateInput {
     pub script: Option<String>,
     pub script_id: Option<String>,
     pub script_name: Option<String>,
+    /// request or response for interception-rule operations.
+    pub kind: Option<String>,
+    /// Omit to append for intercept_rule_upsert; required for update and delete.
+    pub index: Option<u32>,
+    pub rule: Option<ProxyInterceptRuleInput>,
+    pub master_enabled: Option<bool>,
+    pub request_enabled: Option<bool>,
+    pub response_enabled: Option<bool>,
 }
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RegisterHttpHandlerInput {
@@ -3457,14 +3468,21 @@ impl BurpTools {
                     websocket_client_to_server: input.websocket_client_to_server,
                     websocket_server_to_client: input.websocket_server_to_client,
                     websocket_in_scope_only: input.websocket_in_scope_only,
-                    request_rules: request_rules.into_iter().map(ProxyInterceptRuleInput::into_proto).collect(),
-                    response_rules: response_rules.into_iter().map(ProxyInterceptRuleInput::into_proto).collect(),
+                    request_rules: request_rules
+                        .into_iter()
+                        .map(ProxyInterceptRuleInput::into_proto)
+                        .collect(),
+                    response_rules: response_rules
+                        .into_iter()
+                        .map(ProxyInterceptRuleInput::into_proto)
+                        .collect(),
                     replace_request_rules,
                     replace_response_rules,
                     response_unhide_hidden_fields: input.response_unhide_hidden_fields,
                     response_enable_disabled_fields: input.response_enable_disabled_fields,
                     response_remove_input_length_limits: input.response_remove_input_length_limits,
-                    response_remove_javascript_validation: input.response_remove_javascript_validation,
+                    response_remove_javascript_validation: input
+                        .response_remove_javascript_validation,
                     response_remove_all_javascript: input.response_remove_all_javascript,
                     request_fix_missing_new_lines: input.request_fix_missing_new_lines,
                 })
@@ -3473,7 +3491,7 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_proxy_settings",
-        description = "Read Proxy listeners and script-mode filters for Proxy history, WebSockets, site map, and Logger",
+        description = "Read Proxy listeners, script-mode filters, and request or response interception settings",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -3487,7 +3505,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_update_proxy_settings",
-        description = "Create, update, or delete one Proxy listener or script-mode filter",
+        description = "Create, update, delete, or toggle one Proxy listener, script filter, or interception rule; use operation to select the mutation",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -3803,6 +3821,32 @@ fn proxy_settings_json(
                 "script_id": filter.script_id,
                 "script_name": filter.script_name,
             })).collect::<Vec<_>>(),
+            "interception": response.interception.map(|config| serde_json::json!({
+                "master_intercept_enabled": config.master_intercept_enabled,
+                "request": {
+                    "do_intercept": config.request_do_intercept,
+                    "auto_content_length": config.request_auto_content_length,
+                    "fix_missing_new_lines": config.request_fix_missing_new_lines,
+                    "rules": config.request_rules.into_iter().map(proxy_intercept_rule_json).collect::<Vec<_>>(),
+                },
+                "response": {
+                    "do_intercept": config.response_do_intercept,
+                    "auto_content_length": config.response_auto_content_length,
+                    "rules": config.response_rules.into_iter().map(proxy_intercept_rule_json).collect::<Vec<_>>(),
+                    "modification": {
+                        "unhide_hidden_fields": config.response_unhide_hidden_fields,
+                        "enable_disabled_fields": config.response_enable_disabled_fields,
+                        "remove_input_length_limits": config.response_remove_input_length_limits,
+                        "remove_javascript_validation": config.response_remove_javascript_validation,
+                        "remove_all_javascript": config.response_remove_all_javascript,
+                    },
+                },
+                "websocket": {
+                    "client_to_server": config.websocket_client_to_server,
+                    "server_to_client": config.websocket_server_to_client,
+                    "in_scope_only": config.websocket_in_scope_only,
+                },
+            })),
         }).to_string(),
         Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
     }
@@ -3816,13 +3860,19 @@ fn proxy_settings_operation(
         "listener_upsert" => Ok(Operation::ListenerUpsert(ProxyListener {
             port: input.port.ok_or("port is required")?,
             running: input.running.unwrap_or(true),
-            listen_mode: input.listen_mode.unwrap_or_else(|| "loopback_only".to_owned()),
+            listen_mode: input
+                .listen_mode
+                .unwrap_or_else(|| "loopback_only".to_owned()),
             listen_specific_address: input.listen_specific_address.unwrap_or_default(),
-            certificate_mode: input.certificate_mode.unwrap_or_else(|| "per_host".to_owned()),
+            certificate_mode: input
+                .certificate_mode
+                .unwrap_or_else(|| "per_host".to_owned()),
             enable_http2: input.enable_http2.unwrap_or(true),
             support_invisible_proxying: input.support_invisible_proxying.unwrap_or(false),
         })),
-        "listener_delete" => Ok(Operation::ListenerDeletePort(input.port.ok_or("port is required")?)),
+        "listener_delete" => Ok(Operation::ListenerDeletePort(
+            input.port.ok_or("port is required")?,
+        )),
         "script_filter_upsert" => Ok(Operation::ScriptFilterUpsert(ProxyScriptFilter {
             target: input.target.ok_or("target is required")?,
             mode: input.mode.unwrap_or_else(|| "script".to_owned()),
@@ -3830,8 +3880,36 @@ fn proxy_settings_operation(
             script_id: input.script_id.unwrap_or_default(),
             script_name: input.script_name.unwrap_or_default(),
         })),
-        "script_filter_delete" => Ok(Operation::ScriptFilterDeleteTarget(input.target.ok_or("target is required")?)),
-        _ => Err("operation must be listener_upsert, listener_delete, script_filter_upsert, or script_filter_delete"),
+        "script_filter_delete" => Ok(Operation::ScriptFilterDeleteTarget(
+            input.target.ok_or("target is required")?,
+        )),
+        "intercept_rule_upsert" => Ok(Operation::InterceptRuleUpsert(ProxyInterceptRuleMutation {
+            kind: input.kind.ok_or("kind is required")?,
+            index: input.index,
+            rule: Some(input.rule.ok_or("rule is required")?.into_proto()),
+        })),
+        "intercept_rule_delete" => Ok(Operation::InterceptRuleDelete(ProxyInterceptRuleDelete {
+            kind: input.kind.ok_or("kind is required")?,
+            index: input.index.ok_or("index is required")?,
+        })),
+        "intercept_toggle" => {
+            if input.master_enabled.is_none()
+                && input.request_enabled.is_none()
+                && input.response_enabled.is_none()
+            {
+                return Err(
+                    "intercept_toggle requires master_enabled, request_enabled, or response_enabled",
+                );
+            }
+            Ok(Operation::InterceptToggle(ProxyInterceptToggle {
+                master_enabled: input.master_enabled,
+                request_enabled: input.request_enabled,
+                response_enabled: input.response_enabled,
+            }))
+        }
+        _ => Err(
+            "operation must be listener_upsert, listener_delete, script_filter_upsert, script_filter_delete, intercept_rule_upsert, intercept_rule_delete, or intercept_toggle",
+        ),
     }
 }
 
@@ -3899,7 +3977,9 @@ fn decoder_json(input: DecoderInput) -> String {
         return serde_json::json!({"suggestions": utility_engine_api::magic(&value)}).to_string();
     }
     let result = match (input.operation, input.steps.is_empty()) {
-        (Some(operation), true) => utility_engine_api::run(normalize_decoder_operation(&operation), value, &input.args),
+        (Some(operation), true) => {
+            utility_engine_api::run(normalize_decoder_operation(&operation), value, &input.args)
+        }
         (None, false) => {
             let steps = input
                 .steps
@@ -4125,14 +4205,21 @@ fn export_request_text(input: ExportRequestInput) -> Result<String, String> {
         .ok_or_else(|| "request line has no target".to_owned())?;
     let host = input.host.or_else(|| {
         lines.clone().find_map(|line| {
-            line.strip_prefix("Host: ").or_else(|| line.strip_prefix("host: ")).map(str::to_owned)
+            line.strip_prefix("Host: ")
+                .or_else(|| line.strip_prefix("host: "))
+                .map(str::to_owned)
         })
     });
-    let format = input.format.clone().unwrap_or_else(|| "curl".to_owned()).to_ascii_lowercase();
+    let format = input
+        .format
+        .clone()
+        .unwrap_or_else(|| "curl".to_owned())
+        .to_ascii_lowercase();
     if format == "raw" {
         return Ok(input.request);
     }
-    let host = host.ok_or_else(|| "host is required when the request has no Host header".to_owned())?;
+    let host =
+        host.ok_or_else(|| "host is required when the request has no Host header".to_owned())?;
     let scheme = if input.https.unwrap_or(true) {
         "https"
     } else {
@@ -4170,12 +4257,12 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod contract_tests {
     use super::{
-        BurpTools, DecoderInput, ExportRequestInput, ProxyHistoryInput, RegisterProxyRuleInput,
-        export_request_text, normalize_decoder_operation, to_proxy_history_request,
+        BurpTools, DecoderInput, ExportRequestInput, ProxyHistoryInput, ProxyInterceptRuleInput,
+        ProxySettingsUpdateInput, RegisterProxyRuleInput, export_request_text,
+        normalize_decoder_operation, proxy_settings_operation, to_proxy_history_request,
     };
     use serde_json::Value;
     use std::collections::BTreeSet;
-
 
     #[test]
     fn every_tool_declares_complete_annotations() {
@@ -4249,8 +4336,14 @@ mod contract_tests {
 
     #[test]
     fn decoder_accepts_legacy_base64_operation_name() {
-        assert_eq!("base64.encode", normalize_decoder_operation("base64_encode"));
-        assert_eq!("base64.decode", normalize_decoder_operation("base64_decode"));
+        assert_eq!(
+            "base64.encode",
+            normalize_decoder_operation("base64_encode")
+        );
+        assert_eq!(
+            "base64.decode",
+            normalize_decoder_operation("base64_decode")
+        );
     }
 
     #[test]
@@ -4329,6 +4422,81 @@ mod contract_tests {
             .expect("proxy rule schema must serialize");
         assert!(schema.pointer("/properties/intercept").is_none());
         assert!(schema.pointer("/properties/action").is_some());
+    }
+
+    #[test]
+    fn proxy_settings_schema_exposes_every_crud_selector() {
+        let schema = serde_json::to_value(schemars::schema_for!(ProxySettingsUpdateInput))
+            .expect("proxy settings input schema must serialize");
+        for property in [
+            "operation",
+            "port",
+            "target",
+            "kind",
+            "index",
+            "rule",
+            "master_enabled",
+            "request_enabled",
+            "response_enabled",
+        ] {
+            assert!(
+                schema.pointer(&format!("/properties/{property}")).is_some(),
+                "missing {property}"
+            );
+        }
+    }
+
+    #[test]
+    fn proxy_settings_operations_build_typed_interception_mutations() {
+        use burp_protocol::protocol::proxy_settings_update_request::Operation;
+
+        let upsert = proxy_settings_operation(ProxySettingsUpdateInput {
+            operation: "intercept_rule_upsert".to_owned(),
+            kind: Some("request".to_owned()),
+            rule: Some(ProxyInterceptRuleInput {
+                enabled: Some(true),
+                boolean_operator: Some("and".to_owned()),
+                match_type: "url".to_owned(),
+                match_relationship: "contains".to_owned(),
+                match_condition: Some("/admin".to_owned()),
+            }),
+            ..empty_proxy_settings_input()
+        })
+        .expect("rule upsert must build");
+        assert!(matches!(upsert, Operation::InterceptRuleUpsert(_)));
+
+        let toggle = proxy_settings_operation(ProxySettingsUpdateInput {
+            operation: "intercept_toggle".to_owned(),
+            request_enabled: Some(true),
+            response_enabled: Some(false),
+            ..empty_proxy_settings_input()
+        })
+        .expect("toggle must build");
+        assert!(matches!(toggle, Operation::InterceptToggle(_)));
+    }
+
+    fn empty_proxy_settings_input() -> ProxySettingsUpdateInput {
+        ProxySettingsUpdateInput {
+            operation: String::new(),
+            port: None,
+            running: None,
+            listen_mode: None,
+            listen_specific_address: None,
+            certificate_mode: None,
+            enable_http2: None,
+            support_invisible_proxying: None,
+            target: None,
+            mode: None,
+            script: None,
+            script_id: None,
+            script_name: None,
+            kind: None,
+            index: None,
+            rule: None,
+            master_enabled: None,
+            request_enabled: None,
+            response_enabled: None,
+        }
     }
 
     #[test]

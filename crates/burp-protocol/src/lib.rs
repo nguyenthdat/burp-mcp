@@ -537,14 +537,16 @@ impl BurpClient {
         &self,
         request: proto::ProxySettingsRequest,
     ) -> Result<proto::ProxySettingsResponse, ClientError> {
-        self.send(|response| Command::ProxySettings { request, response }).await
+        self.send(|response| Command::ProxySettings { request, response })
+            .await
     }
 
     pub async fn proxy_settings_update(
         &self,
         request: proto::ProxySettingsUpdateRequest,
     ) -> Result<proto::ProxySettingsResponse, ClientError> {
-        self.send(|response| Command::ProxySettingsUpdate { request, response }).await
+        self.send(|response| Command::ProxySettingsUpdate { request, response })
+            .await
     }
 
     pub async fn proxy_websocket_history(

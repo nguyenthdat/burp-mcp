@@ -96,7 +96,7 @@ For a raw request, keep `Host`, path, body framing, target host, port, and
 | `burp_add_issue` | `{name, url, detail?, remediation?, severity?, confidence?}` | Persist one validated typed issue in Burp. |
 | `burp_scanner_generate_report` | `{format, path, issue_indexes?}` | Generate an HTML or XML Scanner report. Omit indexes for all issues; destination must not exist. |
 
-Scanner reports and scoped configuration inspection are native Montoya-backed operations. Native Dashboard task enumeration/resource pools, Logger, Sequencer, Repeater/Intruder execution results, Session UI CRUD, Proxy listener/TLS configuration, and pending Intercept-editor message control remain outside the stable Montoya surface; do not represent lower-level HTTP wrappers as equivalents.
+Scanner reports, scoped configuration inspection, typed Proxy listener configuration, script filters, and interception rules are backed by Burp project-option export/import through the extension. Native Dashboard task enumeration/resource pools, Sequencer, Repeater/Intruder execution results, Session UI CRUD, and pending Intercept-editor message control remain outside the stable Montoya surface; do not represent lower-level HTTP wrappers as equivalents.
 
 ## Collaborator
 
@@ -132,8 +132,11 @@ to leave the connection open.
 | `burp_register_proxy_rule` | `{url_contains, id?, phase?, action?, intercept?, match?, replace?, header_name?, header_value?, enabled?}` | Create/replace a request or response rule. Actions: `forward`, `intercept`, `drop`, `edit`. Cleanup: `burp_remove_proxy_rule`. |
 | `burp_list_proxy_rules` | `{}` | List configured Proxy rules and their enabled state. |
 | `burp_remove_proxy_rule` | `{id?}` | Remove one rule by ID, or clear all rules when `id` is omitted. |
-| `burp_proxy_intercept_config` | `{}` | Read Proxy request, response, WebSocket interception filters and response modification settings. |
-| `burp_update_proxy_intercept_config` | `{master_intercept_enabled?, request_do_intercept?, response_do_intercept?, request_rules?, response_rules?, websocket_client_to_server?, websocket_server_to_client?, websocket_in_scope_only?, ...}` | Patch interception configuration; save and restore the baseline around temporary changes. |
+| `burp_proxy_intercept_config` | `{}` | Legacy focused read of Proxy request, response, WebSocket interception filters and response modification settings. Prefer `burp_proxy_settings` for new workflows. |
+| `burp_update_proxy_intercept_config` | `{master_intercept_enabled?, request_do_intercept?, response_do_intercept?, request_rules?, response_rules?, websocket_client_to_server?, websocket_server_to_client?, websocket_in_scope_only?, ...}` | Legacy bulk patch; replacing rule arrays requires the matching `replace_*_rules` flag. Prefer granular `burp_update_proxy_settings` operations. |
+| `burp_proxy_settings` | `{}` | Read listeners, script filters, and request/response interception settings together. |
+| `burp_update_proxy_settings` | `{operation, ...}` | Unified mutation tool. Operations: `listener_upsert`, `listener_delete`, `script_filter_upsert`, `script_filter_delete`, `intercept_rule_upsert`, `intercept_rule_delete`, `intercept_toggle`. |
+
 | `burp_cookie_jar` | `{limit?, domain?}` | List cookies; values are sensitive. |
 | `burp_cookie_jar_set` | `{name, value, domain, path?, expiration?}` | Set a cookie. Verify by listing it; expire temporary cookies during cleanup. |
 | `burp_session_create_rule` | `{id?, find?, replace?, description?, action_type?, header_name?, parameter_name?, macro_description?, url_contains?, tools?, enabled?}` | Create a session rule and return its stable ID. |
@@ -145,6 +148,15 @@ to leave the connection open.
 | `burp_macro_create` | `{description, serial_number?, items}` | Create/replace a macro; see item shape below. |
 | `burp_macro_run` | `{description}` | Execute requests from one named macro. |
 | `burp_macro_remove` | `{description}` | Remove one named macro. |
+
+`burp_update_proxy_settings` arguments by operation:
+
+- Listener upsert: `port`, plus optional `running`, `listen_mode`, `listen_specific_address`, `certificate_mode`, `enable_http2`, and `support_invisible_proxying`. Listener delete: `port`.
+- Script-filter upsert: `target`, optional `mode`, `script`, `script_id`, and `script_name`. Targets: `proxy_http_history`, `proxy_websocket_history`, `sitemap`, `logger_capture`, `logger_display`. Delete: `target`.
+- Interception-rule upsert: `kind` (`request` or `response`) and `rule`; omit `index` to append or provide it to replace one rule. Delete: `kind` and `index`.
+- Interception toggle: one or more of `master_enabled`, `request_enabled`, and `response_enabled`.
+
+Read the baseline before every temporary Proxy mutation and restore it afterward. Rule indexes are zero-based and refer to the list returned by `burp_proxy_settings`.
 
 Macro item shape:
 

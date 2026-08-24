@@ -51,6 +51,38 @@ class ProxyInterceptConfigFacadeTest {
     }
 
     @Test
+    fun `appends updates and deletes one interception rule without replacing the other side`() {
+        val state = fakeState()
+        val facade = ProxyInterceptConfigFacade(state.api)
+        val appended = ProxyInterceptRuleConfig(true, "and", "url", "contains", "/admin")
+
+        val afterAppend = facade.upsertRule("request", null, appended)
+        assertEquals(listOf("file_extension", "url"), afterAppend.requestRules.map { it.matchType })
+        assertEquals("content_type_header", afterAppend.responseRules.single().matchType)
+
+        val updated = ProxyInterceptRuleConfig(false, "or", "http_method", "matches", "POST")
+        val afterUpdate = facade.upsertRule("request", 1, updated)
+        assertEquals(updated, afterUpdate.requestRules[1])
+
+        val afterDelete = facade.deleteRule("request", 0)
+        assertEquals(listOf(updated), afterDelete.requestRules)
+        assertEquals("content_type_header", afterDelete.responseRules.single().matchType)
+        assertEquals(3, state.imports())
+    }
+
+    @Test
+    fun `rejects invalid interception rule kind and index without importing`() {
+        val state = fakeState()
+        val facade = ProxyInterceptConfigFacade(state.api)
+        val rule = ProxyInterceptRuleConfig(true, "and", "url", "contains", "/admin")
+
+        assertFailsWith<IllegalArgumentException> { facade.upsertRule("websocket", null, rule) }
+        assertFailsWith<IllegalArgumentException> { facade.upsertRule("request", 4, rule) }
+        assertFailsWith<IllegalArgumentException> { facade.deleteRule("response", 4) }
+        assertEquals(0, state.imports())
+    }
+
+    @Test
     fun `rejects accidental rule replacement`() {
         val state = fakeState()
         assertFailsWith<IllegalArgumentException> {

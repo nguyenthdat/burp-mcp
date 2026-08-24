@@ -62,6 +62,48 @@ internal class ProxyInterceptConfigFacade(
     fun read(): ProxyInterceptConfig = fromJson(exportedProxyConfig())
 
     @Synchronized
+    fun upsertRule(kind: String, index: Int?, rule: ProxyInterceptRuleConfig): ProxyInterceptConfig {
+        val normalized = normalizedRuleKind(kind)
+        val rules = rulesFor(read(), normalized).toMutableList()
+        validateRule(rule, relationshipsFor(normalized))
+        if (index == null) {
+            rules += rule
+        } else {
+            require(index in rules.indices) { "$normalized rule index is out of range" }
+            rules[index] = rule
+        }
+        return replaceRules(normalized, rules)
+    }
+
+    @Synchronized
+    fun deleteRule(kind: String, index: Int): ProxyInterceptConfig {
+        val normalized = normalizedRuleKind(kind)
+        val rules = rulesFor(read(), normalized).toMutableList()
+        require(index in rules.indices) { "$normalized rule index is out of range" }
+        rules.removeAt(index)
+        return replaceRules(normalized, rules)
+    }
+
+    private fun replaceRules(kind: String, rules: List<ProxyInterceptRuleConfig>): ProxyInterceptConfig =
+        if (kind == "request") {
+            update(ProxyInterceptConfigPatch(requestRules = rules, replaceRequestRules = true))
+        } else {
+            update(ProxyInterceptConfigPatch(responseRules = rules, replaceResponseRules = true))
+        }
+
+    private fun rulesFor(config: ProxyInterceptConfig, kind: String): List<ProxyInterceptRuleConfig> =
+        if (kind == "request") config.requestRules else config.responseRules
+
+    private fun relationshipsFor(kind: String): Map<String, Set<String>> =
+        if (kind == "request") REQUEST_RULE_RELATIONSHIPS else RESPONSE_RULE_RELATIONSHIPS
+
+    private fun normalizedRuleKind(kind: String): String {
+        val normalized = kind.trim().lowercase()
+        require(normalized == "request" || normalized == "response") { "rule kind must be request or response" }
+        return normalized
+    }
+
+    @Synchronized
     fun update(patch: ProxyInterceptConfigPatch): ProxyInterceptConfig {
         validate(patch)
         patch.masterInterceptEnabled?.let { enabled ->

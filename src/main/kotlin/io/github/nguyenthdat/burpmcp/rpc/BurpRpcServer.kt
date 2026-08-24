@@ -15,6 +15,7 @@ import io.github.nguyenthdat.burpmcp.ProxyRuleFacade
 import io.github.nguyenthdat.burpmcp.ProxyRule
 import io.github.nguyenthdat.burpmcp.ProxyInterceptConfigFacade
 import io.github.nguyenthdat.burpmcp.ProxyInterceptConfigPatch
+import io.github.nguyenthdat.burpmcp.ProxyInterceptConfig
 import io.github.nguyenthdat.burpmcp.ProxyInterceptRuleConfig
 import io.github.nguyenthdat.burpmcp.ProxyListenerConfig
 import io.github.nguyenthdat.burpmcp.ProxySettingsFacade
@@ -781,24 +782,7 @@ internal class BurpRpcService(
                     responseRemoveAllJavaScript = request.responseRemoveAllJavascript.takeIf { request.hasResponseRemoveAllJavascript() },
                 ),
             )
-        ProxyInterceptConfigResponse.newBuilder()
-            .setMasterInterceptEnabled(config.masterInterceptEnabled)
-            .setRequestDoIntercept(config.requestDoIntercept)
-            .setRequestAutoContentLength(config.requestAutoContentLength)
-            .setRequestFixMissingNewLines(config.requestFixMissingNewLines)
-            .setResponseDoIntercept(config.responseDoIntercept)
-            .setResponseAutoContentLength(config.responseAutoContentLength)
-            .setWebsocketClientToServer(config.websocketClientToServer)
-            .setWebsocketServerToClient(config.websocketServerToClient)
-            .setWebsocketInScopeOnly(config.websocketInScopeOnly)
-            .addAllRequestRules(config.requestRules.map { it.toProto() })
-            .addAllResponseRules(config.responseRules.map { it.toProto() })
-            .setResponseUnhideHiddenFields(config.responseUnhideHiddenFields)
-            .setResponseEnableDisabledFields(config.responseEnableDisabledFields)
-            .setResponseRemoveInputLengthLimits(config.responseRemoveInputLengthLimits)
-            .setResponseRemoveJavascriptValidation(config.responseRemoveJavaScriptValidation)
-            .setResponseRemoveAllJavascript(config.responseRemoveAllJavaScript)
-            .build()
+        config.toProto()
     }
 
     override fun proxySettings(
@@ -820,6 +804,29 @@ internal class BurpRpcService(
                 proxySettingsFacade.upsertScriptFilter(request.scriptFilterUpsert.toDomain())
             ProxySettingsUpdateRequest.OperationCase.SCRIPT_FILTER_DELETE_TARGET ->
                 proxySettingsFacade.deleteScriptFilter(request.scriptFilterDeleteTarget)
+            ProxySettingsUpdateRequest.OperationCase.INTERCEPT_RULE_UPSERT -> {
+                val mutation = request.interceptRuleUpsert
+                require(mutation.hasRule()) { "intercept rule is required" }
+                proxyInterceptConfigFacade.upsertRule(
+                    mutation.kind,
+                    mutation.index.toInt().takeIf { mutation.hasIndex() },
+                    mutation.rule.toDomain(),
+                )
+            }
+            ProxySettingsUpdateRequest.OperationCase.INTERCEPT_RULE_DELETE -> {
+                val deletion = request.interceptRuleDelete
+                proxyInterceptConfigFacade.deleteRule(deletion.kind, deletion.index.toInt())
+            }
+            ProxySettingsUpdateRequest.OperationCase.INTERCEPT_TOGGLE -> {
+                val toggle = request.interceptToggle
+                proxyInterceptConfigFacade.update(
+                    ProxyInterceptConfigPatch(
+                        masterInterceptEnabled = toggle.masterEnabled.takeIf { toggle.hasMasterEnabled() },
+                        requestDoIntercept = toggle.requestEnabled.takeIf { toggle.hasRequestEnabled() },
+                        responseDoIntercept = toggle.responseEnabled.takeIf { toggle.hasResponseEnabled() },
+                    ),
+                )
+            }
             ProxySettingsUpdateRequest.OperationCase.OPERATION_NOT_SET ->
                 throw IllegalArgumentException("one proxy settings operation is required")
         }
@@ -830,6 +837,7 @@ internal class BurpRpcService(
         ProxySettingsResponse.newBuilder()
             .addAllListeners(proxySettingsFacade.listeners().map { it.toProto() })
             .addAllScriptFilters(proxySettingsFacade.scriptFilters().map { it.toProto() })
+            .setInterception(proxyInterceptConfigFacade.read().toProto())
             .build()
 
     override fun proxyWebSocketHistory(
@@ -1708,6 +1716,26 @@ internal class BurpRpcService(
             .setMatchType(matchType)
             .setMatchRelationship(matchRelationship)
             .setMatchCondition(matchCondition)
+            .build()
+
+    private fun ProxyInterceptConfig.toProto(): ProxyInterceptConfigResponse =
+        ProxyInterceptConfigResponse.newBuilder()
+            .setMasterInterceptEnabled(masterInterceptEnabled)
+            .setRequestDoIntercept(requestDoIntercept)
+            .setRequestAutoContentLength(requestAutoContentLength)
+            .setRequestFixMissingNewLines(requestFixMissingNewLines)
+            .setResponseDoIntercept(responseDoIntercept)
+            .setResponseAutoContentLength(responseAutoContentLength)
+            .setWebsocketClientToServer(websocketClientToServer)
+            .setWebsocketServerToClient(websocketServerToClient)
+            .setWebsocketInScopeOnly(websocketInScopeOnly)
+            .addAllRequestRules(requestRules.map { it.toProto() })
+            .addAllResponseRules(responseRules.map { it.toProto() })
+            .setResponseUnhideHiddenFields(responseUnhideHiddenFields)
+            .setResponseEnableDisabledFields(responseEnableDisabledFields)
+            .setResponseRemoveInputLengthLimits(responseRemoveInputLengthLimits)
+            .setResponseRemoveJavascriptValidation(responseRemoveJavaScriptValidation)
+            .setResponseRemoveAllJavascript(responseRemoveAllJavaScript)
             .build()
     private fun ProxyListener.toDomain(): ProxyListenerConfig =
         ProxyListenerConfig(

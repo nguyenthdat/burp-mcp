@@ -269,6 +269,7 @@ message ProxySettingsRequest {}
 message ProxySettingsResponse {
   repeated ProxyListener listeners = 1;
   repeated ProxyScriptFilter script_filters = 2;
+  ProxyInterceptConfigResponse interception = 3;
 }
 message ProxySettingsUpdateRequest {
   oneof operation {
@@ -276,6 +277,9 @@ message ProxySettingsUpdateRequest {
     uint32 listener_delete_port = 2;
     ProxyScriptFilter script_filter_upsert = 3;
     string script_filter_delete_target = 4;
+    ProxyInterceptRuleMutation intercept_rule_upsert = 5;
+    ProxyInterceptRuleDelete intercept_rule_delete = 6;
+    ProxyInterceptToggle intercept_toggle = 7;
   }
 }
 message ProxyListener {
@@ -286,6 +290,20 @@ message ProxyListener {
   string certificate_mode = 5;
   bool enable_http2 = 6;
   bool support_invisible_proxying = 7;
+}
+message ProxyInterceptRuleMutation {
+  string kind = 1;
+  optional uint32 index = 2;
+  ProxyInterceptRule rule = 3;
+}
+message ProxyInterceptRuleDelete {
+  string kind = 1;
+  uint32 index = 2;
+}
+message ProxyInterceptToggle {
+  optional bool master_enabled = 1;
+  optional bool request_enabled = 2;
+  optional bool response_enabled = 3;
 }
 message ProxyScriptFilter {
   string target = 1;
