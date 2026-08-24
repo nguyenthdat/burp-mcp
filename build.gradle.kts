@@ -1,13 +1,20 @@
-import groovy.json.JsonSlurper
+import com.google.protobuf.gradle.id
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.security.MessageDigest
+
 
 plugins {
     kotlin("jvm") version "2.4.10"
+    id("com.google.protobuf") version "0.9.6"
 }
 
+val sitegraphRulePackSha256 = "5b63cb02091718b1c04ee30a9a89a7be1c01216a1365b266beb24fb6b3c6c3bf"
+
 group = "io.github.nguyenthdat.burpmcp"
-val packageMetadata = JsonSlurper().parse(file("package.json")) as Map<*, *>
-version = requireNotNull(packageMetadata["version"]) { "package.json must define version" }.toString()
+version = providers.gradleProperty("version").orElse("3.0.0-alpha.1").get()
+
+val grpcVersion = "1.73.0"
+val protobufVersion = "4.31.1"
 
 repositories {
     mavenCentral()
@@ -26,15 +33,57 @@ java {
     }
 }
 
+sourceSets {
+    main {
+        proto.srcDir("proto")
+        java.srcDirs(
+            layout.buildDirectory.dir("generated/sources/proto/main/java"),
+            layout.buildDirectory.dir("generated/sources/proto/main/grpc"),
+        )
+    }
+}
+
 dependencies {
     compileOnly("net.portswigger.burp.extensions:montoya-api:2026.7")
     implementation(kotlin("stdlib"))
-    implementation("com.google.code.gson:gson:2.11.0")
-    implementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation("io.grpc:grpc-netty-shaded:$grpcVersion")
+    implementation("io.grpc:grpc-protobuf:$grpcVersion")
+    implementation("com.google.protobuf:protobuf-java:$protobufVersion")
+    implementation("io.grpc:grpc-stub:$grpcVersion")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.20.1")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.20.1")
+    implementation("com.google.re2j:re2j:1.8")
+    compileOnly("org.apache.tomcat:annotations-api:6.0.53")
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("net.portswigger.burp.extensions:montoya-api:2026.7")
+    testImplementation("io.mockk:mockk:1.14.6")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:$protobufVersion"
+    }
+    plugins {
+        id("grpc") {
+            artifact = "io.grpc:protoc-gen-grpc-java:$grpcVersion"
+        }
+    }
+    generateProtoTasks {
+        all().configureEach {
+            plugins {
+                id("grpc")
+            }
+        }
+    }
+}
+
+tasks.register("printTestRuntimeClasspath") {
+    dependsOn(tasks.testClasses)
+    doLast {
+        println(sourceSets.test.get().runtimeClasspath.asPath)
+    }
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -49,6 +98,18 @@ tasks.withType<Test>().configureEach {
             languageVersion.set(JavaLanguageVersion.of(25))
         },
     )
+}
+
+tasks.processResources {
+    inputs.property("sitegraphRulePackSha256", sitegraphRulePackSha256)
+    doLast {
+        val packaged = destinationDir.resolve("sitegraph/default-rules.json")
+        check(packaged.isFile) { "missing packaged sitegraph default rule pack" }
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(packaged.readBytes())
+            .joinToString("") { byte -> "%02x".format(byte) }
+        check(digest == sitegraphRulePackSha256) { "sitegraph default rule pack checksum mismatch" }
+    }
 }
 
 tasks.jar {

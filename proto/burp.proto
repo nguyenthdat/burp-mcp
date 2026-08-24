@@ -1,0 +1,794 @@
+syntax = "proto3";
+
+package burp.v1;
+
+option java_multiple_files = true;
+option java_package = "io.github.nguyenthdat.burpmcp.grpc.v1";
+option java_outer_classname = "BurpProto";
+
+import "common.proto";
+
+service BurpService {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc EchoBytes(EchoBytesRequest) returns (EchoBytesResponse);
+  rpc ProxyHistory(ProxyHistoryRequest) returns (ProxyHistoryResponse);
+  rpc ProxyDetail(ProxyDetailRequest) returns (ProxyDetailResponse);
+  rpc ScanIssues(ScanIssuesRequest) returns (ScanIssuesResponse);
+  rpc SitemapSnapshot(SitemapSnapshotRequest) returns (SitemapSnapshotResponse);
+  rpc EventsSince(EventsSinceRequest) returns (EventsSinceResponse);
+  rpc TargetInfo(TargetInfoRequest) returns (TargetInfoResponse);
+  rpc ScopeCheck(ScopeCheckRequest) returns (ScopeCheckResponse);
+  rpc CookieJar(CookieJarRequest) returns (CookieJarResponse);
+  rpc SetCookie(SetCookieRequest) returns (ActionResponse);
+  rpc AddIssue(AddIssueRequest) returns (ActionResponse);
+  rpc ScanIssueDetail(ScanIssueDetailRequest) returns (ScanIssueEntry);
+  rpc GenerateScannerReport(GenerateScannerReportRequest) returns (GenerateScannerReportResponse);
+  rpc InterceptState(InterceptStateRequest) returns (InterceptStateResponse);
+  rpc ProxyInterceptConfig(ProxyInterceptConfigRequest) returns (ProxyInterceptConfigResponse);
+  rpc ProxySettings(ProxySettingsRequest) returns (ProxySettingsResponse);
+  rpc ProxySettingsUpdate(ProxySettingsUpdateRequest) returns (ProxySettingsResponse);
+  rpc ProxyWebSocketHistory(ProxyWebSocketHistoryRequest) returns (ProxyWebSocketHistoryResponse);
+  rpc SendToIntruder(SendToIntruderRequest) returns (ActionResponse);
+  rpc RegisterPayloadProcessor(RegisterPayloadProcessorRequest) returns (ActionResponse);
+  rpc ListPayloadProcessors(ListPayloadProcessorsRequest) returns (ListPayloadProcessorsResponse);
+  rpc RemovePayloadProcessor(RemovePayloadProcessorRequest) returns (ActionResponse);
+  rpc RegisterPayloadGenerator(RegisterPayloadGeneratorRequest) returns (ActionResponse);
+  rpc ListPayloadGenerators(ListPayloadGeneratorsRequest) returns (ListPayloadGeneratorsResponse);
+  rpc RemovePayloadGenerator(RemovePayloadGeneratorRequest) returns (ActionResponse);
+  rpc CreatePayloadList(CreatePayloadListRequest) returns (PayloadListEntry);
+  rpc ImportPayloadList(ImportPayloadListRequest) returns (PayloadListEntry);
+  rpc ListPayloadLists(ListPayloadListsRequest) returns (ListPayloadListsResponse);
+  rpc GetPayloadList(GetPayloadListRequest) returns (GetPayloadListResponse);
+  rpc UpdatePayloadList(UpdatePayloadListRequest) returns (PayloadListEntry);
+  rpc DeletePayloadList(DeletePayloadListRequest) returns (ActionResponse);
+  rpc ExtensionInfo(ExtensionInfoRequest) returns (ExtensionInfoResponse);
+  rpc SendRequest(SendRequestRequest) returns (SendRequestResponse);
+  rpc SendRequests(SendRequestsRequest) returns (SendRequestsResponse);
+  rpc SendToRepeater(SendToRepeaterRequest) returns (ActionResponse);
+  rpc SetHighlight(SetHighlightRequest) returns (ActionResponse);
+  rpc SetNote(SetNoteRequest) returns (ActionResponse);
+  rpc MutateScope(MutateScopeRequest) returns (ActionResponse);
+  rpc ExportConfig(ExportConfigRequest) returns (ConfigResponse);
+  rpc ImportConfig(ImportConfigRequest) returns (ActionResponse);
+  rpc RegisterHttpHandler(RegisterHttpHandlerRequest) returns (ActionResponse);
+  rpc ClearHttpHandler(ClearHttpHandlerRequest) returns (ActionResponse);
+  rpc InspectConfig(ExportConfigRequest) returns (InspectConfigResponse);
+  rpc RegisterProxyRule(RegisterProxyRuleRequest) returns (ActionResponse);
+  rpc ClearProxyRules(ClearProxyRulesRequest) returns (ActionResponse);
+  rpc ListProxyRules(ListProxyRulesRequest) returns (ListProxyRulesResponse);
+  rpc CreateSessionRule(UpsertSessionRuleRequest) returns (SessionRuleEntry);
+  rpc GetSessionRule(GetSessionRuleRequest) returns (SessionRuleEntry);
+  rpc UpdateSessionRule(UpsertSessionRuleRequest) returns (SessionRuleEntry);
+  rpc ListSessionRules(ListSessionRulesRequest) returns (ListSessionRulesResponse);
+  rpc DeleteSessionRule(DeleteSessionRuleRequest) returns (ActionResponse);
+  rpc CreateMacro(CreateMacroRequest) returns (ActionResponse);
+  rpc ListMacros(ListMacrosRequest) returns (ListMacrosResponse);
+  rpc RunMacro(RunMacroRequest) returns (RunMacroResponse);
+  rpc RemoveMacro(RemoveMacroRequest) returns (ActionResponse);
+  rpc StartConcurrentRequestCheck(StartConcurrentRequestCheckRequest) returns (JobStatusResponse);
+  rpc StartBoundedInputMatrix(StartBoundedInputMatrixRequest) returns (JobStatusResponse);
+  rpc StartCrawl(StartCrawlRequest) returns (JobStatusResponse);
+  rpc StartAudit(StartAuditRequest) returns (JobStatusResponse);
+  rpc StopAudit(CancelJobRequest) returns (JobStatusResponse);
+  rpc RemoveAudit(CancelJobRequest) returns (ActionResponse);
+  rpc ListScanConfigurations(ListScanConfigurationsRequest) returns (ListScanConfigurationsResponse);
+  rpc GetScanConfiguration(GetScanConfigurationRequest) returns (ScanConfigurationEntry);
+  rpc CreateScanConfiguration(UpsertScanConfigurationRequest) returns (ScanConfigurationEntry);
+  rpc UpdateScanConfiguration(UpsertScanConfigurationRequest) returns (ScanConfigurationEntry);
+  rpc DeleteScanConfiguration(DeleteScanConfigurationRequest) returns (ActionResponse);
+  rpc ListScanResourcePools(ListScanResourcePoolsRequest) returns (ListScanResourcePoolsResponse);
+  rpc GetScanResourcePool(GetScanResourcePoolRequest) returns (ScanResourcePoolEntry);
+  rpc CreateScanResourcePool(UpsertScanResourcePoolRequest) returns (ScanResourcePoolEntry);
+  rpc UpdateScanResourcePool(UpsertScanResourcePoolRequest) returns (ScanResourcePoolEntry);
+  rpc DeleteScanResourcePool(DeleteScanResourcePoolRequest) returns (ActionResponse);
+  rpc GetJobStatus(GetJobStatusRequest) returns (JobStatusResponse);
+  rpc CancelJob(CancelJobRequest) returns (JobStatusResponse);
+  rpc GetJobResult(GetJobResultRequest) returns (JobResultResponse);
+  rpc GenerateCollaboratorPayloads(GenerateCollaboratorPayloadsRequest) returns (GenerateCollaboratorPayloadsResponse);
+  rpc PollCollaboratorInteractions(PollCollaboratorInteractionsRequest) returns (PollCollaboratorInteractionsResponse);
+  rpc CreateWebSocket(CreateWebSocketRequest) returns (CreateWebSocketResponse);
+  rpc SendWebSocketText(SendWebSocketTextRequest) returns (ActionResponse);
+  rpc SendWebSocketBinary(SendWebSocketBinaryRequest) returns (ActionResponse);
+  rpc CloseWebSocket(CloseWebSocketRequest) returns (ActionResponse);
+  rpc ListWebSockets(ListWebSocketsRequest) returns (ListWebSocketsResponse);
+  rpc ManagedWebSocketHistory(ManagedWebSocketHistoryRequest) returns (ManagedWebSocketHistoryResponse);
+  rpc ImportBambda(ImportBambdaRequest) returns (ScriptImportResponse);
+  rpc ImportBCheck(ImportBCheckRequest) returns (ScriptImportResponse);
+  rpc ServerInfo(ServerInfoRequest) returns (ServerInfoResponse);
+}
+
+message PingRequest { string client = 1; }
+message PingResponse {
+  string server = 1;
+  string version = 2;
+  uint64 unix_millis = 3;
+}
+message EchoBytesRequest {
+  bytes payload = 1;
+  // Phase 0 deadline/cancellation probe. Reserve before freezing the production contract.
+  uint32 delay_millis = 2;
+}
+message EchoBytesResponse { bytes payload = 1; }
+message ProxyHistoryRequest {
+  PageRequest page = 1;
+  string url_filter = 2;
+  string method_filter = 3;
+  optional uint32 status_filter = 4;
+  bool has_notes = 5;
+  string color = 6;
+}
+message ProxyHistoryResponse {
+  repeated ProxyHistoryEntry items = 1;
+  PageInfo page = 2;
+}
+message ProxyHistoryEntry {
+  uint32 index = 1;
+  string method = 2;
+  string url = 3;
+  uint32 status = 4;
+  uint64 length = 5;
+  bool has_response = 6;
+  string notes = 7;
+  string highlight = 8;
+}
+message ProxyDetailRequest { uint32 index = 1; }
+message ProxyDetailResponse {
+  uint32 index = 1;
+  bytes request = 2;
+  bytes response = 3;
+  string notes = 4;
+  string highlight = 5;
+}
+message SitemapSnapshotRequest {
+  string url_prefix = 1;
+  PageRequest page = 2;
+}
+message SitemapSnapshotResponse {
+  repeated SitemapEntry items = 1;
+  PageInfo page = 2;
+}
+message SitemapEntry {
+  string url = 1;
+  string method = 2;
+  uint32 status = 3;
+  string content_type = 4;
+  bytes response_body = 5;
+  string redirect_url = 6;
+  repeated string response_links = 7;
+  repeated string form_actions = 8;
+  repeated string script_sources = 9;
+  bytes request_bytes = 10;
+  bytes response_bytes = 11;
+}
+message EventsSinceRequest {
+  uint64 after_sequence = 1;
+  uint32 limit = 2;
+}
+message BurpEvent {
+  uint64 sequence = 1;
+  string kind = 2;
+  string key = 3;
+  bool reconcile_required = 4;
+  int64 observed_unix_millis = 5;
+}
+message EventsSinceResponse {
+  repeated BurpEvent items = 1;
+  uint64 latest_sequence = 2;
+  bool gap_detected = 3;
+  bool truncated = 4;
+  uint64 next_sequence = 5;
+}
+message TargetInfoRequest {
+  string url_prefix = 1;
+  uint32 limit = 2;
+}
+message TargetInfoResponse {
+  repeated string hosts = 1;
+  repeated string technologies = 2;
+  uint32 requests_sampled = 3;
+}
+message ScopeCheckRequest { string url = 1; }
+message ScopeCheckResponse {
+  string url = 1;
+  bool in_scope = 2;
+}
+message ScanIssuesRequest { PageRequest page = 1; }
+message ScanIssuesResponse {
+  repeated ScanIssueEntry items = 1;
+  PageInfo page = 2;
+}
+message CookieJarRequest {
+  string domain = 1;
+  uint32 limit = 2;
+}
+message CookieJarResponse { repeated CookieEntry items = 1; }
+message CookieEntry {
+  string name = 1;
+  string value = 2;
+  string domain = 3;
+  string path = 4;
+  string expiration = 5;
+}
+message SetCookieRequest {
+  string name = 1;
+  string value = 2;
+  string domain = 3;
+  string path = 4;
+  string expiration = 5;
+}
+message AddIssueRequest {
+  string name = 1;
+  string url = 2;
+  string detail = 3;
+  string remediation = 4;
+  string severity = 5;
+  string confidence = 6;
+}
+message ScanIssueDetailRequest { uint32 index = 1; }
+message InterceptStateRequest { optional bool enabled = 1; }
+message GenerateScannerReportRequest {
+  string format = 1;
+  string path = 2;
+  repeated uint32 issue_indexes = 3;
+}
+message GenerateScannerReportResponse {
+  string path = 1;
+  string format = 2;
+  uint32 issue_count = 3;
+  uint64 size_bytes = 4;
+}
+message InterceptStateResponse { bool enabled = 1; }
+message ProxyInterceptConfigRequest {
+  optional bool master_intercept_enabled = 1;
+  optional bool request_do_intercept = 2;
+  optional bool request_auto_content_length = 3;
+  optional bool response_do_intercept = 4;
+  optional bool response_auto_content_length = 5;
+  optional bool websocket_client_to_server = 6;
+  optional bool websocket_server_to_client = 7;
+  optional bool websocket_in_scope_only = 8;
+  repeated ProxyInterceptRule request_rules = 9;
+  repeated ProxyInterceptRule response_rules = 10;
+  bool replace_request_rules = 11;
+  bool replace_response_rules = 12;
+  optional bool response_unhide_hidden_fields = 13;
+  optional bool response_enable_disabled_fields = 14;
+  optional bool response_remove_input_length_limits = 15;
+  optional bool response_remove_javascript_validation = 16;
+  optional bool response_remove_all_javascript = 17;
+  optional bool request_fix_missing_new_lines = 18;
+}
+message ProxyInterceptRule {
+  bool enabled = 1;
+  string boolean_operator = 2;
+  string match_type = 3;
+  string match_relationship = 4;
+  string match_condition = 5;
+}
+message ProxySettingsRequest {}
+message ProxySettingsResponse {
+  repeated ProxyListener listeners = 1;
+  repeated ProxyScriptFilter script_filters = 2;
+  ProxyInterceptConfigResponse interception = 3;
+}
+message ProxySettingsUpdateRequest {
+  oneof operation {
+    ProxyListener listener_upsert = 1;
+    uint32 listener_delete_port = 2;
+    ProxyScriptFilter script_filter_upsert = 3;
+    string script_filter_delete_target = 4;
+    ProxyInterceptRuleMutation intercept_rule_upsert = 5;
+    ProxyInterceptRuleDelete intercept_rule_delete = 6;
+    ProxyInterceptToggle intercept_toggle = 7;
+  }
+}
+message ProxyListener {
+  uint32 port = 1;
+  bool running = 2;
+  string listen_mode = 3;
+  string listen_specific_address = 4;
+  string certificate_mode = 5;
+  bool enable_http2 = 6;
+  bool support_invisible_proxying = 7;
+}
+message ProxyInterceptRuleMutation {
+  string kind = 1;
+  optional uint32 index = 2;
+  ProxyInterceptRule rule = 3;
+}
+message ProxyInterceptRuleDelete {
+  string kind = 1;
+  uint32 index = 2;
+}
+message ProxyInterceptToggle {
+  optional bool master_enabled = 1;
+  optional bool request_enabled = 2;
+  optional bool response_enabled = 3;
+}
+message ProxyScriptFilter {
+  string target = 1;
+  string mode = 2;
+  string script = 3;
+  string script_id = 4;
+  string script_name = 5;
+}
+message ProxyInterceptConfigResponse {
+  bool master_intercept_enabled = 1;
+  bool request_do_intercept = 2;
+  bool request_auto_content_length = 3;
+  bool response_do_intercept = 4;
+  bool response_auto_content_length = 5;
+  bool websocket_client_to_server = 6;
+  bool websocket_server_to_client = 7;
+  bool websocket_in_scope_only = 8;
+  repeated ProxyInterceptRule request_rules = 9;
+  repeated ProxyInterceptRule response_rules = 10;
+  bool response_unhide_hidden_fields = 11;
+  bool response_enable_disabled_fields = 12;
+  bool response_remove_input_length_limits = 13;
+  bool response_remove_javascript_validation = 14;
+  bool response_remove_all_javascript = 15;
+  bool request_fix_missing_new_lines = 16;
+}
+message ProxyWebSocketHistoryRequest { PageRequest page = 1; }
+message ProxyWebSocketEntry {
+  uint32 index = 1;
+  uint32 id = 2;
+  uint32 web_socket_id = 3;
+  string direction = 4;
+  bytes payload = 5;
+  bytes edited_payload = 6;
+  string time = 7;
+  uint32 listener_port = 8;
+  string upgrade_url = 9;
+}
+message ProxyWebSocketHistoryResponse {
+  repeated ProxyWebSocketEntry items = 1;
+  PageInfo page = 2;
+}
+message SendToIntruderRequest {
+  bytes request = 1;
+  string host = 2;
+  uint32 port = 3;
+  bool https = 4;
+  string tab_name = 5;
+}
+message ExtensionInfoRequest {}
+message ExtensionInfoResponse {
+  string filename = 1;
+  bool is_bapp = 2;
+  repeated string command_line_arguments = 3;
+}
+message ScanIssueEntry {
+  uint32 index = 1;
+  string name = 2;
+  string severity = 3;
+  string confidence = 4;
+  string url = 5;
+  string detail = 6;
+}
+message HttpHeaderEntry {
+  string name = 1;
+  string value = 2;
+}
+message SendRequestRequest {
+  string method = 1;
+  string url = 2;
+  bytes body = 3;
+  repeated HttpHeaderEntry headers = 4;
+}
+message SendRequestResponse {
+  bytes request = 1;
+  bytes response = 2;
+  uint32 status = 3;
+  bool has_response = 4;
+}
+message SendRequestsRequest { repeated SendRequestRequest requests = 1; }
+message SendRequestsResponse { repeated SendRequestResponse responses = 1; }
+message SendToRepeaterRequest {
+  bytes request = 1;
+  string host = 2;
+  uint32 port = 3;
+  bool https = 4;
+  string tab_name = 5;
+}
+message ActionResponse {
+  bool success = 1;
+  string message = 2;
+}
+message SetHighlightRequest {
+  uint32 index = 1;
+  string color = 2;
+}
+message SetNoteRequest {
+  uint32 index = 1;
+  string note = 2;
+}
+message MutateScopeRequest {
+  string url = 1;
+  bool include = 2;
+}
+message ExportConfigRequest { repeated string paths = 1; }
+message ConfigResponse { string config = 1; }
+message InspectConfigResponse {
+  string config = 1;
+  repeated string paths = 2;
+  uint32 size_bytes = 3;
+}
+message ImportConfigRequest { string config = 1; }
+message RegisterHttpHandlerRequest {
+  string header_name = 1;
+  string header_value = 2;
+  string match = 3;
+  string replacement = 4;
+}
+message ClearHttpHandlerRequest {}
+message RegisterProxyRuleRequest {
+  string id = 1;
+  string url_contains = 2;
+  string phase = 3;
+  string action = 4;
+  string match = 5;
+  string replacement = 6;
+  string header_name = 7;
+  string header_value = 8;
+  bool enabled = 9;
+}
+message ProxyRuleEntry {
+  string id = 1;
+  string url_contains = 2;
+  string phase = 3;
+  string action = 4;
+  string match = 5;
+  string replacement = 6;
+  string header_name = 7;
+  string header_value = 8;
+  bool enabled = 9;
+}
+message ListProxyRulesRequest {}
+message ListProxyRulesResponse { repeated ProxyRuleEntry items = 1; }
+message ClearProxyRulesRequest { string id = 1; }
+message RegisterPayloadProcessorRequest {
+  string id = 1;
+  string display_name = 2;
+  string operation = 3;
+  string argument = 4;
+  string replacement = 5;
+}
+message ListPayloadProcessorsRequest {}
+message PayloadProcessorEntry {
+  string id = 1;
+  string display_name = 2;
+  string operation = 3;
+  bool registered = 4;
+}
+message ListPayloadProcessorsResponse { repeated PayloadProcessorEntry items = 1; }
+message RemovePayloadProcessorRequest { string id = 1; }
+message RegisterPayloadGeneratorRequest {
+  string id = 1;
+  string display_name = 2;
+  repeated string payloads = 3;
+  uint32 max_output_count = 4;
+  string payload_list_id = 5;
+  uint32 payload_offset = 6;
+}
+message ListPayloadGeneratorsRequest {}
+message PayloadGeneratorEntry {
+  string id = 1;
+  string display_name = 2;
+  uint32 payload_count = 3;
+  uint32 max_output_count = 4;
+  bool registered = 5;
+}
+message ListPayloadGeneratorsResponse { repeated PayloadGeneratorEntry items = 1; }
+message RemovePayloadGeneratorRequest { string id = 1; }
+message CreatePayloadListRequest {
+  string id = 1;
+  string display_name = 2;
+  repeated string payloads = 3;
+}
+message ImportPayloadListRequest {
+  string id = 1;
+  string display_name = 2;
+  string content = 3;
+  string format = 4;
+  bool keep_empty = 5;
+}
+message ListPayloadListsRequest {}
+message PayloadListEntry {
+  string id = 1;
+  string display_name = 2;
+  uint32 payload_count = 3;
+  uint64 size_bytes = 4;
+  string fingerprint = 5;
+}
+message ListPayloadListsResponse { repeated PayloadListEntry items = 1; }
+message GetPayloadListRequest {
+  string id = 1;
+  PageRequest page = 2;
+}
+message GetPayloadListResponse {
+  PayloadListEntry list = 1;
+  repeated string payloads = 2;
+  PageInfo page = 3;
+}
+message UpdatePayloadListRequest {
+  string id = 1;
+  string operation = 2;
+  repeated string payloads = 3;
+  uint32 index = 4;
+  repeated uint32 indexes = 5;
+  optional string display_name = 6;
+}
+message DeletePayloadListRequest { string id = 1; }
+message UpsertSessionRuleRequest {
+  string id = 1;
+  string find = 2;
+  string replacement = 3;
+  string description = 4;
+  string action_type = 5;
+  string header_name = 6;
+  string parameter_name = 7;
+  string macro_description = 8;
+  string url_contains = 9;
+  repeated string tools = 10;
+  bool enabled = 11;
+}
+message GetSessionRuleRequest { string id = 1; }
+message ListSessionRulesRequest {}
+message SessionRuleEntry {
+  string id = 1;
+  string find = 2;
+  string replacement = 3;
+  string description = 4;
+  string action_type = 5;
+  string header_name = 6;
+  string parameter_name = 7;
+  string macro_description = 8;
+  string url_contains = 9;
+  repeated string tools = 10;
+  bool enabled = 11;
+}
+message ListSessionRulesResponse { repeated SessionRuleEntry items = 1; }
+message DeleteSessionRuleRequest { string id = 1; }
+message MacroItem {
+  string request = 1;
+  string method = 2;
+  string url = 3;
+  string response = 4;
+  uint32 status_code = 5;
+  string cookies_received = 6;
+  repeated MacroParameter request_parameters = 7;
+  repeated string custom_parameters = 8;
+}
+message MacroParameter {
+  string name = 1;
+  string original_value = 2;
+  string parameter_handling = 3;
+  string preset_value = 4;
+  string type = 5;
+}
+message MacroDefinition {
+  string description = 1;
+  uint64 serial_number = 2;
+  repeated MacroItem items = 3;
+}
+message CreateMacroRequest { MacroDefinition macro = 1; }
+message ListMacrosRequest {}
+message ListMacrosResponse { repeated MacroDefinition macros = 1; }
+message RunMacroRequest { string description = 1; }
+message RunMacroItem {
+  string request = 1;
+  string response = 2;
+  uint32 status_code = 3;
+  bool has_response = 4;
+}
+message RunMacroResponse { repeated RunMacroItem items = 1; }
+message RemoveMacroRequest { string description = 1; }
+message StartConcurrentRequestCheckRequest {
+  bytes request = 1;
+  string host = 2;
+  uint32 port = 3;
+  bool https = 4;
+  uint32 count = 5;
+}
+message StartBoundedInputMatrixRequest {
+  bytes template = 1;
+  string host = 2;
+  uint32 port = 3;
+  bool https = 4;
+  string marker = 5;
+  repeated string inputs = 6;
+  string payload_list_id = 7;
+  uint32 payload_offset = 8;
+}
+message StartCrawlRequest {
+  repeated string seed_urls = 1;
+  string scan_configuration_id = 2;
+  string resource_pool_id = 3;
+  uint64 timeout_seconds = 4;
+  uint64 stable_seconds = 5;
+  bool include_out_of_scope = 6;
+}
+message StartAuditRequest {
+  string url = 1;
+  string audit_type = 2;
+  string scan_configuration_id = 3;
+  string resource_pool_id = 4;
+  uint64 timeout_seconds = 5;
+  uint64 stable_seconds = 6;
+  bool include_out_of_scope = 7;
+}
+message ScanConfigurationEntry {
+  string id = 1;
+  string name = 2;
+  string scan_type = 3;
+  string audit_type = 4;
+  bool include_out_of_scope = 5;
+  uint64 timeout_seconds = 6;
+  uint64 stable_seconds = 7;
+  string resource_pool_id = 8;
+  string source = 9;
+}
+message ListScanConfigurationsRequest {}
+message ListScanConfigurationsResponse { repeated ScanConfigurationEntry items = 1; }
+message GetScanConfigurationRequest { string id = 1; }
+message UpsertScanConfigurationRequest {
+  string id = 1;
+  string name = 2;
+  string scan_type = 3;
+  string audit_type = 4;
+  bool include_out_of_scope = 5;
+  uint64 timeout_seconds = 6;
+  uint64 stable_seconds = 7;
+  string resource_pool_id = 8;
+}
+message DeleteScanConfigurationRequest { string id = 1; }
+message ScanResourcePoolEntry {
+  string id = 1;
+  string name = 2;
+  string kind = 3;
+  string existing_pool_name = 4;
+  uint32 concurrent_request_limit = 5;
+  uint64 throttle_millis = 6;
+  uint32 max_retries = 7;
+  string source = 8;
+}
+message ListScanResourcePoolsRequest {}
+message ListScanResourcePoolsResponse {
+  repeated ScanResourcePoolEntry items = 1;
+  bool scanner_supported = 9;
+  string support_message = 10;
+}
+message GetScanResourcePoolRequest { string id = 1; }
+message UpsertScanResourcePoolRequest {
+  string id = 1;
+  string name = 2;
+  string kind = 3;
+  string existing_pool_name = 4;
+  uint32 concurrent_request_limit = 5;
+  uint64 throttle_millis = 6;
+  uint32 max_retries = 7;
+}
+message DeleteScanResourcePoolRequest { string id = 1; }
+message GetJobStatusRequest { string id = 1; }
+message CancelJobRequest { string id = 1; }
+message GetJobResultRequest {
+  string id = 1;
+  PageRequest page = 2;
+}
+message JobStatusResponse {
+  string id = 1;
+  string operation = 2;
+  string state = 3;
+  string error = 4;
+  string scan_type = 5;
+  bool stateless = 6;
+  string status_message = 7;
+  uint32 request_count = 8;
+  uint32 error_count = 9;
+  uint32 issue_count = 10;
+}
+message HttpJobResultItem {
+  string label = 1;
+  optional uint32 status = 2;
+  optional uint32 length = 3;
+  string error = 4;
+}
+message JobResultResponse {
+  string id = 1;
+  string operation = 2;
+  string state = 3;
+  repeated HttpJobResultItem items = 4;
+  PageInfo page = 5;
+  uint32 unique_lengths = 6;
+  string verdict = 7;
+  uint32 request_count = 8;
+  uint32 error_count = 9;
+  string error = 10;
+  uint32 issue_count = 11;
+  uint32 substitution_count = 12;
+  string request_fingerprint = 13;
+  string scan_type = 14;
+  bool stateless = 15;
+  string status_message = 16;
+}
+message GenerateCollaboratorPayloadsRequest { uint32 count = 1; }
+message GenerateCollaboratorPayloadsResponse { repeated string payloads = 1; }
+message PollCollaboratorInteractionsRequest { PageRequest page = 1; }
+message CollaboratorInteractionEntry {
+  string id = 1;
+  string type = 2;
+  string client_ip = 3;
+  uint32 client_port = 4;
+  string timestamp = 5;
+}
+message PollCollaboratorInteractionsResponse {
+  repeated CollaboratorInteractionEntry items = 1;
+  PageInfo page = 2;
+}
+message CreateWebSocketRequest {
+  string host = 1;
+  uint32 port = 2;
+  bool https = 3;
+  string path = 4;
+}
+message CreateWebSocketResponse {
+  string id = 1;
+  string status = 2;
+}
+message SendWebSocketTextRequest {
+  string id = 1;
+  string text = 2;
+}
+message SendWebSocketBinaryRequest {
+  string id = 1;
+  bytes data = 2;
+}
+message CloseWebSocketRequest { string id = 1; }
+message ListWebSocketsRequest {}
+message ListWebSocketsResponse { repeated string ids = 1; }
+message ManagedWebSocketHistoryRequest {
+  string id = 1;
+  PageRequest page = 2;
+}
+message ManagedWebSocketMessageEntry {
+  uint64 index = 1;
+  string websocket_id = 2;
+  string direction = 3;
+  string type = 4;
+  bytes payload = 5;
+}
+message ManagedWebSocketHistoryResponse {
+  repeated ManagedWebSocketMessageEntry items = 1;
+  PageInfo page = 2;
+}
+message ImportBambdaRequest { string script = 1; }
+message ImportBCheckRequest {
+  string script = 1;
+  bool enabled = 2;
+}
+message ScriptImportResponse {
+  bool success = 1;
+  string status = 2;
+  repeated string errors = 3;
+}
+message ServerInfoRequest {}
+message ServerInfoResponse {
+  string extension = 1;
+  string version = 2;
+  repeated string capabilities = 3;
+  uint32 max_message_bytes = 4;
+  uint32 max_page_size = 5;
+  uint32 max_concurrent_calls_per_connection = 6;
+  uint32 max_rpc_timeout_seconds = 7;
+  uint32 max_response_bytes = 8;
+  string burp_name = 9;
+  string burp_version = 10;
+  string burp_edition = 11;
+  uint64 burp_build_number = 12;
+  string project_id = 13;
+  string project_name = 14;
+  string graph_id = 15;
+  bool project_temporary = 16;
+}
