@@ -1669,10 +1669,10 @@ impl BurpTools {
     }
 
     #[tool(
-        name = "burp_scan",
-        description = "Start a bounded passive or legacy-active Burp audit job; active mode may be rejected by the installed Burp edition"
+        name = "burp_scan_start",
+        description = "Start a bounded passive or legacy-active Burp audit; returns a job ID for burp_scan_stop and burp_scan_remove"
     )]
-    async fn scan(&self, Parameters(input): Parameters<AuditInput>) -> String {
+    async fn scan_start(&self, Parameters(input): Parameters<AuditInput>) -> String {
         let active = match input.mode.as_deref().unwrap_or("passive") {
             "passive" => false,
             "active" => true,
@@ -1701,6 +1701,29 @@ impl BurpTools {
             .to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
+    }
+    #[tool(
+        name = "burp_scan_stop",
+        description = "Stop a running Burp audit by job ID"
+    )]
+    async fn scan_stop(&self, Parameters(input): Parameters<JobInput>) -> String {
+        job_status_json(
+            self.client
+                .stop_audit(CancelJobRequest { id: input.job_id })
+                .await,
+        )
+    }
+
+    #[tool(
+        name = "burp_scan_remove",
+        description = "Remove a stopped or completed Burp audit by job ID"
+    )]
+    async fn scan_remove(&self, Parameters(input): Parameters<JobInput>) -> String {
+        action_json(
+            self.client
+                .remove_audit(CancelJobRequest { id: input.job_id })
+                .await,
+        )
     }
 
     #[tool(name = "burp_crawl", description = "Start a bounded Burp crawl job")]
@@ -3053,6 +3076,9 @@ mod contract_tests {
                         | "burp_scanner_generate_report"
                         | "burp_scan_issues"
                         | "burp_websocket_history"
+                        | "burp_scan_start"
+                        | "burp_scan_stop"
+                        | "burp_scan_remove"
                         | "decoder"
                         | "burp_intruder_payload_processor_register"
                         | "burp_intruder_payload_processor_list"

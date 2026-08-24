@@ -54,6 +54,29 @@ class JobFacadeTest {
     }
 
     @Test
+    fun `removes only terminal jobs`() {
+        JobFacade().use { jobs ->
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val started =
+                jobs.start("scanner_audit") {
+                    entered.countDown()
+                    release.await()
+                    AuditJobOutput(1, 0, 0)
+                }
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+
+            assertFailsWith<IllegalStateException> { jobs.remove(started.id) }
+            assertNotNull(jobs.cancel(started.id))
+            release.countDown()
+
+            assertEquals(started.id, assertNotNull(jobs.remove(started.id)).id)
+            assertEquals(null, jobs.status(started.id))
+            assertEquals(null, jobs.remove(started.id))
+        }
+    }
+
+    @Test
     fun `scanner jobs fail instead of completing with zero requests`() {
         JobFacade().use { jobs ->
             val started = jobs.start("crawl") {

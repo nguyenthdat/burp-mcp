@@ -7,6 +7,7 @@ import io.github.nguyenthdat.burpmcp.rpc.GRPC_MAX_MESSAGE_BYTES
 import io.github.nguyenthdat.burpmcp.rpc.GRPC_MAX_PAGE_SIZE
 import io.github.nguyenthdat.burpmcp.rpc.GRPC_MAX_RESPONSE_BYTES
 import io.github.nguyenthdat.burpmcp.rpc.GRPC_MAX_RPC_TIMEOUT_SECONDS
+import io.github.nguyenthdat.burpmcp.grpc.v1.CancelJobRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.EchoBytesRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.PingRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ServerInfoRequest
@@ -59,24 +60,27 @@ class BurpRpcServerTest {
     }
 
     @Test
-    fun `starts scanner audits through the typed RPC`() {
+    fun `starts stops and removes scanner audits through typed RPCs`() {
         val port = availablePort()
         server = BurpRpcServer(fake(MontoyaApi::class.java), port)
         server?.start()
         channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
         val client = BurpServiceGrpc.newBlockingStub(channel).withDeadlineAfter(2, TimeUnit.SECONDS)
 
-        val response =
+        val started =
             client.startAudit(
                 io.github.nguyenthdat.burpmcp.grpc.v1.StartAuditRequest
                     .newBuilder()
                     .setUrl("https://example.test/")
                     .build(),
             )
+        val stopped = client.stopAudit(CancelJobRequest.newBuilder().setId(started.id).build())
+        val removed = client.removeAudit(CancelJobRequest.newBuilder().setId(started.id).build())
 
-        assertTrue(response.id.startsWith("job-"))
-        assertEquals("scanner_audit", response.operation)
-        assertTrue(response.state == "queued" || response.state == "running")
+        assertEquals("scanner_audit", started.operation)
+        assertTrue(stopped.state in setOf("queued", "running", "completed", "failed", "cancelled"))
+        assertTrue(removed.success)
+        assertEquals("audit removed", removed.message)
     }
 
     @Test

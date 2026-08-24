@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use burp_protocol::interop_proto::{
-    EchoBytesRequest, PageRequest, PingRequest, ProxyHistoryRequest, ServerInfoRequest,
-    StartAuditRequest,
+    CancelJobRequest, EchoBytesRequest, PageRequest, PingRequest, ProxyHistoryRequest,
+    ServerInfoRequest, StartAuditRequest,
 };
 use burp_protocol::{BurpClientConfig, DEFAULT_MAX_MESSAGE_BYTES, connect_client, spawn_client};
 use std::env;
@@ -68,6 +68,19 @@ async fn kotlin_server_echoes_binary_payloads_and_handles_concurrency() -> Resul
     assert!(audit.id.starts_with("job-"));
     assert_eq!("scanner_audit", audit.operation);
     assert!(matches!(audit.state.as_str(), "queued" | "running"));
+    let stopped = actor
+        .stop_audit(CancelJobRequest {
+            id: audit.id.clone(),
+        })
+        .await?;
+    assert!(matches!(
+        stopped.state.as_str(),
+        "queued" | "running" | "completed" | "failed" | "cancelled"
+    ));
+    let removed = actor
+        .remove_audit(CancelJobRequest { id: audit.id })
+        .await?;
+    assert!(removed.success);
 
     for payload in [Vec::new(), vec![0xa5], patterned_payload(10 * 1024 * 1024)] {
         let mut request = Request::new(EchoBytesRequest {

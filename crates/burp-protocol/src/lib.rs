@@ -264,6 +264,14 @@ enum Command {
         request: proto::GetJobStatusRequest,
         response: oneshot::Sender<Result<proto::JobStatusResponse, ClientError>>,
     },
+    StopAudit {
+        request: proto::CancelJobRequest,
+        response: oneshot::Sender<Result<proto::JobStatusResponse, ClientError>>,
+    },
+    RemoveAudit {
+        request: proto::CancelJobRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
     CancelJob {
         request: proto::CancelJobRequest,
         response: oneshot::Sender<Result<proto::JobStatusResponse, ClientError>>,
@@ -781,6 +789,28 @@ impl BurpClient {
         request: proto::StartAuditRequest,
     ) -> Result<proto::JobStatusResponse, ClientError> {
         self.send(|response| Command::StartAudit { request, response })
+            .await
+    }
+    pub async fn stop_audit(
+        &self,
+        request: proto::CancelJobRequest,
+    ) -> Result<proto::JobStatusResponse, ClientError> {
+        self.stop_job(request).await
+    }
+
+    pub async fn remove_audit(
+        &self,
+        request: proto::CancelJobRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::RemoveAudit { request, response })
+            .await
+    }
+
+    async fn stop_job(
+        &self,
+        request: proto::CancelJobRequest,
+    ) -> Result<proto::JobStatusResponse, ClientError> {
+        self.send(|response| Command::StopAudit { request, response })
             .await
     }
 
@@ -1494,6 +1524,26 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::StopAudit { request, response } => {
+            let result = client
+                .stop_audit(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::RemoveAudit { request, response } => {
+            let result = client
+                .remove_audit(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
         Command::StartBoundedInputMatrix { request, response } => {
             let result = client
                 .start_bounded_input_matrix(with_deadline(request, config.call_timeout))
@@ -1807,6 +1857,12 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::ListSessionRules { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::StopAudit { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::RemoveAudit { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::RemoveSessionRules { response, .. } => {

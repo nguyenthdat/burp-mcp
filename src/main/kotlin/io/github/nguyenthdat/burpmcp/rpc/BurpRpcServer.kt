@@ -1311,6 +1311,21 @@ internal class BurpRpcService(
     ) = responseObserver.respond {
         longOperationFacade.startAudit(request.url, request.active).toStatusProto()
     }
+    override fun stopAudit(
+        request: CancelJobRequest,
+        responseObserver: StreamObserver<JobStatusResponse>,
+    ) = responseObserver.respond {
+        (longOperationFacade.stopAudit(request.id) ?: error("audit not found")).toStatusProto()
+    }
+
+    override fun removeAudit(
+        request: CancelJobRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) = responseObserver.respond {
+        longOperationFacade.removeAudit(request.id) ?: error("audit not found")
+        ActionResponse.newBuilder().setSuccess(true).setMessage("audit removed").build()
+    }
+
 
     override fun getJobStatus(
         request: GetJobStatusRequest,

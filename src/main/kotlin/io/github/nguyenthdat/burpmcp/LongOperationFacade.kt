@@ -18,6 +18,8 @@ import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ConcurrentHashMap
 
 
 internal class LongOperationFacade(
@@ -27,7 +29,29 @@ internal class LongOperationFacade(
     private val taskStableMillis: Long = 2_000,
     private val taskPollMillis: Long = 100,
 ) {
+    private class AuditHandle {
+        private val audit = AtomicReference<burp.api.montoya.scanner.audit.Audit?>()
+        private val stopped = AtomicBoolean()
+        private val deleted = AtomicBoolean()
+
+        fun attach(value: burp.api.montoya.scanner.audit.Audit) {
+            check(audit.compareAndSet(null, value)) { "audit handle is already attached" }
+            if (stopped.get()) delete()
+        }
+
+        fun stop() {
+            stopped.set(true)
+            delete()
+        }
+
+        private fun delete() {
+            val current = audit.get() ?: return
+            if (deleted.compareAndSet(false, true)) current.delete()
+        }
+    }
+
     private val auditRunning = AtomicBoolean()
+    private val audits = ConcurrentHashMap<String, AuditHandle>()
 
     fun startRace(request: String, host: String, port: Int, https: Boolean, count: Int): JobSnapshot {
         require(count in 1..100) { "count must be between 1 and 100" }
@@ -91,7 +115,10 @@ internal class LongOperationFacade(
 
     fun startAudit(url: String, active: Boolean): JobSnapshot {
         require(url.isNotBlank()) { "url must not be blank" }
-        return jobs.start("scanner_audit") {
+        return jobs.startWithId("scanner_audit") { id ->
+            val handle = AuditHandle()
+            audits[id] = handle
+            if (Thread.currentThread().isInterrupted) throw InterruptedException()
             check(auditRunning.compareAndSet(false, true)) { "another scanner audit is already running" }
             val wasInScope = api.scope().isInScope(url)
             if (!wasInScope) api.scope().includeInScope(url)
@@ -101,7 +128,8 @@ internal class LongOperationFacade(
             try {
                 val mode = if (active) BuiltInAuditConfiguration.LEGACY_ACTIVE_AUDIT_CHECKS else BuiltInAuditConfiguration.LEGACY_PASSIVE_AUDIT_CHECKS
                 audit = api.scanner().startAudit(AuditConfiguration.auditConfiguration(mode))
-                audit!!.addRequest(HttpRequest.httpRequestFromUrl(url))
+                handle.attach(audit)
+                audit.addRequest(HttpRequest.httpRequestFromUrl(url))
                 awaitAuditCompletion(
                     snapshot = { AuditJobOutput(runCatching { audit!!.requestCount() }.getOrDefault(observed.get()), runCatching { audit!!.errorCount() }.getOrDefault(0), runCatching { audit!!.issues().size }.getOrDefault(0)) },
                     observedRequestCount = observed::get,
@@ -117,7 +145,23 @@ internal class LongOperationFacade(
             }
         }
     }
+    fun stopAudit(id: String): JobSnapshot? {
+        val snapshot = jobs.status(id) ?: return null
+        require(snapshot.operation == "scanner_audit") { "job is not a scanner audit" }
+        if (snapshot.state == JobState.QUEUED || snapshot.state == JobState.RUNNING) {
+            audits[id]?.stop()
+            return jobs.cancel(id)
+        }
+        return snapshot
+    }
 
+    fun removeAudit(id: String): JobSnapshot? {
+        val snapshot = jobs.status(id) ?: return null
+        require(snapshot.operation == "scanner_audit") { "job is not a scanner audit" }
+        check(snapshot.state in setOf(JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED)) { "audit must be stopped before removal" }
+        audits.remove(id)?.stop()
+        return jobs.remove(id)
+    }
     private fun scannerHandler(origin: String, observed: AtomicInteger): HttpHandler = object : HttpHandler {
         override fun handleHttpRequestToBeSent(requestToBeSent: HttpRequestToBeSent): RequestToBeSentAction {
             if (requestToBeSent.toolSource().isFromTool(ToolType.SCANNER) && requestToBeSent.url().startsWith(origin)) observed.incrementAndGet()

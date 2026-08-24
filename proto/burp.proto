@@ -65,6 +65,8 @@ service BurpService {
   rpc StartBoundedInputMatrix(StartBoundedInputMatrixRequest) returns (JobStatusResponse);
   rpc StartCrawl(StartCrawlRequest) returns (JobStatusResponse);
   rpc StartAudit(StartAuditRequest) returns (JobStatusResponse);
+  rpc StopAudit(CancelJobRequest) returns (JobStatusResponse);
+  rpc RemoveAudit(CancelJobRequest) returns (ActionResponse);
   rpc GetJobStatus(GetJobStatusRequest) returns (JobStatusResponse);
   rpc CancelJob(CancelJobRequest) returns (JobStatusResponse);
   rpc GetJobResult(GetJobResultRequest) returns (JobResultResponse);
@@ -653,4 +655,3 @@ message ServerInfoResponse {
   string graph_id = 15;
   bool project_temporary = 16;
 }
-

@@ -70,8 +70,10 @@ internal class JobFacade : AutoCloseable {
         Thread(runnable, "burp-mcp-job").apply { isDaemon = true }
     }
 
+    fun start(operation: String, task: () -> JobOutput): JobSnapshot = startWithId(operation) { task() }
+
     @Synchronized
-    fun start(operation: String, task: () -> JobOutput): JobSnapshot {
+    fun startWithId(operation: String, task: (String) -> JobOutput): JobSnapshot {
         require(operation.isNotBlank()) { "job operation must not be blank" }
         require(records.size < MAX_RETAINED_JOBS) { "too many retained jobs" }
         val record = Record("job-${ids.incrementAndGet()}", operation)
@@ -81,7 +83,7 @@ internal class JobFacade : AutoCloseable {
             executor.submit {
                 if (!record.state.compareAndSet(JobState.QUEUED, JobState.RUNNING)) return@submit
                 try {
-                    val result = task()
+                    val result = task(record.id)
                     record.result = result
                     record.state.compareAndSet(JobState.RUNNING, JobState.COMPLETED)
                 } catch (exception: InterruptedException) {
@@ -112,6 +114,13 @@ internal class JobFacade : AutoCloseable {
             record.future?.cancel(true)
         }
         snapshot(record)
+    }
+    fun remove(id: String): JobSnapshot? {
+        val record = records[id] ?: return null
+        check(record.state.get() in TERMINAL_STATES) { "job must be terminal before removal" }
+        if (!records.remove(id, record)) return null
+        order.remove(id)
+        return snapshot(record)
     }
 
     private fun snapshot(record: Record): JobSnapshot =
