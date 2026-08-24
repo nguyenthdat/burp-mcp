@@ -25,7 +25,7 @@ internal class CollaboratorFacade(
 
     @Synchronized
     fun interactions(): List<CollaboratorInteraction> {
-        val current = checkNotNull(client) { "generate at least one Collaborator payload first" }
+        val current = client ?: return emptyList()
         return current.allInteractions.map { interaction ->
             CollaboratorInteraction(
                 interaction.id().toString(),

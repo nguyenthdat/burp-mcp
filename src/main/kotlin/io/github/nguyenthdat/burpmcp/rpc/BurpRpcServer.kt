@@ -1445,35 +1445,32 @@ internal class BurpRpcService(
     override fun pollCollaboratorInteractions(
         request: PollCollaboratorInteractionsRequest,
         responseObserver: StreamObserver<PollCollaboratorInteractionsResponse>,
-    ) {
+    ) = responseObserver.respond {
         val items = collaboratorFacade.interactions()
         val limit = request.page.limit.toInt().takeIf { it > 0 }?.coerceAtMost(GRPC_MAX_PAGE_SIZE) ?: GRPC_DEFAULT_PAGE_SIZE
         val offset = parseCursor(request.page.cursor, "Collaborator cursor")
         val end = minOf(offset + limit, items.size)
         val pageItems = if (offset >= items.size) emptyList() else items.subList(offset, end)
-        responseObserver.onNext(
-            PollCollaboratorInteractionsResponse
-                .newBuilder()
-                .addAllItems(
-                    pageItems.map { item ->
-                        CollaboratorInteractionEntry
-                            .newBuilder()
-                            .setId(item.id)
-                            .setType(item.type)
-                            .setClientIp(item.clientIp)
-                            .setClientPort(item.clientPort)
-                            .setTimestamp(item.timestamp)
-                            .build()
-                    },
-                ).setPage(
-                    PageInfo.newBuilder()
-                        .setTotal(items.size)
-                        .setTruncated(end < items.size)
-                        .setNextCursor(if (end < items.size) end.toString() else "")
-                        .build(),
-                ).build(),
-        )
-        responseObserver.onCompleted()
+        PollCollaboratorInteractionsResponse
+            .newBuilder()
+            .addAllItems(
+                pageItems.map { item ->
+                    CollaboratorInteractionEntry
+                        .newBuilder()
+                        .setId(item.id)
+                        .setType(item.type)
+                        .setClientIp(item.clientIp)
+                        .setClientPort(item.clientPort)
+                        .setTimestamp(item.timestamp)
+                        .build()
+                },
+            ).setPage(
+                PageInfo.newBuilder()
+                    .setTotal(items.size)
+                    .setTruncated(end < items.size)
+                    .setNextCursor(if (end < items.size) end.toString() else "")
+                    .build(),
+            ).build()
     }
 
     override fun createWebSocket(

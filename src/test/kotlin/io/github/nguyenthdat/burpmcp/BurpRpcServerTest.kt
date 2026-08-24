@@ -240,6 +240,32 @@ class BurpRpcServerTest {
     }
 
     @Test
+    fun `polling Collaborator before payload generation returns an empty page`() {
+        val port = availablePort()
+        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server?.start()
+        channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
+        val client = BurpServiceGrpc.newBlockingStub(channel).withDeadlineAfter(2, TimeUnit.SECONDS)
+
+        val response =
+            client.pollCollaboratorInteractions(
+                io.github.nguyenthdat.burpmcp.grpc.v1.PollCollaboratorInteractionsRequest
+                    .newBuilder()
+                    .setPage(
+                        io.github.nguyenthdat.burpmcp.grpc.v1.PageRequest
+                            .newBuilder()
+                            .setLimit(20)
+                            .build(),
+                    ).build(),
+            )
+
+        assertTrue(response.itemsList.isEmpty())
+        assertEquals(0, response.page.total)
+        assertFalse(response.page.truncated)
+        assertEquals("", response.page.nextCursor)
+    }
+
+    @Test
     fun `close releases listener and is idempotent`() {
         val port = availablePort()
         server = BurpRpcServer(fake(MontoyaApi::class.java), port)

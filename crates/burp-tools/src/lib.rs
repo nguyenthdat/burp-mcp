@@ -8,29 +8,27 @@ use burp_protocol::protocol::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
     CloseWebSocketRequest, ConfigResponse, CookieJarRequest, CreateMacroRequest,
     CreatePayloadListRequest, CreateWebSocketRequest, DeletePayloadListRequest,
-    DeleteScanConfigurationRequest, DeleteSessionRuleRequest,
-    DeleteScanResourcePoolRequest, ExportConfigRequest, ExtensionInfoRequest,
-    GenerateCollaboratorPayloadsRequest, GenerateScannerReportRequest, GetJobResultRequest,
-    GetJobStatusRequest, GetPayloadListRequest, GetScanConfigurationRequest,
-    GetScanResourcePoolRequest, GetSessionRuleRequest, HttpHeaderEntry,
-    ImportBCheckRequest, ImportBambdaRequest, ImportConfigRequest, ImportPayloadListRequest,
-    InterceptStateRequest, ListMacrosRequest, ListPayloadGeneratorsRequest,
-    ListPayloadListsRequest, ListPayloadProcessorsRequest, ListProxyRulesRequest,
-    ListScanConfigurationsRequest, ListScanResourcePoolsRequest, ListSessionRulesRequest,
-    ListWebSocketsRequest, MacroDefinition, MacroItem, MacroParameter,
+    DeleteScanConfigurationRequest, DeleteScanResourcePoolRequest, DeleteSessionRuleRequest,
+    ExportConfigRequest, ExtensionInfoRequest, GenerateCollaboratorPayloadsRequest,
+    GenerateScannerReportRequest, GetJobResultRequest, GetJobStatusRequest, GetPayloadListRequest,
+    GetScanConfigurationRequest, GetScanResourcePoolRequest, GetSessionRuleRequest,
+    HttpHeaderEntry, ImportBCheckRequest, ImportBambdaRequest, ImportConfigRequest,
+    ImportPayloadListRequest, InterceptStateRequest, ListMacrosRequest,
+    ListPayloadGeneratorsRequest, ListPayloadListsRequest, ListPayloadProcessorsRequest,
+    ListProxyRulesRequest, ListScanConfigurationsRequest, ListScanResourcePoolsRequest,
+    ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition, MacroItem, MacroParameter,
     ManagedWebSocketHistoryRequest, MutateScopeRequest, PageRequest,
     PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
     ProxyInterceptConfigRequest, ProxyInterceptRule, ProxyWebSocketHistoryRequest,
     RegisterHttpHandlerRequest, RegisterPayloadGeneratorRequest, RegisterPayloadProcessorRequest,
     RegisterProxyRuleRequest, RemoveMacroRequest, RemovePayloadGeneratorRequest,
-    RemovePayloadProcessorRequest, RunMacroRequest, ScanIssueDetailRequest,
-    ScanIssuesRequest, ScopeCheckRequest, SendRequestRequest, SendRequestsRequest,
-    SendToIntruderRequest, SendToRepeaterRequest, SendWebSocketBinaryRequest,
-    SendWebSocketTextRequest, SetCookieRequest, SetHighlightRequest, SetNoteRequest,
-    SitemapSnapshotRequest, StartAuditRequest, StartBoundedInputMatrixRequest,
-    StartConcurrentRequestCheckRequest, StartCrawlRequest, TargetInfoRequest,
-    UpdatePayloadListRequest, UpsertScanConfigurationRequest, UpsertScanResourcePoolRequest,
-    UpsertSessionRuleRequest,
+    RemovePayloadProcessorRequest, RunMacroRequest, ScanIssueDetailRequest, ScanIssuesRequest,
+    ScopeCheckRequest, SendRequestRequest, SendRequestsRequest, SendToIntruderRequest,
+    SendToRepeaterRequest, SendWebSocketBinaryRequest, SendWebSocketTextRequest, SetCookieRequest,
+    SetHighlightRequest, SetNoteRequest, SitemapSnapshotRequest, StartAuditRequest,
+    StartBoundedInputMatrixRequest, StartConcurrentRequestCheckRequest, StartCrawlRequest,
+    TargetInfoRequest, UpdatePayloadListRequest, UpsertScanConfigurationRequest,
+    UpsertScanResourcePoolRequest, UpsertSessionRuleRequest,
 };
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
@@ -469,7 +467,9 @@ pub struct SessionRuleUpsertInput {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct SessionRuleIdInput { pub id: String }
+pub struct SessionRuleIdInput {
+    pub id: String,
+}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct MacroParameterInput {
@@ -546,7 +546,9 @@ pub struct AuditInput {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct ScanConfigurationIdInput { pub id: String }
+pub struct ScanConfigurationIdInput {
+    pub id: String,
+}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ScanConfigurationUpsertInput {
@@ -561,7 +563,9 @@ pub struct ScanConfigurationUpsertInput {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct ScanResourcePoolIdInput { pub id: String }
+pub struct ScanResourcePoolIdInput {
+    pub id: String,
+}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ScanResourcePoolUpsertInput {
@@ -858,7 +862,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_proxy_history",
-        description = "Get a bounded page of Burp proxy history entries"
+        description = "Get a bounded page of Burp proxy history entries",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn proxy_history(&self, Parameters(input): Parameters<ProxyHistoryInput>) -> String {
         let limit = input.limit.unwrap_or(100);
@@ -899,7 +909,13 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_proxy_history_filtered",
-        description = "Filter proxy history by URL, annotation color, or notes"
+        description = "Filter proxy history by URL, annotation color, or notes",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn proxy_history_filtered(
         &self,
@@ -943,7 +959,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_proxy_detail",
-        description = "Get full request and response details for one Burp proxy history index"
+        description = "Get full request and response details for one Burp proxy history index",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn proxy_detail(&self, Parameters(input): Parameters<ProxyDetailInput>) -> String {
         let index = match validated_index(input.index) {
@@ -966,7 +988,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_sitemap",
-        description = "Get a bounded page of Burp site map entries with an optional URL prefix"
+        description = "Get a bounded page of Burp site map entries with an optional URL prefix",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn sitemap(&self, Parameters(input): Parameters<SitemapInput>) -> String {
         let limit = input.limit.unwrap_or(100);
@@ -1008,7 +1036,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_target_info",
-        description = "Summarize hosts and technology headers from a bounded Burp site map sample"
+        description = "Summarize hosts and technology headers from a bounded Burp site map sample",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn target_info(&self, Parameters(input): Parameters<TargetInfoInput>) -> String {
         match self
@@ -1031,7 +1065,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_get_scope",
-        description = "Check whether one URL is currently in Burp target scope"
+        description = "Check whether one URL is currently in Burp target scope",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn scope_check(&self, Parameters(input): Parameters<ScopeCheckInput>) -> String {
         match self
@@ -1048,7 +1088,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_send_request",
-        description = "Send an HTTP request through Burp and get the response"
+        description = "Send an HTTP request through Burp and get the response",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn send_request(&self, Parameters(input): Parameters<SendRequestInput>) -> String {
         match self.client.send_request(to_proto_request(input)).await {
@@ -1060,7 +1106,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_send_request_parallel",
-        description = "Send parallel HTTP requests"
+        description = "Send parallel HTTP requests",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn send_request_parallel(
         &self,
@@ -1091,7 +1143,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_send_to_repeater",
-        description = "Display a raw HTTP request in Burp Repeater without sending it. tab_name is an optional tab caption, not a tag."
+        description = "Display a raw HTTP request in Burp Repeater without sending it. tab_name is an optional tab caption, not a tag.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn send_to_repeater(&self, Parameters(input): Parameters<SendToRepeaterInput>) -> String {
         let https = input.https.unwrap_or(false);
@@ -1115,7 +1173,13 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_highlight",
-        description = "Set the highlight color on an item in the current Burp Proxy HTTP history."
+        description = "Set the highlight color on an item in the current Burp Proxy HTTP history.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn highlight(&self, Parameters(input): Parameters<HighlightInput>) -> String {
         let index = match validated_index(input.index) {
@@ -1140,7 +1204,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_annotate",
-        description = "Set notes on an item in the current Burp Proxy HTTP history."
+        description = "Set notes on an item in the current Burp Proxy HTTP history.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn annotate(&self, Parameters(input): Parameters<AnnotateInput>) -> String {
         let index = match validated_index(input.index) {
@@ -1164,7 +1234,13 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_add_to_scope",
-        description = "Add a URL to Burp target scope"
+        description = "Add a URL to Burp target scope",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn add_to_scope(&self, Parameters(input): Parameters<ScopeMutationInput>) -> String {
         self.mutate_scope(input.url, true).await
@@ -1172,7 +1248,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_remove_from_scope",
-        description = "Remove a URL from Burp target scope"
+        description = "Remove a URL from Burp target scope",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn remove_from_scope(&self, Parameters(input): Parameters<ScopeMutationInput>) -> String {
         self.mutate_scope(input.url, false).await
@@ -1193,7 +1275,13 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_export_config",
-        description = "Export Burp project configuration as JSON"
+        description = "Export Burp project configuration as JSON",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn export_config(&self) -> String {
         match self
@@ -1208,7 +1296,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_import_config",
-        description = "Import validated, size-bounded Burp project configuration JSON"
+        description = "Import validated, size-bounded Burp project configuration JSON",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn import_config(&self, Parameters(input): Parameters<ImportConfigInput>) -> String {
         match self
@@ -1228,7 +1322,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_inspect_config",
-        description = "Export scoped Burp project options and return discovered leaf paths and UTF-8 size"
+        description = "Export scoped Burp project options and return discovered leaf paths and UTF-8 size",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn inspect_config(&self, Parameters(input): Parameters<InspectConfigInput>) -> String {
         match self
@@ -1250,7 +1350,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_register_http_handler",
-        description = "Register a bounded HTTP request handler rule"
+        description = "Register a bounded HTTP request handler rule",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn register_http_handler(
         &self,
@@ -1276,7 +1382,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_remove_http_handler",
-        description = "Remove/clear HTTP handler rules"
+        description = "Remove/clear HTTP handler rules",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn remove_http_handler(&self) -> String {
         action_json(
@@ -1288,7 +1400,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_register_proxy_rule",
-        description = "Register a request or response Proxy rule: forward, intercept, drop, or edit"
+        description = "Register a request or response Proxy rule: forward, intercept, drop, or edit",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn register_proxy_rule(
         &self,
@@ -1314,7 +1432,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_list_proxy_rules",
-        description = "List configured Proxy request and response rules"
+        description = "List configured Proxy request and response rules",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn list_proxy_rules(&self) -> String {
         match self.client.list_proxy_rules(ListProxyRulesRequest {}).await {
@@ -1335,7 +1459,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_remove_proxy_rule",
-        description = "Remove one Proxy rule or clear all Proxy rules"
+        description = "Remove one Proxy rule or clear all Proxy rules",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn remove_proxy_rule(
         &self,
@@ -1352,27 +1482,59 @@ impl BurpTools {
 
     #[tool(
         name = "burp_session_create_rule",
-        description = "Create a scoped MCP session rule and return its stable ID"
+        description = "Create a scoped MCP session rule and return its stable ID",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn session_create_rule(
         &self,
         Parameters(input): Parameters<SessionRuleUpsertInput>,
     ) -> String {
-        match self.client.create_session_rule(session_rule_request(input)).await {
+        match self
+            .client
+            .create_session_rule(session_rule_request(input))
+            .await
+        {
             Ok(rule) => session_rule_json(rule).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
 
-    #[tool(name = "burp_session_get_rule", description = "Get one MCP session rule by ID")]
+    #[tool(
+        name = "burp_session_get_rule",
+        description = "Get one MCP session rule by ID",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
     async fn session_get_rule(&self, Parameters(input): Parameters<SessionRuleIdInput>) -> String {
-        match self.client.get_session_rule(GetSessionRuleRequest { id: input.id }).await {
+        match self
+            .client
+            .get_session_rule(GetSessionRuleRequest { id: input.id })
+            .await
+        {
             Ok(rule) => session_rule_json(rule).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
 
-    #[tool(name = "burp_session_update_rule", description = "Replace one MCP session rule by ID")]
+    #[tool(
+        name = "burp_session_update_rule",
+        description = "Replace one MCP session rule by ID",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
     async fn session_update_rule(
         &self,
         Parameters(input): Parameters<SessionRuleUpsertInput>,
@@ -1380,13 +1542,26 @@ impl BurpTools {
         if input.id.as_deref().unwrap_or_default().is_empty() {
             return serde_json::json!({"error": "id is required"}).to_string();
         }
-        match self.client.update_session_rule(session_rule_request(input)).await {
+        match self
+            .client
+            .update_session_rule(session_rule_request(input))
+            .await
+        {
             Ok(rule) => session_rule_json(rule).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
 
-    #[tool(name = "burp_session_list_rules", description = "List registered MCP session rules and scope")]
+    #[tool(
+        name = "burp_session_list_rules",
+        description = "List registered MCP session rules and scope",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
     async fn session_list_rules(&self) -> String {
         match self.client.list_session_rules(ListSessionRulesRequest {}).await {
             Ok(response) => serde_json::json!({"rules": response.items.into_iter().map(session_rule_json).collect::<Vec<_>>() }).to_string(),
@@ -1394,14 +1569,36 @@ impl BurpTools {
         }
     }
 
-    #[tool(name = "burp_session_delete_rule", description = "Delete one MCP session rule by ID")]
-    async fn session_delete_rule(&self, Parameters(input): Parameters<SessionRuleIdInput>) -> String {
-        action_json(self.client.delete_session_rule(DeleteSessionRuleRequest { id: input.id }).await)
+    #[tool(
+        name = "burp_session_delete_rule",
+        description = "Delete one MCP session rule by ID",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn session_delete_rule(
+        &self,
+        Parameters(input): Parameters<SessionRuleIdInput>,
+    ) -> String {
+        action_json(
+            self.client
+                .delete_session_rule(DeleteSessionRuleRequest { id: input.id })
+                .await,
+        )
     }
 
     #[tool(
         name = "burp_macro_create",
-        description = "Create or replace a Burp Settings > Sessions > Macros definition"
+        description = "Create or replace a Burp Settings > Sessions > Macros definition",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn macro_create(&self, Parameters(input): Parameters<CreateMacroInput>) -> String {
         action_json(
@@ -1447,7 +1644,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_macro_list",
-        description = "List Burp Settings > Sessions > Macros definitions"
+        description = "List Burp Settings > Sessions > Macros definitions",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn macro_list(&self) -> String {
         match self.client.list_macros(ListMacrosRequest {}).await {
@@ -1458,7 +1661,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_macro_run",
-        description = "Execute requests from a Burp session macro definition"
+        description = "Execute requests from a Burp session macro definition",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn macro_run(&self, Parameters(input): Parameters<MacroDescriptionInput>) -> String {
         match self.client.run_macro(RunMacroRequest { description: input.description }).await {
@@ -1469,7 +1678,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_macro_remove",
-        description = "Remove a Burp Settings > Sessions > Macros definition"
+        description = "Remove a Burp Settings > Sessions > Macros definition",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn macro_remove(&self, Parameters(input): Parameters<MacroDescriptionInput>) -> String {
         action_json(
@@ -1483,7 +1698,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_race_condition",
-        description = "Start a bounded concurrent request comparison job"
+        description = "Start a bounded concurrent request comparison job",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn race_condition(
         &self,
@@ -1506,7 +1727,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_inline_fuzzer",
-        description = "Start a bounded raw HTTP request matrix; template must be a complete raw request containing the nonblank marker"
+        description = "Start a bounded raw HTTP request matrix; template must be a complete raw request containing the nonblank marker",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn inline_fuzzer(
         &self,
@@ -1531,7 +1758,13 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_intruder_payload_processor_register",
-        description = "Register one bounded declarative Intruder payload processor"
+        description = "Register one bounded declarative Intruder payload processor",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn intruder_payload_processor_register(
         &self,
@@ -1552,7 +1785,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_intruder_payload_processor_list",
-        description = "List registered declarative Intruder payload processors"
+        description = "List registered declarative Intruder payload processors",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn intruder_payload_processor_list(&self) -> String {
         match self.client.list_payload_processors(ListPayloadProcessorsRequest {}).await {
@@ -1563,7 +1802,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_intruder_payload_processor_remove",
-        description = "Deregister one declarative Intruder payload processor"
+        description = "Deregister one declarative Intruder payload processor",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn intruder_payload_processor_remove(
         &self,
@@ -1578,7 +1823,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_intruder_payload_generator_register",
-        description = "Register one bounded declarative Intruder payload generator"
+        description = "Register one bounded declarative Intruder payload generator",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn intruder_payload_generator_register(
         &self,
@@ -1600,7 +1851,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_intruder_payload_generator_list",
-        description = "List registered declarative Intruder payload generators"
+        description = "List registered declarative Intruder payload generators",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn intruder_payload_generator_list(&self) -> String {
         match self.client.list_payload_generators(ListPayloadGeneratorsRequest {}).await {
@@ -1611,7 +1868,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_intruder_payload_generator_remove",
-        description = "Deregister one declarative Intruder payload generator"
+        description = "Deregister one declarative Intruder payload generator",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn intruder_payload_generator_remove(
         &self,
@@ -1625,7 +1888,13 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_payload_list_create",
-        description = "Create one bounded in-memory payload list"
+        description = "Create one bounded in-memory payload list",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn payload_list_create(
         &self,
@@ -1644,7 +1913,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_payload_list_import",
-        description = "Import a bounded payload list from newline text or a JSON string array"
+        description = "Import a bounded payload list from newline text or a JSON string array",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn payload_list_import(
         &self,
@@ -1664,7 +1939,13 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_payload_list_list",
-        description = "List bounded in-memory payload lists"
+        description = "List bounded in-memory payload lists",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn payload_list_list(&self) -> String {
         match self.client.list_payload_lists(ListPayloadListsRequest {}).await {
@@ -1675,7 +1956,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_payload_list_get",
-        description = "Read one bounded page from a payload list"
+        description = "Read one bounded page from a payload list",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn payload_list_get(&self, Parameters(input): Parameters<GetPayloadListInput>) -> String {
         match self.client.get_payload_list(GetPayloadListRequest {
@@ -1689,7 +1976,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_payload_list_update",
-        description = "Append, prepend, insert, replace, remove, clear, or rename a payload list"
+        description = "Append, prepend, insert, replace, remove, clear, or rename a payload list",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn payload_list_update(
         &self,
@@ -1711,7 +2004,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_payload_list_delete",
-        description = "Delete one payload list"
+        description = "Delete one payload list",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn payload_list_delete(
         &self,
@@ -1726,29 +2025,66 @@ impl BurpTools {
 
     #[tool(
         name = "burp_scan_start",
-        description = "Start passive stateless audit or active audit with explicit bounded scan options"
+        description = "Start passive stateless audit or active audit with explicit bounded scan options",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn scan_start(&self, Parameters(input): Parameters<AuditInput>) -> String {
-        let audit_type = input.audit_type.as_deref().unwrap_or("passive").to_lowercase();
+        let audit_type = input
+            .audit_type
+            .as_deref()
+            .unwrap_or("passive")
+            .to_lowercase();
         if !matches!(audit_type.as_str(), "passive" | "active") {
-            return serde_json::json!({"error": "audit_type must be passive or active"}).to_string();
+            return serde_json::json!({"error": "audit_type must be passive or active"})
+                .to_string();
         }
-        job_status_json(self.client.start_audit(StartAuditRequest {
-            url: input.url,
-            audit_type,
-            scan_configuration_id: input.scan_configuration_id.unwrap_or_default(),
-            resource_pool_id: input.resource_pool_id.unwrap_or_default(),
-            timeout_seconds: input.timeout_seconds.unwrap_or_default(),
-            stable_seconds: input.stable_seconds.unwrap_or_default(),
-            include_out_of_scope: input.include_out_of_scope.unwrap_or(false),
-        }).await)
+        job_status_json(
+            self.client
+                .start_audit(StartAuditRequest {
+                    url: input.url,
+                    audit_type,
+                    scan_configuration_id: input.scan_configuration_id.unwrap_or_default(),
+                    resource_pool_id: input.resource_pool_id.unwrap_or_default(),
+                    timeout_seconds: input.timeout_seconds.unwrap_or_default(),
+                    stable_seconds: input.stable_seconds.unwrap_or_default(),
+                    include_out_of_scope: input.include_out_of_scope.unwrap_or(false),
+                })
+                .await,
+        )
     }
-    #[tool(name = "burp_scan_stop", description = "Stop a running active Burp audit by job ID")]
+    #[tool(
+        name = "burp_scan_stop",
+        description = "Stop a running active Burp audit by job ID",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
     async fn scan_stop(&self, Parameters(input): Parameters<JobInput>) -> String {
-        job_status_json(self.client.stop_audit(CancelJobRequest { id: input.job_id }).await)
+        job_status_json(
+            self.client
+                .stop_audit(CancelJobRequest { id: input.job_id })
+                .await,
+        )
     }
 
-    #[tool(name = "burp_scan_config_list", description = "List built-in and project-persisted scan configurations")]
+    #[tool(
+        name = "burp_scan_config_list",
+        description = "List built-in and project-persisted scan configurations",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
     async fn scan_config_list(&self) -> String {
         match self.client.list_scan_configurations(ListScanConfigurationsRequest {}).await {
             Ok(response) => serde_json::json!({"items": response.items.into_iter().map(scan_configuration_json).collect::<Vec<_>>() }).to_string(),
@@ -1756,39 +2092,112 @@ impl BurpTools {
         }
     }
 
-    #[tool(name = "burp_scan_config_get", description = "Get one scan configuration by ID")]
-    async fn scan_config_get(&self, Parameters(input): Parameters<ScanConfigurationIdInput>) -> String {
-        match self.client.get_scan_configuration(GetScanConfigurationRequest { id: input.id }).await {
+    #[tool(
+        name = "burp_scan_config_get",
+        description = "Get one scan configuration by ID",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn scan_config_get(
+        &self,
+        Parameters(input): Parameters<ScanConfigurationIdInput>,
+    ) -> String {
+        match self
+            .client
+            .get_scan_configuration(GetScanConfigurationRequest { id: input.id })
+            .await
+        {
             Ok(value) => scan_configuration_json(value).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
 
-    #[tool(name = "burp_scan_config_create", description = "Create a bounded persisted scan configuration")]
-    async fn scan_config_create(&self, Parameters(input): Parameters<ScanConfigurationUpsertInput>) -> String {
-        match self.client.create_scan_configuration(scan_configuration_request(input)).await {
+    #[tool(
+        name = "burp_scan_config_create",
+        description = "Create a bounded persisted scan configuration",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn scan_config_create(
+        &self,
+        Parameters(input): Parameters<ScanConfigurationUpsertInput>,
+    ) -> String {
+        match self
+            .client
+            .create_scan_configuration(scan_configuration_request(input))
+            .await
+        {
             Ok(value) => scan_configuration_json(value).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
 
-    #[tool(name = "burp_scan_config_update", description = "Update a persisted scan configuration by ID")]
-    async fn scan_config_update(&self, Parameters(input): Parameters<ScanConfigurationUpsertInput>) -> String {
+    #[tool(
+        name = "burp_scan_config_update",
+        description = "Update a persisted scan configuration by ID",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn scan_config_update(
+        &self,
+        Parameters(input): Parameters<ScanConfigurationUpsertInput>,
+    ) -> String {
         if input.id.as_deref().unwrap_or_default().is_empty() {
             return serde_json::json!({"error": "id is required"}).to_string();
         }
-        match self.client.update_scan_configuration(scan_configuration_request(input)).await {
+        match self
+            .client
+            .update_scan_configuration(scan_configuration_request(input))
+            .await
+        {
             Ok(value) => scan_configuration_json(value).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
 
-    #[tool(name = "burp_scan_config_delete", description = "Delete a persisted scan configuration by ID")]
-    async fn scan_config_delete(&self, Parameters(input): Parameters<ScanConfigurationIdInput>) -> String {
-        action_json(self.client.delete_scan_configuration(DeleteScanConfigurationRequest { id: input.id }).await)
+    #[tool(
+        name = "burp_scan_config_delete",
+        description = "Delete a persisted scan configuration by ID",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn scan_config_delete(
+        &self,
+        Parameters(input): Parameters<ScanConfigurationIdInput>,
+    ) -> String {
+        action_json(
+            self.client
+                .delete_scan_configuration(DeleteScanConfigurationRequest { id: input.id })
+                .await,
+        )
     }
 
-    #[tool(name = "burp_scan_pool_list", description = "List scanner resource pool definitions and runtime support")]
+    #[tool(
+        name = "burp_scan_pool_list",
+        description = "List scanner resource pool definitions and runtime support",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
     async fn scan_pool_list(&self) -> String {
         match self.client.list_scan_resource_pools(ListScanResourcePoolsRequest {}).await {
             Ok(response) => serde_json::json!({"items": response.items.into_iter().map(scan_pool_json).collect::<Vec<_>>(), "scanner_supported": response.scanner_supported, "support_message": response.support_message}).to_string(),
@@ -1796,41 +2205,111 @@ impl BurpTools {
         }
     }
 
-    #[tool(name = "burp_scan_pool_get", description = "Get one scanner resource pool definition by ID")]
-    async fn scan_pool_get(&self, Parameters(input): Parameters<ScanResourcePoolIdInput>) -> String {
-        match self.client.get_scan_resource_pool(GetScanResourcePoolRequest { id: input.id }).await {
+    #[tool(
+        name = "burp_scan_pool_get",
+        description = "Get one scanner resource pool definition by ID",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn scan_pool_get(
+        &self,
+        Parameters(input): Parameters<ScanResourcePoolIdInput>,
+    ) -> String {
+        match self
+            .client
+            .get_scan_resource_pool(GetScanResourcePoolRequest { id: input.id })
+            .await
+        {
             Ok(value) => scan_pool_json(value).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
 
-    #[tool(name = "burp_scan_pool_create", description = "Create a persisted scanner resource pool definition")]
-    async fn scan_pool_create(&self, Parameters(input): Parameters<ScanResourcePoolUpsertInput>) -> String {
-        match self.client.create_scan_resource_pool(scan_pool_request(input)).await {
+    #[tool(
+        name = "burp_scan_pool_create",
+        description = "Create a persisted scanner resource pool definition",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn scan_pool_create(
+        &self,
+        Parameters(input): Parameters<ScanResourcePoolUpsertInput>,
+    ) -> String {
+        match self
+            .client
+            .create_scan_resource_pool(scan_pool_request(input))
+            .await
+        {
             Ok(value) => scan_pool_json(value).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
 
-    #[tool(name = "burp_scan_pool_update", description = "Update a persisted scanner resource pool definition")]
-    async fn scan_pool_update(&self, Parameters(input): Parameters<ScanResourcePoolUpsertInput>) -> String {
+    #[tool(
+        name = "burp_scan_pool_update",
+        description = "Update a persisted scanner resource pool definition",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn scan_pool_update(
+        &self,
+        Parameters(input): Parameters<ScanResourcePoolUpsertInput>,
+    ) -> String {
         if input.id.as_deref().unwrap_or_default().is_empty() {
             return serde_json::json!({"error": "id is required"}).to_string();
         }
-        match self.client.update_scan_resource_pool(scan_pool_request(input)).await {
+        match self
+            .client
+            .update_scan_resource_pool(scan_pool_request(input))
+            .await
+        {
             Ok(value) => scan_pool_json(value).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
 
-    #[tool(name = "burp_scan_pool_delete", description = "Delete a persisted scanner resource pool definition")]
-    async fn scan_pool_delete(&self, Parameters(input): Parameters<ScanResourcePoolIdInput>) -> String {
-        action_json(self.client.delete_scan_resource_pool(DeleteScanResourcePoolRequest { id: input.id }).await)
+    #[tool(
+        name = "burp_scan_pool_delete",
+        description = "Delete a persisted scanner resource pool definition",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn scan_pool_delete(
+        &self,
+        Parameters(input): Parameters<ScanResourcePoolIdInput>,
+    ) -> String {
+        action_json(
+            self.client
+                .delete_scan_resource_pool(DeleteScanResourcePoolRequest { id: input.id })
+                .await,
+        )
     }
 
     #[tool(
         name = "burp_scan_remove",
-        description = "Remove a stopped or completed Burp audit by job ID"
+        description = "Remove a stopped or completed Burp audit by job ID",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn scan_remove(&self, Parameters(input): Parameters<JobInput>) -> String {
         action_json(
@@ -1840,21 +2319,40 @@ impl BurpTools {
         )
     }
 
-    #[tool(name = "burp_crawl", description = "Start a bounded Burp crawl with explicit seeds, configuration, scope, and timing")]
+    #[tool(
+        name = "burp_crawl",
+        description = "Start a bounded Burp crawl with explicit seeds, configuration, scope, and timing",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
     async fn crawl(&self, Parameters(input): Parameters<CrawlInput>) -> String {
-        job_status_json(self.client.start_crawl(StartCrawlRequest {
-            seed_urls: input.seed_urls,
-            scan_configuration_id: input.scan_configuration_id.unwrap_or_default(),
-            resource_pool_id: input.resource_pool_id.unwrap_or_default(),
-            timeout_seconds: input.timeout_seconds.unwrap_or_default(),
-            stable_seconds: input.stable_seconds.unwrap_or_default(),
-            include_out_of_scope: input.include_out_of_scope.unwrap_or(false),
-        }).await)
+        job_status_json(
+            self.client
+                .start_crawl(StartCrawlRequest {
+                    seed_urls: input.seed_urls,
+                    scan_configuration_id: input.scan_configuration_id.unwrap_or_default(),
+                    resource_pool_id: input.resource_pool_id.unwrap_or_default(),
+                    timeout_seconds: input.timeout_seconds.unwrap_or_default(),
+                    stable_seconds: input.stable_seconds.unwrap_or_default(),
+                    include_out_of_scope: input.include_out_of_scope.unwrap_or(false),
+                })
+                .await,
+        )
     }
 
     #[tool(
         name = "burp_collaborator_generate",
-        description = "Generate bounded Collaborator identifiers"
+        description = "Generate bounded Collaborator identifiers",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn collaborator_generate(
         &self,
@@ -1874,7 +2372,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_websocket_create",
-        description = "Create a WebSocket connection through Burp"
+        description = "Create a WebSocket connection through Burp",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn websocket_create(
         &self,
@@ -1901,7 +2405,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_websocket_send_text",
-        description = "Send text on a managed WebSocket"
+        description = "Send text on a managed WebSocket",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn websocket_send_text(
         &self,
@@ -1919,7 +2429,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_websocket_history",
-        description = "Read messages sent to or received from managed WebSocket connections"
+        description = "Read messages sent to or received from managed WebSocket connections",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn websocket_history(
         &self,
@@ -1961,7 +2477,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_websocket_send_binary",
-        description = "Send binary data encoded as base64 on a managed WebSocket"
+        description = "Send binary data encoded as base64 on a managed WebSocket",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn websocket_send_binary(
         &self,
@@ -1984,7 +2506,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_websocket_close",
-        description = "Close a managed WebSocket"
+        description = "Close a managed WebSocket",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn websocket_close(&self, Parameters(input): Parameters<WebSocketIdInput>) -> String {
         action_json(
@@ -1996,7 +2524,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_websocket_list",
-        description = "List active managed WebSockets"
+        description = "List active managed WebSockets",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn websocket_list(&self) -> String {
         match self.client.list_websockets(ListWebSocketsRequest {}).await {
@@ -2007,7 +2541,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_collaborator_poll",
-        description = "Get a bounded page of Collaborator interactions"
+        description = "Get a bounded page of Collaborator interactions",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn collaborator_poll(
         &self,
@@ -2045,7 +2585,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_job_status",
-        description = "Get the current state of a Burp background job"
+        description = "Get the current state of a Burp background job",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn job_status(&self, Parameters(input): Parameters<JobInput>) -> String {
         job_status_json(
@@ -2057,7 +2603,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_bambda_import",
-        description = "Import a Bambda script into Burp without executing it"
+        description = "Import a Bambda script into Burp without executing it",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn bambda_import(&self, Parameters(input): Parameters<BambdaImportInput>) -> String {
         script_import_json(
@@ -2071,7 +2623,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_bcheck_import",
-        description = "Import a BCheck script into Burp without running it"
+        description = "Import a BCheck script into Burp without running it",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn bcheck_import(&self, Parameters(input): Parameters<BCheckImportInput>) -> String {
         script_import_json(
@@ -2083,7 +2641,16 @@ impl BurpTools {
                 .await,
         )
     }
-    #[tool(name = "burp_job_cancel", description = "Cancel a Burp background job")]
+    #[tool(
+        name = "burp_job_cancel",
+        description = "Cancel a Burp background job",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
     async fn job_cancel(&self, Parameters(input): Parameters<JobInput>) -> String {
         job_status_json(
             self.client
@@ -2094,7 +2661,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_job_result",
-        description = "Get a bounded page of results from a Burp background job"
+        description = "Get a bounded page of results from a Burp background job",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn job_result(&self, Parameters(input): Parameters<JobResultInput>) -> String {
         let limit = input.limit.unwrap_or(100);
@@ -2136,7 +2709,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_convert_request",
-        description = "Convert HTTP request method (e.g. GET to POST)"
+        description = "Convert HTTP request method (e.g. GET to POST)",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn convert_request(&self, Parameters(input): Parameters<ConvertRequestInput>) -> String {
         match convert_request_text(
@@ -2150,7 +2729,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_export_request",
-        description = "Export a request as curl or Python requests code"
+        description = "Export a request as curl or Python requests code",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn export_request(&self, Parameters(input): Parameters<ExportRequestInput>) -> String {
         match export_request_text(input) {
@@ -2161,7 +2746,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_extract_from_response",
-        description = "Extract data from a response using regex"
+        description = "Extract data from a response using regex",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn extract_from_response(
         &self,
@@ -2190,7 +2781,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_scan_issues",
-        description = "Get a bounded page of Burp Scanner issues"
+        description = "Get a bounded page of Burp Scanner issues",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn scan_issues(&self, Parameters(input): Parameters<ScanIssuesInput>) -> String {
         let limit = input.limit.unwrap_or(100);
@@ -2234,7 +2831,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_scan_issue_detail",
-        description = "Get complete details for one Burp scanner issue index"
+        description = "Get complete details for one Burp scanner issue index",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn scan_issue_detail(
         &self,
@@ -2264,7 +2867,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_add_issue",
-        description = "Add one typed issue to the Burp site map"
+        description = "Add one typed issue to the Burp site map",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn add_issue(&self, Parameters(input): Parameters<AddIssueInput>) -> String {
         action_json(
@@ -2283,7 +2892,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_scanner_generate_report",
-        description = "Generate an HTML or XML Burp Scanner report for selected issue indexes, or all issues when omitted"
+        description = "Generate an HTML or XML Burp Scanner report for selected issue indexes, or all issues when omitted",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn scanner_generate_report(
         &self,
@@ -2311,7 +2926,13 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_sync",
-        description = "Synchronize bounded Burp sitemap metadata into the local SQLite graph"
+        description = "Synchronize bounded Burp sitemap metadata into the local SQLite graph",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn sitegraph_sync(&self, Parameters(input): Parameters<SiteGraphSyncInput>) -> String {
         match self
@@ -2325,7 +2946,13 @@ impl BurpTools {
     }
     #[tool(
         name = "sitegraph_search",
-        description = "Search normalized sitegraph endpoints with bounded pagination"
+        description = "Search normalized sitegraph endpoints with bounded pagination",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn sitegraph_search(
         &self,
@@ -2347,7 +2974,13 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_endpoint_detail",
-        description = "Get one normalized sitegraph endpoint"
+        description = "Get one normalized sitegraph endpoint",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn sitegraph_endpoint_detail(
         &self,
@@ -2362,7 +2995,13 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_status",
-        description = "Get local sitegraph synchronization and schema status"
+        description = "Get local sitegraph synchronization and schema status",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn sitegraph_status(&self) -> String {
         match self.sitegraph_indexer.status().await {
@@ -2373,7 +3012,13 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_config",
-        description = "Read or validate sitegraph auto-index configuration; mode is off, startup, or watch"
+        description = "Read or validate sitegraph auto-index configuration; mode is off, startup, or watch",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn sitegraph_config(
         &self,
@@ -2397,7 +3042,13 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_projects",
-        description = "List the active project-scoped graph identity"
+        description = "List the active project-scoped graph identity",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn sitegraph_projects(&self) -> String {
         match self.sitegraph.status().await {
@@ -2419,7 +3070,13 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_stats",
-        description = "Get bounded local sitegraph node and edge statistics"
+        description = "Get bounded local sitegraph node and edge statistics",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn sitegraph_stats(&self) -> String {
         match self.sitegraph.status().await {
@@ -2436,7 +3093,13 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_neighbors",
-        description = "List a bounded deterministic page of adjacent graph nodes"
+        description = "List a bounded deterministic page of adjacent graph nodes",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn sitegraph_neighbors(
         &self,
@@ -2458,7 +3121,13 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_trace",
-        description = "Trace bounded graph relationships using recursive SQLite traversal"
+        description = "Trace bounded graph relationships using recursive SQLite traversal",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn sitegraph_trace(&self, Parameters(input): Parameters<SiteGraphTraceInput>) -> String {
         let limit = match validated_graph_limit(input.limit) {
@@ -2477,7 +3146,13 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_shortest_path",
-        description = "Find one bounded directed shortest path in the active project graph"
+        description = "Find one bounded directed shortest path in the active project graph",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn sitegraph_shortest_path(
         &self,
@@ -2499,7 +3174,13 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_clusters",
-        description = "Cluster active project endpoints by origin and first path segment"
+        description = "Cluster active project endpoints by origin and first path segment",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn sitegraph_clusters(
         &self,
@@ -2523,7 +3204,13 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_impact",
-        description = "List bounded downstream impact from one active project graph node"
+        description = "List bounded downstream impact from one active project graph node",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn sitegraph_impact(
         &self,
@@ -2555,7 +3242,13 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_diff",
-        description = "List a bounded deterministic page of graph nodes changed since a timestamp"
+        description = "List a bounded deterministic page of graph nodes changed since a timestamp",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn sitegraph_diff(&self, Parameters(input): Parameters<SiteGraphDiffInput>) -> String {
         let limit = match validated_graph_limit(input.limit) {
@@ -2574,7 +3267,13 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_export",
-        description = "Export a bounded sitegraph page using explicit metadata or exact profile"
+        description = "Export a bounded sitegraph page using explicit metadata or exact profile",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn sitegraph_export(
         &self,
@@ -2619,7 +3318,13 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_cookie_jar",
-        description = "List cookies in Burp cookie jar with name, value, domain, path, and expiration (optional domain filter)"
+        description = "List cookies in Burp cookie jar with name, value, domain, path, and expiration (optional domain filter)",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn cookie_jar(&self, Parameters(input): Parameters<CookieJarInput>) -> String {
         let limit = input.limit.unwrap_or(100);
@@ -2653,7 +3358,13 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_burp_version",
-        description = "Get Burp Suite version information"
+        description = "Get Burp Suite version information",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn burp_version(&self) -> String {
         match self
@@ -2682,7 +3393,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_cookie_jar_set",
-        description = "Set one cookie in Burp's cookie jar"
+        description = "Set one cookie in Burp's cookie jar",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn set_cookie(&self, Parameters(input): Parameters<SetCookieInput>) -> String {
         action_json(
@@ -2700,7 +3417,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_intercept_state",
-        description = "Read or set Burp Proxy interception state"
+        description = "Read or set Burp Proxy interception state",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn intercept_state(&self, Parameters(input): Parameters<InterceptStateInput>) -> String {
         match self
@@ -2716,7 +3439,13 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_proxy_intercept_config",
-        description = "Read or patch Burp Proxy request, response, WebSocket interception filters and response modification settings"
+        description = "Read or patch Burp Proxy request, response, WebSocket interception filters and response modification settings",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn proxy_intercept_config(
         &self,
@@ -2782,7 +3511,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_proxy_websocket_history",
-        description = "Get a bounded page of Burp Proxy WebSocket history"
+        description = "Get a bounded page of Burp Proxy WebSocket history",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn proxy_websocket_history(
         &self,
@@ -2812,7 +3547,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_send_to_intruder",
-        description = "Open one request in Burp Intruder"
+        description = "Open one request in Burp Intruder",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
     )]
     async fn send_to_intruder(&self, Parameters(input): Parameters<SendToIntruderInput>) -> String {
         action_json(
@@ -2830,7 +3571,13 @@ impl BurpTools {
 
     #[tool(
         name = "burp_extension_info",
-        description = "Get current Burp extension and process configuration metadata"
+        description = "Get current Burp extension and process configuration metadata",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
     )]
     async fn extension_info(&self) -> String {
         match self.client.extension_info(ExtensionInfoRequest {}).await {
@@ -2953,8 +3700,12 @@ fn session_rule_request(input: SessionRuleUpsertInput) -> UpsertSessionRuleReque
         id: input.id.unwrap_or_default(),
         find: input.find.unwrap_or_default(),
         replacement: input.replace.unwrap_or_default(),
-        description: input.description.unwrap_or_else(|| "Burp MCP session rule".to_owned()),
-        action_type: input.action_type.unwrap_or_else(|| "replace_text".to_owned()),
+        description: input
+            .description
+            .unwrap_or_else(|| "Burp MCP session rule".to_owned()),
+        action_type: input
+            .action_type
+            .unwrap_or_else(|| "replace_text".to_owned()),
         header_name: input.header_name.unwrap_or_default(),
         parameter_name: input.parameter_name.unwrap_or_default(),
         macro_description: input.macro_description.unwrap_or_default(),
@@ -3056,7 +3807,9 @@ fn decoder_result_json(result: utility_engine_api::UtilityResult<DataValue>) -> 
         Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
     }
 }
-fn scan_configuration_request(input: ScanConfigurationUpsertInput) -> UpsertScanConfigurationRequest {
+fn scan_configuration_request(
+    input: ScanConfigurationUpsertInput,
+) -> UpsertScanConfigurationRequest {
     UpsertScanConfigurationRequest {
         id: input.id.unwrap_or_default(),
         name: input.name,
@@ -3069,7 +3822,9 @@ fn scan_configuration_request(input: ScanConfigurationUpsertInput) -> UpsertScan
     }
 }
 
-fn scan_configuration_json(value: burp_protocol::protocol::ScanConfigurationEntry) -> serde_json::Value {
+fn scan_configuration_json(
+    value: burp_protocol::protocol::ScanConfigurationEntry,
+) -> serde_json::Value {
     serde_json::json!({"id": value.id, "name": value.name, "scan_type": value.scan_type, "audit_type": value.audit_type, "include_out_of_scope": value.include_out_of_scope, "timeout_seconds": value.timeout_seconds, "stable_seconds": value.stable_seconds, "resource_pool_id": value.resource_pool_id, "source": value.source})
 }
 
