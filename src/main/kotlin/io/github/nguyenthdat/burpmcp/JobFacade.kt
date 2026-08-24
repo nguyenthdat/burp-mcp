@@ -111,7 +111,6 @@ internal class JobFacade : AutoCloseable {
                     record.state.compareAndSet(JobState.RUNNING, JobState.COMPLETED)
                 } catch (exception: InterruptedException) {
                     Thread.currentThread().interrupt()
-                    record.error = "job interrupted"
                     record.state.compareAndSet(JobState.RUNNING, JobState.CANCELLED)
                 } catch (exception: Exception) {
                     record.error = exception.message ?: exception::class.simpleName ?: "job failed"

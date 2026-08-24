@@ -20,7 +20,7 @@ internal class HttpFacade(
 ) {
     fun send(spec: HttpRequestSpec): HttpExchange {
         var request = HttpRequest.httpRequestFromUrl(spec.url).withMethod(spec.method.uppercase())
-        spec.headers.forEach { (name, value) -> request = request.withUpdatedHeader(name, value) }
+        request = request.withHeaders(spec.headers)
         if (spec.body.isNotEmpty()) request = request.withBody(spec.body)
         val exchange = api.http().sendRequest(request)
         return HttpExchange(
@@ -34,7 +34,7 @@ internal class HttpFacade(
         require(specs.size <= 32) { "at most 32 requests may be sent in one batch" }
         val requests = specs.map { spec ->
             var request = HttpRequest.httpRequestFromUrl(spec.url).withMethod(spec.method.uppercase())
-            spec.headers.forEach { (name, value) -> request = request.withUpdatedHeader(name, value) }
+            request = request.withHeaders(spec.headers)
             if (spec.body.isNotEmpty()) request = request.withBody(spec.body)
             request
         }
@@ -52,4 +52,17 @@ internal class HttpFacade(
         val message = HttpRequest.httpRequest(service, request)
         api.repeater().sendToRepeater(message, tabName)
     }
+}
+
+private fun HttpRequest.withHeaders(headers: Map<String, String>): HttpRequest {
+    var request = this
+    headers.forEach { (name, value) ->
+        request =
+            if (request.hasHeader(name)) {
+                request.withUpdatedHeader(name, value)
+            } else {
+                request.withAddedHeader(name, value)
+            }
+    }
+    return request
 }
