@@ -228,20 +228,20 @@ internal class ProxyInterceptConfigFacade(
     private companion object {
         const val PROXY_CONFIG_PATH = "proxy"
         val BOOLEAN_OPERATORS = setOf("and", "or")
-        val RELATIONSHIPS_REQUIRING_CONDITION = setOf("matches", "does_not_match", "contains", "does_not_contain")
+        val RELATIONSHIPS_REQUIRING_CONDITION = setOf("matches", "does_not_match")
         val REQUEST_RULE_RELATIONSHIPS =
             mapOf(
                 "file_extension" to setOf("matches", "does_not_match"),
                 "request" to setOf("contains_parameters"),
                 "http_method" to setOf("matches", "does_not_match"),
-                "url" to setOf("matches", "does_not_match", "contains", "does_not_contain", "is_in_target_scope"),
+                "url" to setOf("matches", "does_not_match", "is_in_target_scope"),
             )
         val RESPONSE_RULE_RELATIONSHIPS =
             mapOf(
                 "content_type_header" to setOf("matches", "does_not_match"),
                 "request" to setOf("was_modified", "was_intercepted"),
                 "status_code" to setOf("matches", "does_not_match"),
-                "url" to setOf("matches", "does_not_match", "contains", "does_not_contain", "is_in_target_scope"),
+                "url" to setOf("matches", "does_not_match", "is_in_target_scope"),
             )
     }
 }

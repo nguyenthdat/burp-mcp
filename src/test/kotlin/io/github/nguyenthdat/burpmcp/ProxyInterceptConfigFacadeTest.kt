@@ -54,7 +54,7 @@ class ProxyInterceptConfigFacadeTest {
     fun `appends updates and deletes one interception rule without replacing the other side`() {
         val state = fakeState()
         val facade = ProxyInterceptConfigFacade(state.api)
-        val appended = ProxyInterceptRuleConfig(true, "and", "url", "contains", "/admin")
+        val appended = ProxyInterceptRuleConfig(true, "and", "url", "matches", ".*/admin.*")
 
         val afterAppend = facade.upsertRule("request", null, appended)
         assertEquals(listOf("file_extension", "url"), afterAppend.requestRules.map { it.matchType })
@@ -80,6 +80,13 @@ class ProxyInterceptConfigFacadeTest {
         assertFailsWith<IllegalArgumentException> { facade.upsertRule("request", 4, rule) }
         assertFailsWith<IllegalArgumentException> { facade.deleteRule("response", 4) }
         assertEquals(0, state.imports())
+
+        assertFailsWith<IllegalArgumentException> {
+            facade.upsertRule("request", null, ProxyInterceptRuleConfig(true, "and", "url", "contains", "/admin"))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            facade.upsertRule("response", null, ProxyInterceptRuleConfig(true, "and", "url", "does_not_contain", "/admin"))
+        }
     }
 
     @Test

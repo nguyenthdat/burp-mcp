@@ -200,11 +200,78 @@ pub struct SetInterceptStateInput {
     pub enabled: bool,
 }
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyInterceptRuleBooleanOperatorInput {
+    And,
+    Or,
+}
+
+impl ProxyInterceptRuleBooleanOperatorInput {
+    fn into_proto(self) -> String {
+        match self {
+            Self::And => "and",
+            Self::Or => "or",
+        }
+        .to_owned()
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyInterceptRuleMatchTypeInput {
+    FileExtension,
+    Request,
+    HttpMethod,
+    Url,
+    ContentTypeHeader,
+    StatusCode,
+}
+
+impl ProxyInterceptRuleMatchTypeInput {
+    fn into_proto(self) -> String {
+        match self {
+            Self::FileExtension => "file_extension",
+            Self::Request => "request",
+            Self::HttpMethod => "http_method",
+            Self::Url => "url",
+            Self::ContentTypeHeader => "content_type_header",
+            Self::StatusCode => "status_code",
+        }
+        .to_owned()
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyInterceptRuleRelationshipInput {
+    Matches,
+    DoesNotMatch,
+    ContainsParameters,
+    IsInTargetScope,
+    WasModified,
+    WasIntercepted,
+}
+
+impl ProxyInterceptRuleRelationshipInput {
+    fn into_proto(self) -> String {
+        match self {
+            Self::Matches => "matches",
+            Self::DoesNotMatch => "does_not_match",
+            Self::ContainsParameters => "contains_parameters",
+            Self::IsInTargetScope => "is_in_target_scope",
+            Self::WasModified => "was_modified",
+            Self::WasIntercepted => "was_intercepted",
+        }
+        .to_owned()
+    }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ProxyInterceptRuleInput {
     pub enabled: Option<bool>,
-    pub boolean_operator: Option<String>,
-    pub match_type: String,
-    pub match_relationship: String,
+    pub boolean_operator: Option<ProxyInterceptRuleBooleanOperatorInput>,
+    pub match_type: ProxyInterceptRuleMatchTypeInput,
+    pub match_relationship: ProxyInterceptRuleRelationshipInput,
     pub match_condition: Option<String>,
 }
 
@@ -234,9 +301,12 @@ impl ProxyInterceptRuleInput {
     fn into_proto(self) -> ProxyInterceptRule {
         ProxyInterceptRule {
             enabled: self.enabled.unwrap_or(true),
-            boolean_operator: self.boolean_operator.unwrap_or_else(|| "and".to_owned()),
-            match_type: self.match_type,
-            match_relationship: self.match_relationship,
+            boolean_operator: self
+                .boolean_operator
+                .map(ProxyInterceptRuleBooleanOperatorInput::into_proto)
+                .unwrap_or_else(|| "and".to_owned()),
+            match_type: self.match_type.into_proto(),
+            match_relationship: self.match_relationship.into_proto(),
             match_condition: self.match_condition.unwrap_or_default(),
         }
     }
@@ -4257,7 +4327,9 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod contract_tests {
     use super::{
-        BurpTools, DecoderInput, ExportRequestInput, ProxyHistoryInput, ProxyInterceptRuleInput,
+        BurpTools, DecoderInput, ExportRequestInput, ProxyHistoryInput,
+        ProxyInterceptRuleBooleanOperatorInput, ProxyInterceptRuleInput,
+        ProxyInterceptRuleMatchTypeInput, ProxyInterceptRuleRelationshipInput,
         ProxySettingsUpdateInput, RegisterProxyRuleInput, export_request_text,
         normalize_decoder_operation, proxy_settings_operation, to_proxy_history_request,
     };
@@ -4447,6 +4519,28 @@ mod contract_tests {
     }
 
     #[test]
+    fn proxy_interception_rule_schema_rejects_burp_ignored_relationships() {
+        let rule_schema = serde_json::to_value(schemars::schema_for!(ProxyInterceptRuleInput))
+            .expect("interception rule schema must serialize");
+        let serialized = rule_schema.to_string();
+        for value in [
+            "matches",
+            "does_not_match",
+            "contains_parameters",
+            "is_in_target_scope",
+            "was_modified",
+            "was_intercepted",
+        ] {
+            assert!(
+                serialized.contains(&format!("\"{value}\"")),
+                "missing {value}"
+            );
+        }
+        assert!(!serialized.contains("\"contains\""));
+        assert!(!serialized.contains("\"does_not_contain\""));
+    }
+
+    #[test]
     fn proxy_settings_operations_build_typed_interception_mutations() {
         use burp_protocol::protocol::proxy_settings_update_request::Operation;
 
@@ -4455,10 +4549,10 @@ mod contract_tests {
             kind: Some("request".to_owned()),
             rule: Some(ProxyInterceptRuleInput {
                 enabled: Some(true),
-                boolean_operator: Some("and".to_owned()),
-                match_type: "url".to_owned(),
-                match_relationship: "contains".to_owned(),
-                match_condition: Some("/admin".to_owned()),
+                boolean_operator: Some(ProxyInterceptRuleBooleanOperatorInput::And),
+                match_type: ProxyInterceptRuleMatchTypeInput::Url,
+                match_relationship: ProxyInterceptRuleRelationshipInput::Matches,
+                match_condition: Some(".*/admin.*".to_owned()),
             }),
             ..empty_proxy_settings_input()
         })
