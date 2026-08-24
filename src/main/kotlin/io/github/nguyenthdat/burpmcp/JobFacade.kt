@@ -43,6 +43,9 @@ internal data class AuditJobOutput(
     val requestCount: Int,
     val errorCount: Int,
     val issueCount: Int,
+    val scanType: String = "",
+    val stateless: Boolean = false,
+    val statusMessage: String = "",
 ) : JobOutput
 
 internal data class JobSnapshot(
@@ -51,6 +54,9 @@ internal data class JobSnapshot(
     val state: JobState,
     val result: JobOutput? = null,
     val error: String? = null,
+    val scanType: String = "",
+    val stateless: Boolean = false,
+    val statusMessage: String = "",
 )
 
 internal class JobFacade : AutoCloseable {
@@ -61,6 +67,9 @@ internal class JobFacade : AutoCloseable {
         @Volatile var result: JobOutput? = null,
         @Volatile var error: String? = null,
         @Volatile var future: Future<*>? = null,
+        @Volatile var scanType: String = "",
+        @Volatile var stateless: Boolean = false,
+        @Volatile var statusMessage: String = "",
     )
 
     private val ids = AtomicLong()
@@ -71,6 +80,19 @@ internal class JobFacade : AutoCloseable {
     }
 
     fun start(operation: String, task: () -> JobOutput): JobSnapshot = startWithId(operation) { task() }
+
+    @Synchronized
+    fun completed(operation: String, output: JobOutput): JobSnapshot {
+        require(operation.isNotBlank()) { "job operation must not be blank" }
+        require(records.size < MAX_RETAINED_JOBS) { "too many retained jobs" }
+        val record = Record("job-${ids.incrementAndGet()}", operation)
+        record.result = output
+        record.state.set(JobState.COMPLETED)
+        applyMetadata(record, output)
+        records[record.id] = record
+        order.add(record.id)
+        return snapshot(record)
+    }
 
     @Synchronized
     fun startWithId(operation: String, task: (String) -> JobOutput): JobSnapshot {
@@ -85,6 +107,7 @@ internal class JobFacade : AutoCloseable {
                 try {
                     val result = task(record.id)
                     record.result = result
+                    applyMetadata(record, result)
                     record.state.compareAndSet(JobState.RUNNING, JobState.COMPLETED)
                 } catch (exception: InterruptedException) {
                     Thread.currentThread().interrupt()
@@ -124,7 +147,7 @@ internal class JobFacade : AutoCloseable {
     }
 
     private fun snapshot(record: Record): JobSnapshot =
-        JobSnapshot(record.id, record.operation, record.state.get(), record.result, record.error)
+        JobSnapshot(record.id, record.operation, record.state.get(), record.result, record.error, record.scanType, record.stateless, record.statusMessage)
     private fun evictTerminalJobs() {
         repeat(order.size) {
             val id = order.poll() ?: return
@@ -136,6 +159,15 @@ internal class JobFacade : AutoCloseable {
             }
         }
     }
+
+    private fun applyMetadata(record: Record, output: JobOutput) {
+        if (output is AuditJobOutput) {
+            record.scanType = output.scanType
+            record.stateless = output.stateless
+            record.statusMessage = output.statusMessage
+        }
+    }
+
 
     private companion object {
         const val MAX_RETAINED_JOBS = 256

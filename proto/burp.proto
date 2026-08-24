@@ -67,6 +67,16 @@ service BurpService {
   rpc StartAudit(StartAuditRequest) returns (JobStatusResponse);
   rpc StopAudit(CancelJobRequest) returns (JobStatusResponse);
   rpc RemoveAudit(CancelJobRequest) returns (ActionResponse);
+  rpc ListScanConfigurations(ListScanConfigurationsRequest) returns (ListScanConfigurationsResponse);
+  rpc GetScanConfiguration(GetScanConfigurationRequest) returns (ScanConfigurationEntry);
+  rpc CreateScanConfiguration(UpsertScanConfigurationRequest) returns (ScanConfigurationEntry);
+  rpc UpdateScanConfiguration(UpsertScanConfigurationRequest) returns (ScanConfigurationEntry);
+  rpc DeleteScanConfiguration(DeleteScanConfigurationRequest) returns (ActionResponse);
+  rpc ListScanResourcePools(ListScanResourcePoolsRequest) returns (ListScanResourcePoolsResponse);
+  rpc GetScanResourcePool(GetScanResourcePoolRequest) returns (ScanResourcePoolEntry);
+  rpc CreateScanResourcePool(UpsertScanResourcePoolRequest) returns (ScanResourcePoolEntry);
+  rpc UpdateScanResourcePool(UpsertScanResourcePoolRequest) returns (ScanResourcePoolEntry);
+  rpc DeleteScanResourcePool(DeleteScanResourcePoolRequest) returns (ActionResponse);
   rpc GetJobStatus(GetJobStatusRequest) returns (JobStatusResponse);
   rpc CancelJob(CancelJobRequest) returns (JobStatusResponse);
   rpc GetJobResult(GetJobResultRequest) returns (JobResultResponse);
@@ -538,11 +548,75 @@ message StartBoundedInputMatrixRequest {
   string payload_list_id = 7;
   uint32 payload_offset = 8;
 }
-message StartCrawlRequest { string url = 1; }
+message StartCrawlRequest {
+  repeated string seed_urls = 1;
+  string scan_configuration_id = 2;
+  string resource_pool_id = 3;
+  uint64 timeout_seconds = 4;
+  uint64 stable_seconds = 5;
+  bool include_out_of_scope = 6;
+}
 message StartAuditRequest {
   string url = 1;
-  bool active = 2;
+  string audit_type = 2;
+  string scan_configuration_id = 3;
+  string resource_pool_id = 4;
+  uint64 timeout_seconds = 5;
+  uint64 stable_seconds = 6;
+  bool include_out_of_scope = 7;
 }
+message ScanConfigurationEntry {
+  string id = 1;
+  string name = 2;
+  string scan_type = 3;
+  string audit_type = 4;
+  bool include_out_of_scope = 5;
+  uint64 timeout_seconds = 6;
+  uint64 stable_seconds = 7;
+  string resource_pool_id = 8;
+  string source = 9;
+}
+message ListScanConfigurationsRequest {}
+message ListScanConfigurationsResponse { repeated ScanConfigurationEntry items = 1; }
+message GetScanConfigurationRequest { string id = 1; }
+message UpsertScanConfigurationRequest {
+  string id = 1;
+  string name = 2;
+  string scan_type = 3;
+  string audit_type = 4;
+  bool include_out_of_scope = 5;
+  uint64 timeout_seconds = 6;
+  uint64 stable_seconds = 7;
+  string resource_pool_id = 8;
+}
+message DeleteScanConfigurationRequest { string id = 1; }
+message ScanResourcePoolEntry {
+  string id = 1;
+  string name = 2;
+  string kind = 3;
+  string existing_pool_name = 4;
+  uint32 concurrent_request_limit = 5;
+  uint64 throttle_millis = 6;
+  uint32 max_retries = 7;
+  string source = 8;
+}
+message ListScanResourcePoolsRequest {}
+message ListScanResourcePoolsResponse {
+  repeated ScanResourcePoolEntry items = 1;
+  bool scanner_supported = 9;
+  string support_message = 10;
+}
+message GetScanResourcePoolRequest { string id = 1; }
+message UpsertScanResourcePoolRequest {
+  string id = 1;
+  string name = 2;
+  string kind = 3;
+  string existing_pool_name = 4;
+  uint32 concurrent_request_limit = 5;
+  uint64 throttle_millis = 6;
+  uint32 max_retries = 7;
+}
+message DeleteScanResourcePoolRequest { string id = 1; }
 message GetJobStatusRequest { string id = 1; }
 message CancelJobRequest { string id = 1; }
 message GetJobResultRequest {
@@ -554,6 +628,12 @@ message JobStatusResponse {
   string operation = 2;
   string state = 3;
   string error = 4;
+  string scan_type = 5;
+  bool stateless = 6;
+  string status_message = 7;
+  uint32 request_count = 8;
+  uint32 error_count = 9;
+  uint32 issue_count = 10;
 }
 message HttpJobResultItem {
   string label = 1;
@@ -575,6 +655,9 @@ message JobResultResponse {
   uint32 issue_count = 11;
   uint32 substitution_count = 12;
   string request_fingerprint = 13;
+  string scan_type = 14;
+  bool stateless = 15;
+  string status_message = 16;
 }
 message GenerateCollaboratorPayloadsRequest { uint32 count = 1; }
 message GenerateCollaboratorPayloadsResponse { repeated string payloads = 1; }

@@ -72,6 +72,8 @@ class BurpRpcServerTest {
                 io.github.nguyenthdat.burpmcp.grpc.v1.StartAuditRequest
                     .newBuilder()
                     .setUrl("https://example.test/")
+                    .setAuditType("active")
+                    .setIncludeOutOfScope(true)
                     .build(),
             )
         val stopped = client.stopAudit(CancelJobRequest.newBuilder().setId(started.id).build())
@@ -81,6 +83,31 @@ class BurpRpcServerTest {
         assertTrue(stopped.state in setOf("queued", "running", "completed", "failed", "cancelled"))
         assertTrue(removed.success)
         assertEquals("audit removed", removed.message)
+    }
+
+    @Test
+    fun `passive audit returns stateless completed snapshot without audit handle`() {
+        val port = availablePort()
+        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server?.start()
+        channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
+        val client = BurpServiceGrpc.newBlockingStub(channel).withDeadlineAfter(2, TimeUnit.SECONDS)
+
+        val started = client.startAudit(
+            io.github.nguyenthdat.burpmcp.grpc.v1.StartAuditRequest.newBuilder()
+                .setUrl("https://example.test/")
+                .setAuditType("passive")
+                .build(),
+        )
+        val result = client.getJobResult(
+            io.github.nguyenthdat.burpmcp.grpc.v1.GetJobResultRequest.newBuilder().setId(started.id).build(),
+        )
+
+        assertEquals("scanner_passive_snapshot", started.operation)
+        assertEquals("completed", started.state)
+        assertTrue(started.stateless)
+        assertEquals("passive", result.scanType)
+        assertTrue(result.stateless)
     }
 
     @Test

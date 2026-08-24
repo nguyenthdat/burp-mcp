@@ -18,6 +18,11 @@ import io.github.nguyenthdat.burpmcp.ProxyInterceptConfigPatch
 import io.github.nguyenthdat.burpmcp.ProxyInterceptRuleConfig
 import io.github.nguyenthdat.burpmcp.ScannerFacade
 import io.github.nguyenthdat.burpmcp.ScanIssueQuery
+import io.github.nguyenthdat.burpmcp.ScanCatalogFacade
+import io.github.nguyenthdat.burpmcp.ScanConfigurationDefinition
+import io.github.nguyenthdat.burpmcp.ScanResourcePoolDefinition
+import io.github.nguyenthdat.burpmcp.resolveAudit
+import io.github.nguyenthdat.burpmcp.resolveCrawl
 import io.github.nguyenthdat.burpmcp.SitemapFacade
 import io.github.nguyenthdat.burpmcp.SitemapQuery
 import io.github.nguyenthdat.burpmcp.TargetFacade
@@ -362,6 +367,7 @@ internal class BurpRpcService(
     private val sitemapFacade: SitemapFacade = resources.sitemap,
     private val targetFacade: TargetFacade = resources.target,
     private val scannerFacade: ScannerFacade = resources.scanner,
+    private val scanCatalogFacade: ScanCatalogFacade = resources.scanCatalog,
     private val cookieFacade: CookieFacade = resources.cookies,
     private val httpFacade: HttpFacade = resources.http,
     private val annotationFacade: AnnotationFacade = resources.annotations,
@@ -1300,22 +1306,103 @@ internal class BurpRpcService(
     override fun startCrawl(
         request: StartCrawlRequest,
         responseObserver: StreamObserver<JobStatusResponse>,
-    ) {
-        responseObserver.onNext(longOperationFacade.startCrawl(request.url).toStatusProto())
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        val spec = scanCatalogFacade.resolveCrawl(
+            request.seedUrlsList,
+            request.scanConfigurationId,
+            request.resourcePoolId,
+            request.timeoutSeconds,
+            request.stableSeconds,
+            request.includeOutOfScope,
+        )
+        longOperationFacade.startCrawl(spec).toStatusProto()
     }
 
     override fun startAudit(
         request: StartAuditRequest,
         responseObserver: StreamObserver<JobStatusResponse>,
     ) = responseObserver.respond {
-        longOperationFacade.startAudit(request.url, request.active).toStatusProto()
+        val spec = scanCatalogFacade.resolveAudit(
+            request.url,
+            request.auditType,
+            request.scanConfigurationId,
+            request.resourcePoolId,
+            request.timeoutSeconds,
+            request.stableSeconds,
+            request.includeOutOfScope,
+        )
+        longOperationFacade.startAudit(spec).toStatusProto()
     }
     override fun stopAudit(
         request: CancelJobRequest,
         responseObserver: StreamObserver<JobStatusResponse>,
     ) = responseObserver.respond {
         (longOperationFacade.stopAudit(request.id) ?: error("audit not found")).toStatusProto()
+    }
+    override fun listScanConfigurations(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.ListScanConfigurationsRequest,
+        responseObserver: StreamObserver<io.github.nguyenthdat.burpmcp.grpc.v1.ListScanConfigurationsResponse>,
+    ) = responseObserver.respond {
+        io.github.nguyenthdat.burpmcp.grpc.v1.ListScanConfigurationsResponse.newBuilder()
+            .addAllItems(scanCatalogFacade.configurations().map { it.toProto() })
+            .build()
+    }
+
+    override fun getScanConfiguration(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.GetScanConfigurationRequest,
+        responseObserver: StreamObserver<io.github.nguyenthdat.burpmcp.grpc.v1.ScanConfigurationEntry>,
+    ) = responseObserver.respond { scanCatalogFacade.configuration(request.id).toProto() }
+
+    override fun createScanConfiguration(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.UpsertScanConfigurationRequest,
+        responseObserver: StreamObserver<io.github.nguyenthdat.burpmcp.grpc.v1.ScanConfigurationEntry>,
+    ) = responseObserver.respond { scanCatalogFacade.createConfiguration(request.toDomain()).toProto() }
+
+    override fun updateScanConfiguration(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.UpsertScanConfigurationRequest,
+        responseObserver: StreamObserver<io.github.nguyenthdat.burpmcp.grpc.v1.ScanConfigurationEntry>,
+    ) = responseObserver.respond { scanCatalogFacade.updateConfiguration(request.toDomain()).toProto() }
+
+    override fun deleteScanConfiguration(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.DeleteScanConfigurationRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) = responseObserver.respond {
+        val removed = scanCatalogFacade.deleteConfiguration(request.id)
+        ActionResponse.newBuilder().setSuccess(removed).setMessage(if (removed) "scan configuration deleted" else "scan configuration not found or immutable").build()
+    }
+
+    override fun listScanResourcePools(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.ListScanResourcePoolsRequest,
+        responseObserver: StreamObserver<io.github.nguyenthdat.burpmcp.grpc.v1.ListScanResourcePoolsResponse>,
+    ) = responseObserver.respond {
+        io.github.nguyenthdat.burpmcp.grpc.v1.ListScanResourcePoolsResponse.newBuilder()
+            .addAllItems(scanCatalogFacade.pools().map { it.toProto() })
+            .setScannerSupported(false)
+            .setSupportMessage("Montoya API 2026.7 does not expose resource-pool binding for Scanner startCrawl/startAudit")
+            .build()
+    }
+
+    override fun getScanResourcePool(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.GetScanResourcePoolRequest,
+        responseObserver: StreamObserver<io.github.nguyenthdat.burpmcp.grpc.v1.ScanResourcePoolEntry>,
+    ) = responseObserver.respond { scanCatalogFacade.pool(request.id).toProto() }
+
+    override fun createScanResourcePool(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.UpsertScanResourcePoolRequest,
+        responseObserver: StreamObserver<io.github.nguyenthdat.burpmcp.grpc.v1.ScanResourcePoolEntry>,
+    ) = responseObserver.respond { scanCatalogFacade.createPool(request.toDomain()).toProto() }
+
+    override fun updateScanResourcePool(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.UpsertScanResourcePoolRequest,
+        responseObserver: StreamObserver<io.github.nguyenthdat.burpmcp.grpc.v1.ScanResourcePoolEntry>,
+    ) = responseObserver.respond { scanCatalogFacade.updatePool(request.toDomain()).toProto() }
+
+    override fun deleteScanResourcePool(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.DeleteScanResourcePoolRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) = responseObserver.respond {
+        val removed = scanCatalogFacade.deletePool(request.id)
+        ActionResponse.newBuilder().setSuccess(removed).setMessage(if (removed) "scan resource pool deleted" else "scan resource pool not found or immutable").build()
     }
 
     override fun removeAudit(
@@ -1524,6 +1611,24 @@ internal class BurpRpcService(
             headers = headersList.associate { it.name to it.value },
         )
 
+    private fun ScanConfigurationDefinition.toProto(): io.github.nguyenthdat.burpmcp.grpc.v1.ScanConfigurationEntry =
+        io.github.nguyenthdat.burpmcp.grpc.v1.ScanConfigurationEntry.newBuilder()
+            .setId(id).setName(name).setScanType(scanType).setAuditType(auditType)
+            .setIncludeOutOfScope(includeOutOfScope).setTimeoutSeconds(timeoutSeconds)
+            .setStableSeconds(stableSeconds).setResourcePoolId(resourcePoolId).setSource(source).build()
+
+    private fun io.github.nguyenthdat.burpmcp.grpc.v1.UpsertScanConfigurationRequest.toDomain() =
+        ScanConfigurationDefinition(id, name, scanType, auditType, includeOutOfScope, timeoutSeconds, stableSeconds, resourcePoolId)
+
+    private fun ScanResourcePoolDefinition.toProto(): io.github.nguyenthdat.burpmcp.grpc.v1.ScanResourcePoolEntry =
+        io.github.nguyenthdat.burpmcp.grpc.v1.ScanResourcePoolEntry.newBuilder()
+            .setId(id).setName(name).setKind(kind).setExistingPoolName(existingPoolName)
+            .setConcurrentRequestLimit(concurrentRequestLimit).setThrottleMillis(throttleMillis)
+            .setMaxRetries(maxRetries).setSource(source).build()
+
+    private fun io.github.nguyenthdat.burpmcp.grpc.v1.UpsertScanResourcePoolRequest.toDomain() =
+        ScanResourcePoolDefinition(id, name, kind, existingPoolName, concurrentRequestLimit, throttleMillis, maxRetries)
+
     private fun io.github.nguyenthdat.burpmcp.HttpExchange.toProto(): SendRequestResponse =
         SendRequestResponse
             .newBuilder()
@@ -1611,58 +1716,64 @@ internal class BurpRpcService(
             })
             .build()
 
-    private fun JobSnapshot.toStatusProto(): JobStatusResponse =
-        JobStatusResponse
+    private fun JobSnapshot.toStatusProto(): JobStatusResponse {
+        val output = result as? AuditJobOutput
+        return JobStatusResponse
             .newBuilder()
             .setId(id)
             .setOperation(operation)
             .setState(state.name.lowercase())
             .setError(error.orEmpty())
+            .setScanType(output?.scanType ?: scanType)
+            .setStateless(output?.stateless ?: stateless)
+            .setStatusMessage(output?.statusMessage ?: statusMessage)
+            .setRequestCount(output?.requestCount ?: 0)
+            .setErrorCount(output?.errorCount ?: 0)
+            .setIssueCount(output?.issueCount ?: 0)
             .build()
+    }
 
     private fun JobSnapshot.toResultProto(offset: Int, limit: Int): JobResultResponse {
-        val builder =
-            JobResultResponse
-                .newBuilder()
-                .setId(id)
-                .setOperation(operation)
-                .setState(state.name.lowercase())
-                .setError(error.orEmpty())
+        val builder = JobResultResponse.newBuilder()
+            .setId(id)
+            .setOperation(operation)
+            .setState(state.name.lowercase())
+            .setError(error.orEmpty())
+            .setScanType(scanType)
+            .setStateless(stateless)
+            .setStatusMessage(statusMessage)
         when (val output = result) {
             is HttpBatchJobOutput -> {
                 val end = minOf(offset + limit, output.items.size)
                 val pageItems = if (offset >= output.items.size) emptyList() else output.items.subList(offset, end)
                 builder
-                    .addAllItems(
-                        pageItems.map { item ->
-                            HttpJobResultItem
-                                .newBuilder()
-                                .setLabel(item.label)
-                                .also { entry -> item.status?.let(entry::setStatus) }
-                                .also { entry -> item.length?.let(entry::setLength) }
-                                .setError(item.error.orEmpty())
-                                .build()
-                        },
-                    ).setPage(
-                        PageInfo
-                            .newBuilder()
-                            .setTotal(output.items.size)
-                            .setTruncated(end < output.items.size)
-                            .setNextCursor(if (end < output.items.size) end.toString() else "")
-                            .build(),
-                    ).setRequestCount(output.requestCount)
+                    .addAllItems(pageItems.map { item ->
+                        HttpJobResultItem.newBuilder()
+                            .setLabel(item.label)
+                            .also { entry -> item.status?.let(entry::setStatus) }
+                            .also { entry -> item.length?.let(entry::setLength) }
+                            .setError(item.error.orEmpty())
+                            .build()
+                    })
+                    .setPage(PageInfo.newBuilder()
+                        .setTotal(output.items.size)
+                        .setTruncated(end < output.items.size)
+                        .setNextCursor(if (end < output.items.size) end.toString() else "")
+                        .build())
+                    .setRequestCount(output.requestCount)
                     .setUniqueLengths(output.uniqueLengths)
                     .setVerdict(output.verdict)
                     .setSubstitutionCount(output.substitutionCount)
                     .setRequestFingerprint(output.requestFingerprint)
             }
-
             is TaskJobOutput -> builder.setRequestCount(output.requestCount).setErrorCount(output.errorCount)
-            is AuditJobOutput ->
-                builder
-                    .setRequestCount(output.requestCount)
-                    .setErrorCount(output.errorCount)
-                    .setIssueCount(output.issueCount)
+            is AuditJobOutput -> builder
+                .setRequestCount(output.requestCount)
+                .setErrorCount(output.errorCount)
+                .setIssueCount(output.issueCount)
+                .setScanType(output.scanType)
+                .setStateless(output.stateless)
+                .setStatusMessage(output.statusMessage)
             null -> Unit
         }
         return builder.build()

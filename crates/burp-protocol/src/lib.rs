@@ -260,6 +260,46 @@ enum Command {
         request: proto::StartAuditRequest,
         response: oneshot::Sender<Result<proto::JobStatusResponse, ClientError>>,
     },
+    ListScanConfigurations {
+        request: proto::ListScanConfigurationsRequest,
+        response: oneshot::Sender<Result<proto::ListScanConfigurationsResponse, ClientError>>,
+    },
+    GetScanConfiguration {
+        request: proto::GetScanConfigurationRequest,
+        response: oneshot::Sender<Result<proto::ScanConfigurationEntry, ClientError>>,
+    },
+    CreateScanConfiguration {
+        request: proto::UpsertScanConfigurationRequest,
+        response: oneshot::Sender<Result<proto::ScanConfigurationEntry, ClientError>>,
+    },
+    UpdateScanConfiguration {
+        request: proto::UpsertScanConfigurationRequest,
+        response: oneshot::Sender<Result<proto::ScanConfigurationEntry, ClientError>>,
+    },
+    DeleteScanConfiguration {
+        request: proto::DeleteScanConfigurationRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
+    ListScanResourcePools {
+        request: proto::ListScanResourcePoolsRequest,
+        response: oneshot::Sender<Result<proto::ListScanResourcePoolsResponse, ClientError>>,
+    },
+    GetScanResourcePool {
+        request: proto::GetScanResourcePoolRequest,
+        response: oneshot::Sender<Result<proto::ScanResourcePoolEntry, ClientError>>,
+    },
+    CreateScanResourcePool {
+        request: proto::UpsertScanResourcePoolRequest,
+        response: oneshot::Sender<Result<proto::ScanResourcePoolEntry, ClientError>>,
+    },
+    UpdateScanResourcePool {
+        request: proto::UpsertScanResourcePoolRequest,
+        response: oneshot::Sender<Result<proto::ScanResourcePoolEntry, ClientError>>,
+    },
+    DeleteScanResourcePool {
+        request: proto::DeleteScanResourcePoolRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
     GetJobStatus {
         request: proto::GetJobStatusRequest,
         response: oneshot::Sender<Result<proto::JobStatusResponse, ClientError>>,
@@ -791,6 +831,36 @@ impl BurpClient {
         self.send(|response| Command::StartAudit { request, response })
             .await
     }
+    pub async fn list_scan_configurations(&self, request: proto::ListScanConfigurationsRequest) -> Result<proto::ListScanConfigurationsResponse, ClientError> {
+        self.send(|response| Command::ListScanConfigurations { request, response }).await
+    }
+    pub async fn get_scan_configuration(&self, request: proto::GetScanConfigurationRequest) -> Result<proto::ScanConfigurationEntry, ClientError> {
+        self.send(|response| Command::GetScanConfiguration { request, response }).await
+    }
+    pub async fn create_scan_configuration(&self, request: proto::UpsertScanConfigurationRequest) -> Result<proto::ScanConfigurationEntry, ClientError> {
+        self.send(|response| Command::CreateScanConfiguration { request, response }).await
+    }
+    pub async fn update_scan_configuration(&self, request: proto::UpsertScanConfigurationRequest) -> Result<proto::ScanConfigurationEntry, ClientError> {
+        self.send(|response| Command::UpdateScanConfiguration { request, response }).await
+    }
+    pub async fn delete_scan_configuration(&self, request: proto::DeleteScanConfigurationRequest) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::DeleteScanConfiguration { request, response }).await
+    }
+    pub async fn list_scan_resource_pools(&self, request: proto::ListScanResourcePoolsRequest) -> Result<proto::ListScanResourcePoolsResponse, ClientError> {
+        self.send(|response| Command::ListScanResourcePools { request, response }).await
+    }
+    pub async fn get_scan_resource_pool(&self, request: proto::GetScanResourcePoolRequest) -> Result<proto::ScanResourcePoolEntry, ClientError> {
+        self.send(|response| Command::GetScanResourcePool { request, response }).await
+    }
+    pub async fn create_scan_resource_pool(&self, request: proto::UpsertScanResourcePoolRequest) -> Result<proto::ScanResourcePoolEntry, ClientError> {
+        self.send(|response| Command::CreateScanResourcePool { request, response }).await
+    }
+    pub async fn update_scan_resource_pool(&self, request: proto::UpsertScanResourcePoolRequest) -> Result<proto::ScanResourcePoolEntry, ClientError> {
+        self.send(|response| Command::UpdateScanResourcePool { request, response }).await
+    }
+    pub async fn delete_scan_resource_pool(&self, request: proto::DeleteScanResourcePoolRequest) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::DeleteScanResourcePool { request, response }).await
+    }
     pub async fn stop_audit(
         &self,
         request: proto::CancelJobRequest,
@@ -993,6 +1063,18 @@ async fn execute(
     config: &BurpClientConfig,
     command: Command,
 ) -> bool {
+    macro_rules! rpc_command {
+        ($client:expr, $method:ident, $request:expr, $response:expr, $config:expr) => {{
+            let result = $client
+                .$method(with_deadline($request, $config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = $response.send(result);
+            reconnect
+        }};
+    }
     match command {
         Command::Ping { request, response } => {
             let result = client
@@ -1574,6 +1656,16 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::ListScanConfigurations { request, response } => rpc_command!(client, list_scan_configurations, request, response, config),
+        Command::GetScanConfiguration { request, response } => rpc_command!(client, get_scan_configuration, request, response, config),
+        Command::CreateScanConfiguration { request, response } => rpc_command!(client, create_scan_configuration, request, response, config),
+        Command::UpdateScanConfiguration { request, response } => rpc_command!(client, update_scan_configuration, request, response, config),
+        Command::DeleteScanConfiguration { request, response } => rpc_command!(client, delete_scan_configuration, request, response, config),
+        Command::ListScanResourcePools { request, response } => rpc_command!(client, list_scan_resource_pools, request, response, config),
+        Command::GetScanResourcePool { request, response } => rpc_command!(client, get_scan_resource_pool, request, response, config),
+        Command::CreateScanResourcePool { request, response } => rpc_command!(client, create_scan_resource_pool, request, response, config),
+        Command::UpdateScanResourcePool { request, response } => rpc_command!(client, update_scan_resource_pool, request, response, config),
+        Command::DeleteScanResourcePool { request, response } => rpc_command!(client, delete_scan_resource_pool, request, response, config),
         Command::GetJobStatus { request, response } => {
             let result = client
                 .get_job_status(with_deadline(request, config.call_timeout))
@@ -1895,6 +1987,16 @@ fn respond_offline(command: Command) {
         Command::StartAudit { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
+        Command::ListScanConfigurations { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
+        Command::GetScanConfiguration { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
+        Command::CreateScanConfiguration { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
+        Command::UpdateScanConfiguration { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
+        Command::DeleteScanConfiguration { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
+        Command::ListScanResourcePools { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
+        Command::GetScanResourcePool { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
+        Command::CreateScanResourcePool { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
+        Command::UpdateScanResourcePool { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
+        Command::DeleteScanResourcePool { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
         Command::GetJobStatus { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }

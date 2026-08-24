@@ -8,12 +8,17 @@ use burp_protocol::protocol::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
     CloseWebSocketRequest, ConfigResponse, CookieJarRequest, CreateMacroRequest,
     CreatePayloadListRequest, CreateSessionRuleRequest, CreateWebSocketRequest,
-    DeletePayloadListRequest, ExportConfigRequest, ExtensionInfoRequest,
+    DeletePayloadListRequest,
+    DeleteScanConfigurationRequest,
+    DeleteScanResourcePoolRequest, ExportConfigRequest, ExtensionInfoRequest,
     GenerateCollaboratorPayloadsRequest, GenerateScannerReportRequest, GetJobResultRequest,
-    GetJobStatusRequest, GetPayloadListRequest, HttpHeaderEntry, ImportBCheckRequest,
-    ImportBambdaRequest, ImportConfigRequest, ImportPayloadListRequest, InterceptStateRequest,
+    GetJobStatusRequest, GetPayloadListRequest, GetScanConfigurationRequest,
+    GetScanResourcePoolRequest, HttpHeaderEntry, ImportBCheckRequest, ImportBambdaRequest,
+    ImportConfigRequest, ImportPayloadListRequest, InterceptStateRequest,
     ListMacrosRequest, ListPayloadGeneratorsRequest, ListPayloadListsRequest,
-    ListPayloadProcessorsRequest, ListProxyRulesRequest, ListSessionRulesRequest,
+    ListPayloadProcessorsRequest, ListProxyRulesRequest, ListScanConfigurationsRequest,
+    ListScanResourcePoolsRequest, ListSessionRulesRequest,
+    UpsertScanConfigurationRequest, UpsertScanResourcePoolRequest,
     ListWebSocketsRequest, MacroDefinition, MacroItem, MacroParameter,
     ManagedWebSocketHistoryRequest, MutateScopeRequest, PageRequest,
     PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
@@ -518,13 +523,52 @@ pub struct BoundedInputMatrixInput {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CrawlInput {
-    pub url: String,
+    pub seed_urls: Vec<String>,
+    pub scan_configuration_id: Option<String>,
+    pub resource_pool_id: Option<String>,
+    pub timeout_seconds: Option<u64>,
+    pub stable_seconds: Option<u64>,
+    pub include_out_of_scope: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct AuditInput {
     pub url: String,
-    pub mode: Option<String>,
+    pub audit_type: Option<String>,
+    pub scan_configuration_id: Option<String>,
+    pub resource_pool_id: Option<String>,
+    pub timeout_seconds: Option<u64>,
+    pub stable_seconds: Option<u64>,
+    pub include_out_of_scope: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ScanConfigurationIdInput { pub id: String }
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ScanConfigurationUpsertInput {
+    pub id: Option<String>,
+    pub name: String,
+    pub scan_type: String,
+    pub audit_type: Option<String>,
+    pub include_out_of_scope: Option<bool>,
+    pub timeout_seconds: Option<u64>,
+    pub stable_seconds: Option<u64>,
+    pub resource_pool_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ScanResourcePoolIdInput { pub id: String }
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ScanResourcePoolUpsertInput {
+    pub id: Option<String>,
+    pub name: String,
+    pub kind: String,
+    pub existing_pool_name: Option<String>,
+    pub concurrent_request_limit: Option<u32>,
+    pub throttle_millis: Option<u64>,
+    pub max_retries: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1694,48 +1738,106 @@ impl BurpTools {
 
     #[tool(
         name = "burp_scan_start",
-        description = "Start a bounded passive or legacy-active Burp audit; returns a job ID for burp_scan_stop and burp_scan_remove"
+        description = "Start passive stateless audit or active audit with explicit bounded scan options"
     )]
     async fn scan_start(&self, Parameters(input): Parameters<AuditInput>) -> String {
-        let active = match input.mode.as_deref().unwrap_or("passive") {
-            "passive" => false,
-            "active" => true,
-            _ => return serde_json::json!({"error": "mode must be passive or active"}).to_string(),
-        };
-        let started = self
-            .client
-            .start_audit(StartAuditRequest {
-                url: input.url,
-                active,
-            })
-            .await;
-        match started {
-            Ok(status) if !status.error.is_empty() => serde_json::json!({
-                "error": status.error,
-                "operation": status.operation,
-                "state": status.state,
-            })
-            .to_string(),
-            Ok(status) => serde_json::json!({
-                "job_id": status.id,
-                "operation": status.operation,
-                "state": status.state,
-                "error": null,
-            })
-            .to_string(),
+        let audit_type = input.audit_type.as_deref().unwrap_or("passive").to_lowercase();
+        if !matches!(audit_type.as_str(), "passive" | "active") {
+            return serde_json::json!({"error": "audit_type must be passive or active"}).to_string();
+        }
+        job_status_json(self.client.start_audit(StartAuditRequest {
+            url: input.url,
+            audit_type,
+            scan_configuration_id: input.scan_configuration_id.unwrap_or_default(),
+            resource_pool_id: input.resource_pool_id.unwrap_or_default(),
+            timeout_seconds: input.timeout_seconds.unwrap_or_default(),
+            stable_seconds: input.stable_seconds.unwrap_or_default(),
+            include_out_of_scope: input.include_out_of_scope.unwrap_or(false),
+        }).await)
+    }
+    #[tool(name = "burp_scan_stop", description = "Stop a running active Burp audit by job ID")]
+    async fn scan_stop(&self, Parameters(input): Parameters<JobInput>) -> String {
+        job_status_json(self.client.stop_audit(CancelJobRequest { id: input.job_id }).await)
+    }
+
+    #[tool(name = "burp_scan_config_list", description = "List built-in and project-persisted scan configurations")]
+    async fn scan_config_list(&self) -> String {
+        match self.client.list_scan_configurations(ListScanConfigurationsRequest {}).await {
+            Ok(response) => serde_json::json!({"items": response.items.into_iter().map(scan_configuration_json).collect::<Vec<_>>() }).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
-    #[tool(
-        name = "burp_scan_stop",
-        description = "Stop a running Burp audit by job ID"
-    )]
-    async fn scan_stop(&self, Parameters(input): Parameters<JobInput>) -> String {
-        job_status_json(
-            self.client
-                .stop_audit(CancelJobRequest { id: input.job_id })
-                .await,
-        )
+
+    #[tool(name = "burp_scan_config_get", description = "Get one scan configuration by ID")]
+    async fn scan_config_get(&self, Parameters(input): Parameters<ScanConfigurationIdInput>) -> String {
+        match self.client.get_scan_configuration(GetScanConfigurationRequest { id: input.id }).await {
+            Ok(value) => scan_configuration_json(value).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(name = "burp_scan_config_create", description = "Create a bounded persisted scan configuration")]
+    async fn scan_config_create(&self, Parameters(input): Parameters<ScanConfigurationUpsertInput>) -> String {
+        match self.client.create_scan_configuration(scan_configuration_request(input)).await {
+            Ok(value) => scan_configuration_json(value).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(name = "burp_scan_config_update", description = "Update a persisted scan configuration by ID")]
+    async fn scan_config_update(&self, Parameters(input): Parameters<ScanConfigurationUpsertInput>) -> String {
+        if input.id.as_deref().unwrap_or_default().is_empty() {
+            return serde_json::json!({"error": "id is required"}).to_string();
+        }
+        match self.client.update_scan_configuration(scan_configuration_request(input)).await {
+            Ok(value) => scan_configuration_json(value).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(name = "burp_scan_config_delete", description = "Delete a persisted scan configuration by ID")]
+    async fn scan_config_delete(&self, Parameters(input): Parameters<ScanConfigurationIdInput>) -> String {
+        action_json(self.client.delete_scan_configuration(DeleteScanConfigurationRequest { id: input.id }).await)
+    }
+
+    #[tool(name = "burp_scan_pool_list", description = "List scanner resource pool definitions and runtime support")]
+    async fn scan_pool_list(&self) -> String {
+        match self.client.list_scan_resource_pools(ListScanResourcePoolsRequest {}).await {
+            Ok(response) => serde_json::json!({"items": response.items.into_iter().map(scan_pool_json).collect::<Vec<_>>(), "scanner_supported": response.scanner_supported, "support_message": response.support_message}).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(name = "burp_scan_pool_get", description = "Get one scanner resource pool definition by ID")]
+    async fn scan_pool_get(&self, Parameters(input): Parameters<ScanResourcePoolIdInput>) -> String {
+        match self.client.get_scan_resource_pool(GetScanResourcePoolRequest { id: input.id }).await {
+            Ok(value) => scan_pool_json(value).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(name = "burp_scan_pool_create", description = "Create a persisted scanner resource pool definition")]
+    async fn scan_pool_create(&self, Parameters(input): Parameters<ScanResourcePoolUpsertInput>) -> String {
+        match self.client.create_scan_resource_pool(scan_pool_request(input)).await {
+            Ok(value) => scan_pool_json(value).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(name = "burp_scan_pool_update", description = "Update a persisted scanner resource pool definition")]
+    async fn scan_pool_update(&self, Parameters(input): Parameters<ScanResourcePoolUpsertInput>) -> String {
+        if input.id.as_deref().unwrap_or_default().is_empty() {
+            return serde_json::json!({"error": "id is required"}).to_string();
+        }
+        match self.client.update_scan_resource_pool(scan_pool_request(input)).await {
+            Ok(value) => scan_pool_json(value).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(name = "burp_scan_pool_delete", description = "Delete a persisted scanner resource pool definition")]
+    async fn scan_pool_delete(&self, Parameters(input): Parameters<ScanResourcePoolIdInput>) -> String {
+        action_json(self.client.delete_scan_resource_pool(DeleteScanResourcePoolRequest { id: input.id }).await)
     }
 
     #[tool(
@@ -1750,13 +1852,16 @@ impl BurpTools {
         )
     }
 
-    #[tool(name = "burp_crawl", description = "Start a bounded Burp crawl job")]
+    #[tool(name = "burp_crawl", description = "Start a bounded Burp crawl with explicit seeds, configuration, scope, and timing")]
     async fn crawl(&self, Parameters(input): Parameters<CrawlInput>) -> String {
-        job_status_json(
-            self.client
-                .start_crawl(StartCrawlRequest { url: input.url })
-                .await,
-        )
+        job_status_json(self.client.start_crawl(StartCrawlRequest {
+            seed_urls: input.seed_urls,
+            scan_configuration_id: input.scan_configuration_id.unwrap_or_default(),
+            resource_pool_id: input.resource_pool_id.unwrap_or_default(),
+            timeout_seconds: input.timeout_seconds.unwrap_or_default(),
+            stable_seconds: input.stable_seconds.unwrap_or_default(),
+            include_out_of_scope: input.include_out_of_scope.unwrap_or(false),
+        }).await)
     }
 
     #[tool(
@@ -2020,14 +2125,19 @@ impl BurpTools {
             .await
         {
             Ok(result) => {
-                let page = result.page.unwrap_or_default();
+                let page = result.page.clone().unwrap_or_default();
                 serde_json::json!({
-                    "job_id": result.id, "operation": result.operation, "state": result.state,
+                    "job_id": result.id,
+                    "operation": result.operation,
+                    "state": result.state,
+                    "scan_type": result.scan_type,
+                    "stateless": result.stateless,
+                    "status_message": result.status_message,
                     "items": result.items.into_iter().map(|item| serde_json::json!({"label": item.label, "status": item.status, "length": item.length, "error": item.error})).collect::<Vec<_>>(),
                     "total": page.total, "truncated": page.truncated,
                     "next_cursor": (!page.next_cursor.is_empty()).then_some(page.next_cursor),
                     "unique_lengths": result.unique_lengths, "verdict": result.verdict,
-                    "request_count": result.request_count, "error_count": result.error_count, "error": result.error,
+                    "request_count": result.request_count, "error_count": result.error_count, "issue_count": result.issue_count, "error": result.error,
                     "substitution_count": result.substitution_count,
                     "request_fingerprint": result.request_fingerprint,
                 }).to_string()
@@ -2926,6 +3036,39 @@ fn decoder_result_json(result: utility_engine_api::UtilityResult<DataValue>) -> 
         Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
     }
 }
+fn scan_configuration_request(input: ScanConfigurationUpsertInput) -> UpsertScanConfigurationRequest {
+    UpsertScanConfigurationRequest {
+        id: input.id.unwrap_or_default(),
+        name: input.name,
+        scan_type: input.scan_type,
+        audit_type: input.audit_type.unwrap_or_default(),
+        include_out_of_scope: input.include_out_of_scope.unwrap_or(false),
+        timeout_seconds: input.timeout_seconds.unwrap_or(900),
+        stable_seconds: input.stable_seconds.unwrap_or(2),
+        resource_pool_id: input.resource_pool_id.unwrap_or_default(),
+    }
+}
+
+fn scan_configuration_json(value: burp_protocol::protocol::ScanConfigurationEntry) -> serde_json::Value {
+    serde_json::json!({"id": value.id, "name": value.name, "scan_type": value.scan_type, "audit_type": value.audit_type, "include_out_of_scope": value.include_out_of_scope, "timeout_seconds": value.timeout_seconds, "stable_seconds": value.stable_seconds, "resource_pool_id": value.resource_pool_id, "source": value.source})
+}
+
+fn scan_pool_json(value: burp_protocol::protocol::ScanResourcePoolEntry) -> serde_json::Value {
+    serde_json::json!({"id": value.id, "name": value.name, "kind": value.kind, "existing_pool_name": value.existing_pool_name, "concurrent_request_limit": value.concurrent_request_limit, "throttle_millis": value.throttle_millis, "max_retries": value.max_retries, "source": value.source})
+}
+
+fn scan_pool_request(input: ScanResourcePoolUpsertInput) -> UpsertScanResourcePoolRequest {
+    UpsertScanResourcePoolRequest {
+        id: input.id.unwrap_or_default(),
+        name: input.name,
+        kind: input.kind,
+        existing_pool_name: input.existing_pool_name.unwrap_or_default(),
+        concurrent_request_limit: input.concurrent_request_limit.unwrap_or(10),
+        throttle_millis: input.throttle_millis.unwrap_or(0),
+        max_retries: input.max_retries.unwrap_or(0),
+    }
+}
+
 fn payload_list_proto_json(item: &burp_protocol::protocol::PayloadListEntry) -> serde_json::Value {
     serde_json::json!({
         "id": item.id,
@@ -2998,6 +3141,12 @@ fn job_status_json(
             "operation": status.operation,
             "state": status.state,
             "error": (!status.error.is_empty()).then_some(status.error),
+            "scan_type": (!status.scan_type.is_empty()).then_some(status.scan_type),
+            "stateless": status.stateless,
+            "status_message": (!status.status_message.is_empty()).then_some(status.status_message),
+            "request_count": status.request_count,
+            "error_count": status.error_count,
+            "issue_count": status.issue_count,
         })
         .to_string(),
         Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
@@ -3181,6 +3330,16 @@ mod contract_tests {
                         | "burp_scan_start"
                         | "burp_scan_stop"
                         | "burp_scan_remove"
+                        | "burp_scan_config_list"
+                        | "burp_scan_config_get"
+                        | "burp_scan_config_create"
+                        | "burp_scan_config_update"
+                        | "burp_scan_config_delete"
+                        | "burp_scan_pool_list"
+                        | "burp_scan_pool_get"
+                        | "burp_scan_pool_create"
+                        | "burp_scan_pool_update"
+                        | "burp_scan_pool_delete"
                         | "decoder"
                         | "burp_intruder_payload_processor_register"
                         | "burp_intruder_payload_processor_list"

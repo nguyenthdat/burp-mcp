@@ -86,68 +86,101 @@ internal class LongOperationFacade(
         }
     }
 
-    fun startCrawl(url: String): JobSnapshot {
-        require(url.isNotBlank()) { "url must not be blank" }
+    fun startCrawl(spec: CrawlExecutionSpec): JobSnapshot {
+        require(spec.seedUrls.isNotEmpty()) { "crawl must contain at least one seed URL" }
+        require(spec.resourcePoolId.isBlank() || spec.resourcePoolId == "built-in-default") {
+            "Burp Scanner Montoya API 2026.7 cannot bind a resource pool; select built-in-default"
+        }
         return jobs.start("crawl") {
-            val wasInScope = api.scope().isInScope(url)
-            if (!wasInScope) api.scope().includeInScope(url)
+            val scopeChanges = mutableListOf<String>()
+            if (spec.includeOutOfScope) {
+                spec.seedUrls.filterNot { api.scope().isInScope(it) }.forEach { url ->
+                    api.scope().includeInScope(url)
+                    scopeChanges += url
+                }
+            } else {
+                require(spec.seedUrls.all { api.scope().isInScope(it) }) {
+                    "crawl seed is out of scope; set include_out_of_scope=true explicitly"
+                }
+            }
             val observed = AtomicInteger()
-            val registration = api.http().registerHttpHandler(scannerHandler(crawlOrigin(url), observed))
+            val origins = spec.seedUrls.map(::crawlOrigin).toSet()
+            val registration = api.http().registerHttpHandler(scannerHandler(origins, observed))
             var crawl: burp.api.montoya.scanner.Crawl? = null
             try {
-                crawl = api.scanner().startCrawl(CrawlConfiguration.crawlConfiguration(url))
+                crawl = api.scanner().startCrawl(CrawlConfiguration.crawlConfiguration(*spec.seedUrls.toTypedArray()))
                 awaitTaskCompletion(
                     operation = "crawl",
                     snapshot = { TaskJobOutput(crawl!!.requestCount(), crawl!!.errorCount()) },
                     observedRequestCount = observed::get,
                     status = { runCatching { crawl!!.statusMessage() }.getOrNull() },
-                    timeoutMillis = taskTimeoutMillis,
-                    stableMillis = taskStableMillis,
+                    timeoutMillis = spec.timeoutMillis,
+                    stableMillis = spec.stableMillis,
                     pollMillis = taskPollMillis,
                 )
             } finally {
                 registration.deregister()
-                if (!wasInScope) api.scope().excludeFromScope(url)
+                scopeChanges.forEach(api.scope()::excludeFromScope)
                 crawl?.delete()
             }
         }
     }
 
-    fun startAudit(url: String, active: Boolean): JobSnapshot {
-        require(url.isNotBlank()) { "url must not be blank" }
+    fun startAudit(spec: AuditExecutionSpec): JobSnapshot {
+        require(spec.resourcePoolId.isBlank() || spec.resourcePoolId == "built-in-default") {
+            "Burp Scanner Montoya API 2026.7 cannot bind a resource pool; select built-in-default"
+        }
+        if (spec.auditType == AuditType.PASSIVE) {
+            val issues = api.siteMap().issues().count { issue -> issue.baseUrl().startsWith(spec.url) }
+            return jobs.completed(
+                "scanner_passive_snapshot",
+                AuditJobOutput(0, 0, issues, "passive", true, "stateless site map issue snapshot"),
+            )
+        }
         return jobs.startWithId("scanner_audit") { id ->
             val handle = AuditHandle()
             audits[id] = handle
             if (Thread.currentThread().isInterrupted) throw InterruptedException()
             check(auditRunning.compareAndSet(false, true)) { "another scanner audit is already running" }
-            val wasInScope = api.scope().isInScope(url)
-            if (!wasInScope) api.scope().includeInScope(url)
+            val wasInScope = api.scope().isInScope(spec.url)
+            if (!wasInScope) {
+                require(spec.includeOutOfScope) { "audit target is out of scope; set include_out_of_scope=true explicitly" }
+                api.scope().includeInScope(spec.url)
+            }
             val observed = AtomicInteger()
-            val registration = api.http().registerHttpHandler(scannerHandler(crawlOrigin(url), observed))
+            val registration = api.http().registerHttpHandler(scannerHandler(setOf(crawlOrigin(spec.url)), observed))
             var audit: burp.api.montoya.scanner.audit.Audit? = null
             try {
-                val mode = if (active) BuiltInAuditConfiguration.LEGACY_ACTIVE_AUDIT_CHECKS else BuiltInAuditConfiguration.LEGACY_PASSIVE_AUDIT_CHECKS
-                audit = api.scanner().startAudit(AuditConfiguration.auditConfiguration(mode))
+                audit = api.scanner().startAudit(AuditConfiguration.auditConfiguration(BuiltInAuditConfiguration.LEGACY_ACTIVE_AUDIT_CHECKS))
                 handle.attach(audit)
-                audit.addRequest(HttpRequest.httpRequestFromUrl(url))
+                audit.addRequest(HttpRequest.httpRequestFromUrl(spec.url))
                 awaitAuditCompletion(
-                    snapshot = { AuditJobOutput(runCatching { audit!!.requestCount() }.getOrDefault(observed.get()), runCatching { audit!!.errorCount() }.getOrDefault(0), runCatching { audit!!.issues().size }.getOrDefault(0)) },
+                    snapshot = {
+                        AuditJobOutput(
+                            runCatching { audit!!.requestCount() }.getOrDefault(observed.get()),
+                            runCatching { audit!!.errorCount() }.getOrDefault(0),
+                            runCatching { audit!!.issues().size }.getOrDefault(0),
+                            "active",
+                            false,
+                            runCatching { audit!!.statusMessage() }.getOrDefault(""),
+                        )
+                    },
                     observedRequestCount = observed::get,
                     status = { runCatching { audit!!.statusMessage() }.getOrNull() },
-                    timeoutMillis = taskTimeoutMillis,
-                    stableMillis = taskStableMillis,
+                    timeoutMillis = spec.timeoutMillis,
+                    stableMillis = spec.stableMillis,
                     pollMillis = taskPollMillis,
                 )
             } finally {
                 registration.deregister()
-                if (!wasInScope) api.scope().excludeFromScope(url)
+                if (!wasInScope) api.scope().excludeFromScope(spec.url)
                 auditRunning.set(false)
             }
         }
     }
     fun stopAudit(id: String): JobSnapshot? {
         val snapshot = jobs.status(id) ?: return null
-        require(snapshot.operation == "scanner_audit") { "job is not a scanner audit" }
+        require(snapshot.operation == "scanner_audit" || snapshot.operation == "scanner_passive_snapshot") { "job is not a scanner audit" }
         if (snapshot.state == JobState.QUEUED || snapshot.state == JobState.RUNNING) {
             audits[id]?.stop()
             return jobs.cancel(id)
@@ -157,14 +190,14 @@ internal class LongOperationFacade(
 
     fun removeAudit(id: String): JobSnapshot? {
         val snapshot = jobs.status(id) ?: return null
-        require(snapshot.operation == "scanner_audit") { "job is not a scanner audit" }
+        require(snapshot.operation == "scanner_audit" || snapshot.operation == "scanner_passive_snapshot") { "job is not a scanner audit" }
         check(snapshot.state in setOf(JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED)) { "audit must be stopped before removal" }
         audits.remove(id)?.stop()
         return jobs.remove(id)
     }
-    private fun scannerHandler(origin: String, observed: AtomicInteger): HttpHandler = object : HttpHandler {
+    private fun scannerHandler(origins: Set<String>, observed: AtomicInteger): HttpHandler = object : HttpHandler {
         override fun handleHttpRequestToBeSent(requestToBeSent: HttpRequestToBeSent): RequestToBeSentAction {
-            if (requestToBeSent.toolSource().isFromTool(ToolType.SCANNER) && requestToBeSent.url().startsWith(origin)) observed.incrementAndGet()
+            if (requestToBeSent.toolSource().isFromTool(ToolType.SCANNER) && origins.any(requestToBeSent.url()::startsWith)) observed.incrementAndGet()
             return RequestToBeSentAction.continueWith(requestToBeSent)
         }
         override fun handleHttpResponseReceived(responseReceived: HttpResponseReceived): ResponseReceivedAction = ResponseReceivedAction.continueWith(responseReceived)

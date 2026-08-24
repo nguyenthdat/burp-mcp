@@ -16,6 +16,7 @@ import io.github.nguyenthdat.burpmcp.ProxyFacade
 import io.github.nguyenthdat.burpmcp.ProxyInterceptConfigFacade
 import io.github.nguyenthdat.burpmcp.ProxyRuleFacade
 import io.github.nguyenthdat.burpmcp.ScannerFacade
+import io.github.nguyenthdat.burpmcp.ScanCatalogFacade
 import io.github.nguyenthdat.burpmcp.ScriptImportFacade
 import io.github.nguyenthdat.burpmcp.SessionRuleFacade
 import io.github.nguyenthdat.burpmcp.SitemapFacade
@@ -29,6 +30,7 @@ internal class BurpServiceResources(api: MontoyaApi) : AutoCloseable {
     val sitemap = SitemapFacade(api)
     val target = TargetFacade(api)
     val scanner = ScannerFacade(api)
+    val scanCatalog = ScanCatalogFacade(api)
     val cookies = CookieFacade(api)
     val http = HttpFacade(api)
     val annotations = AnnotationFacade(api)
