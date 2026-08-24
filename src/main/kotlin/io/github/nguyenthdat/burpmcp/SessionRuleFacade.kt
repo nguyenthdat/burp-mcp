@@ -7,7 +7,9 @@ import burp.api.montoya.http.sessions.ActionResult
 import burp.api.montoya.http.sessions.SessionHandlingAction
 import burp.api.montoya.http.sessions.SessionHandlingActionData
 
+import java.util.UUID
 internal data class SessionRule(
+    val id: String,
     val description: String,
     val actionType: String,
     val find: String,
@@ -30,12 +32,33 @@ internal class SessionRuleFacade(
         val proxyRegistration: Registration,
     )
 
-    private var active: ActiveRule? = null
+    private val active = linkedMapOf<String, ActiveRule>()
 
     @Synchronized
-    fun create(rule: SessionRule) {
+    fun create(rule: SessionRule): SessionRule {
+        val created = rule.copy(id = rule.id.ifBlank { UUID.randomUUID().toString() })
+        validate(created)
+        require(created.id !in active) { "session rule already exists" }
+        active[created.id] = register(created)
+        return created
+    }
+
+    @Synchronized
+    fun get(id: String): SessionRule = active[id]?.rule ?: error("session rule not found")
+
+    @Synchronized
+    fun update(rule: SessionRule): SessionRule {
+        require(rule.id.isNotBlank()) { "session rule id must not be blank" }
         validate(rule)
-        remove()
+        val existing = active[rule.id] ?: error("session rule not found")
+        val replacement = register(rule)
+        active[rule.id] = replacement
+        existing.sessionRegistration.deregister()
+        existing.proxyRegistration.deregister()
+        return rule
+    }
+
+    private fun register(rule: SessionRule): ActiveRule {
         val sessionRegistration =
             api.http().registerSessionHandlingAction(
                 object : SessionHandlingAction {
@@ -70,17 +93,27 @@ internal class SessionRuleFacade(
                         burp.api.montoya.proxy.http.ProxyRequestToBeSentAction.continueWith(interceptedRequest)
                 },
             )
-        active = ActiveRule(rule, sessionRegistration, proxyRegistration)
+        return ActiveRule(rule, sessionRegistration, proxyRegistration)
     }
 
     @Synchronized
-    fun list(): List<SessionRule> = active?.let { listOf(it.rule) } ?: emptyList()
+    fun list(): List<SessionRule> = active.values.map(ActiveRule::rule)
 
     @Synchronized
-    fun remove() {
-        active?.sessionRegistration?.deregister()
-        active?.proxyRegistration?.deregister()
-        active = null
+    fun remove(id: String): Boolean {
+        val removed = active.remove(id) ?: return false
+        removed.sessionRegistration.deregister()
+        removed.proxyRegistration.deregister()
+        return true
+    }
+
+    @Synchronized
+    fun removeAll() {
+        active.values.forEach { rule ->
+            rule.sessionRegistration.deregister()
+            rule.proxyRegistration.deregister()
+        }
+        active.clear()
     }
 
     private fun validate(rule: SessionRule) {

@@ -120,10 +120,11 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.ClearHttpHandlerRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.RegisterHttpHandlerRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ClearProxyRulesRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.RegisterProxyRuleRequest
-import io.github.nguyenthdat.burpmcp.grpc.v1.CreateSessionRuleRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.UpsertSessionRuleRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.GetSessionRuleRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ListSessionRulesRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ListSessionRulesResponse
-import io.github.nguyenthdat.burpmcp.grpc.v1.RemoveSessionRulesRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.DeleteSessionRuleRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.SessionRuleEntry
 import io.github.nguyenthdat.burpmcp.grpc.v1.CancelJobRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.GetJobResultRequest
@@ -1159,61 +1160,38 @@ internal class BurpRpcService(
     }
 
     override fun createSessionRule(
-        request: CreateSessionRuleRequest,
-        responseObserver: StreamObserver<ActionResponse>,
-    ) {
-        sessionRuleFacade.create(
-            SessionRule(
-                description = request.description.ifBlank { "Burp MCP session rule" },
-                actionType = request.actionType.ifBlank { "replace_text" },
-                find = request.find,
-                replacement = request.replacement,
-                headerName = request.headerName,
-                parameterName = request.parameterName,
-                macroDescription = request.macroDescription,
-                urlContains = request.urlContains,
-                tools = request.toolsList.map(String::lowercase).toSet(),
-                enabled = request.enabled,
-            ),
-        )
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("session rule created").build())
-        responseObserver.onCompleted()
-    }
+        request: UpsertSessionRuleRequest,
+        responseObserver: StreamObserver<SessionRuleEntry>,
+    ) = responseObserver.respond { sessionRuleFacade.create(request.toSessionRule()).toProto() }
+
+    override fun getSessionRule(
+        request: GetSessionRuleRequest,
+        responseObserver: StreamObserver<SessionRuleEntry>,
+    ) = responseObserver.respond { sessionRuleFacade.get(request.id).toProto() }
+
+    override fun updateSessionRule(
+        request: UpsertSessionRuleRequest,
+        responseObserver: StreamObserver<SessionRuleEntry>,
+    ) = responseObserver.respond { sessionRuleFacade.update(request.toSessionRule()).toProto() }
 
     override fun listSessionRules(
         @Suppress("UNUSED_PARAMETER") request: ListSessionRulesRequest,
         responseObserver: StreamObserver<ListSessionRulesResponse>,
-    ) {
-        val response =
-            ListSessionRulesResponse
-                .newBuilder()
-                .addAllItems(
-                    sessionRuleFacade.list().map { rule ->
-                        SessionRuleEntry.newBuilder()
-                            .setFind(rule.find)
-                            .setReplacement(rule.replacement)
-                            .setDescription(rule.description)
-                            .setActionType(rule.actionType)
-                            .setHeaderName(rule.headerName)
-                            .setParameterName(rule.parameterName)
-                            .setMacroDescription(rule.macroDescription)
-                            .setUrlContains(rule.urlContains)
-                            .addAllTools(rule.tools)
-                            .setEnabled(rule.enabled)
-                            .build()
-                    },
-                ).build()
-        responseObserver.onNext(response)
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        ListSessionRulesResponse.newBuilder()
+            .addAllItems(sessionRuleFacade.list().map { it.toProto() })
+            .build()
     }
 
-    override fun removeSessionRules(
-        @Suppress("UNUSED_PARAMETER") request: RemoveSessionRulesRequest,
+    override fun deleteSessionRule(
+        request: DeleteSessionRuleRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
-        sessionRuleFacade.remove()
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("session rules removed").build())
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        val removed = sessionRuleFacade.remove(request.id)
+        ActionResponse.newBuilder()
+            .setSuccess(removed)
+            .setMessage(if (removed) "session rule deleted" else "session rule not found")
+            .build()
     }
 
     override fun createMacro(
@@ -1619,6 +1597,37 @@ internal class BurpRpcService(
 
     private fun io.github.nguyenthdat.burpmcp.grpc.v1.UpsertScanConfigurationRequest.toDomain() =
         ScanConfigurationDefinition(id, name, scanType, auditType, includeOutOfScope, timeoutSeconds, stableSeconds, resourcePoolId)
+
+    private fun UpsertSessionRuleRequest.toSessionRule(): SessionRule =
+        SessionRule(
+            id = id,
+            description = description.ifBlank { "Burp MCP session rule" },
+            actionType = actionType.ifBlank { "replace_text" },
+            find = find,
+            replacement = replacement,
+            headerName = headerName,
+            parameterName = parameterName,
+            macroDescription = macroDescription,
+            urlContains = urlContains,
+            tools = toolsList.map(String::lowercase).toSet(),
+            enabled = enabled,
+        )
+
+    private fun SessionRule.toProto(): SessionRuleEntry =
+        SessionRuleEntry.newBuilder()
+            .setId(id)
+            .setFind(find)
+            .setReplacement(replacement)
+            .setDescription(description)
+            .setActionType(actionType)
+            .setHeaderName(headerName)
+            .setParameterName(parameterName)
+            .setMacroDescription(macroDescription)
+            .setUrlContains(urlContains)
+            .addAllTools(tools.sorted())
+            .setEnabled(enabled)
+            .build()
+
 
     private fun ScanResourcePoolDefinition.toProto(): io.github.nguyenthdat.burpmcp.grpc.v1.ScanResourcePoolEntry =
         io.github.nguyenthdat.burpmcp.grpc.v1.ScanResourcePoolEntry.newBuilder()

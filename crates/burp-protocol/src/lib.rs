@@ -213,8 +213,16 @@ enum Command {
         response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
     },
     CreateSessionRule {
-        request: proto::CreateSessionRuleRequest,
-        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+        request: proto::UpsertSessionRuleRequest,
+        response: oneshot::Sender<Result<proto::SessionRuleEntry, ClientError>>,
+    },
+    GetSessionRule {
+        request: proto::GetSessionRuleRequest,
+        response: oneshot::Sender<Result<proto::SessionRuleEntry, ClientError>>,
+    },
+    UpdateSessionRule {
+        request: proto::UpsertSessionRuleRequest,
+        response: oneshot::Sender<Result<proto::SessionRuleEntry, ClientError>>,
     },
     ListProxyRules {
         request: proto::ListProxyRulesRequest,
@@ -224,8 +232,8 @@ enum Command {
         request: proto::ListSessionRulesRequest,
         response: oneshot::Sender<Result<proto::ListSessionRulesResponse, ClientError>>,
     },
-    RemoveSessionRules {
-        request: proto::RemoveSessionRulesRequest,
+    DeleteSessionRule {
+        request: proto::DeleteSessionRuleRequest,
         response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
     },
     CreateMacro {
@@ -730,6 +738,13 @@ impl BurpClient {
             .await
     }
 
+    pub async fn list_proxy_rules(
+        &self,
+        request: proto::ListProxyRulesRequest,
+    ) -> Result<proto::ListProxyRulesResponse, ClientError> {
+        self.send(|response| Command::ListProxyRules { request, response }).await
+    }
+
     pub async fn clear_proxy_rules(
         &self,
         request: proto::ClearProxyRulesRequest,
@@ -737,37 +752,41 @@ impl BurpClient {
         self.send(|response| Command::ClearProxyRules { request, response })
             .await
     }
-    pub async fn list_proxy_rules(
-        &self,
-        request: proto::ListProxyRulesRequest,
-    ) -> Result<proto::ListProxyRulesResponse, ClientError> {
-        self.send(|response| Command::ListProxyRules { request, response })
-            .await
-    }
-
     pub async fn create_session_rule(
         &self,
-        request: proto::CreateSessionRuleRequest,
-    ) -> Result<proto::ActionResponse, ClientError> {
-        self.send(|response| Command::CreateSessionRule { request, response })
-            .await
+        request: proto::UpsertSessionRuleRequest,
+    ) -> Result<proto::SessionRuleEntry, ClientError> {
+        self.send(|response| Command::CreateSessionRule { request, response }).await
+    }
+
+    pub async fn get_session_rule(
+        &self,
+        request: proto::GetSessionRuleRequest,
+    ) -> Result<proto::SessionRuleEntry, ClientError> {
+        self.send(|response| Command::GetSessionRule { request, response }).await
+    }
+
+    pub async fn update_session_rule(
+        &self,
+        request: proto::UpsertSessionRuleRequest,
+    ) -> Result<proto::SessionRuleEntry, ClientError> {
+        self.send(|response| Command::UpdateSessionRule { request, response }).await
     }
 
     pub async fn list_session_rules(
         &self,
         request: proto::ListSessionRulesRequest,
     ) -> Result<proto::ListSessionRulesResponse, ClientError> {
-        self.send(|response| Command::ListSessionRules { request, response })
-            .await
+        self.send(|response| Command::ListSessionRules { request, response }).await
     }
 
-    pub async fn remove_session_rules(
+    pub async fn delete_session_rule(
         &self,
-        request: proto::RemoveSessionRulesRequest,
+        request: proto::DeleteSessionRuleRequest,
     ) -> Result<proto::ActionResponse, ClientError> {
-        self.send(|response| Command::RemoveSessionRules { request, response })
-            .await
+        self.send(|response| Command::DeleteSessionRule { request, response }).await
     }
+
 
     pub async fn create_macro(
         &self,
@@ -1506,56 +1525,13 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
-        Command::ListProxyRules { request, response } => {
-            let result = client
-                .list_proxy_rules(with_deadline(request, config.call_timeout))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientError::Rpc);
-            let reconnect = result.as_ref().is_err_and(is_transport_failure);
-            let _ = response.send(result);
-            reconnect
-        }
-        Command::ClearProxyRules { request, response } => {
-            let result = client
-                .clear_proxy_rules(with_deadline(request, config.call_timeout))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientError::Rpc);
-            let reconnect = result.as_ref().is_err_and(is_transport_failure);
-            let _ = response.send(result);
-            reconnect
-        }
-        Command::CreateSessionRule { request, response } => {
-            let result = client
-                .create_session_rule(with_deadline(request, config.call_timeout))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientError::Rpc);
-            let reconnect = result.as_ref().is_err_and(is_transport_failure);
-            let _ = response.send(result);
-            reconnect
-        }
-        Command::ListSessionRules { request, response } => {
-            let result = client
-                .list_session_rules(with_deadline(request, config.call_timeout))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientError::Rpc);
-            let reconnect = result.as_ref().is_err_and(is_transport_failure);
-            let _ = response.send(result);
-            reconnect
-        }
-        Command::RemoveSessionRules { request, response } => {
-            let result = client
-                .remove_session_rules(with_deadline(request, config.call_timeout))
-                .await
-                .map(|response| response.into_inner())
-                .map_err(ClientError::Rpc);
-            let reconnect = result.as_ref().is_err_and(is_transport_failure);
-            let _ = response.send(result);
-            reconnect
-        }
+        Command::ListProxyRules { request, response } => rpc_command!(client, list_proxy_rules, request, response, config),
+        Command::ClearProxyRules { request, response } => rpc_command!(client, clear_proxy_rules, request, response, config),
+        Command::CreateSessionRule { request, response } => rpc_command!(client, create_session_rule, request, response, config),
+        Command::GetSessionRule { request, response } => rpc_command!(client, get_session_rule, request, response, config),
+        Command::UpdateSessionRule { request, response } => rpc_command!(client, update_session_rule, request, response, config),
+        Command::ListSessionRules { request, response } => rpc_command!(client, list_session_rules, request, response, config),
+        Command::DeleteSessionRule { request, response } => rpc_command!(client, delete_session_rule, request, response, config),
         Command::CreateMacro { request, response } => {
             let result = client
                 .create_macro(with_deadline(request, config.call_timeout))
@@ -1945,19 +1921,15 @@ fn respond_offline(command: Command) {
         Command::InspectConfig { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
-        Command::CreateSessionRule { response, .. } => {
-            let _ = response.send(Err(ClientError::Rpc(status)));
-        }
-        Command::ListSessionRules { response, .. } => {
-            let _ = response.send(Err(ClientError::Rpc(status)));
-        }
+        Command::CreateSessionRule { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
+        Command::GetSessionRule { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
+        Command::UpdateSessionRule { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
+        Command::ListSessionRules { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
+        Command::DeleteSessionRule { response, .. } => { let _ = response.send(Err(ClientError::Rpc(status))); }
         Command::StopAudit { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::RemoveAudit { response, .. } => {
-            let _ = response.send(Err(ClientError::Rpc(status)));
-        }
-        Command::RemoveSessionRules { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::CreateMacro { response, .. } => {

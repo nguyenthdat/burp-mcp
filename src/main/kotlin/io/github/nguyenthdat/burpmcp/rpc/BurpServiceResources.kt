@@ -55,7 +55,7 @@ internal class BurpServiceResources(api: MontoyaApi) : AutoCloseable {
         jobs.close()
         httpHandlers.clear()
         proxyRules.close()
-        sessionRules.remove()
+        sessionRules.removeAll()
         webSockets.close()
         intruderPayloads.close()
     }

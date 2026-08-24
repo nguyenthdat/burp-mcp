@@ -53,10 +53,12 @@ service BurpService {
   rpc InspectConfig(ExportConfigRequest) returns (InspectConfigResponse);
   rpc RegisterProxyRule(RegisterProxyRuleRequest) returns (ActionResponse);
   rpc ClearProxyRules(ClearProxyRulesRequest) returns (ActionResponse);
-  rpc CreateSessionRule(CreateSessionRuleRequest) returns (ActionResponse);
-  rpc ListSessionRules(ListSessionRulesRequest) returns (ListSessionRulesResponse);
   rpc ListProxyRules(ListProxyRulesRequest) returns (ListProxyRulesResponse);
-  rpc RemoveSessionRules(RemoveSessionRulesRequest) returns (ActionResponse);
+  rpc CreateSessionRule(UpsertSessionRuleRequest) returns (SessionRuleEntry);
+  rpc GetSessionRule(GetSessionRuleRequest) returns (SessionRuleEntry);
+  rpc UpdateSessionRule(UpsertSessionRuleRequest) returns (SessionRuleEntry);
+  rpc ListSessionRules(ListSessionRulesRequest) returns (ListSessionRulesResponse);
+  rpc DeleteSessionRule(DeleteSessionRuleRequest) returns (ActionResponse);
   rpc CreateMacro(CreateMacroRequest) returns (ActionResponse);
   rpc ListMacros(ListMacrosRequest) returns (ListMacrosResponse);
   rpc RunMacro(RunMacroRequest) returns (RunMacroResponse);
@@ -470,33 +472,36 @@ message UpdatePayloadListRequest {
   optional string display_name = 6;
 }
 message DeletePayloadListRequest { string id = 1; }
-message CreateSessionRuleRequest {
-  string find = 1;
-  string replacement = 2;
-  string description = 3;
-  string action_type = 4;
-  string header_name = 5;
-  string parameter_name = 6;
-  string macro_description = 7;
-  string url_contains = 8;
-  repeated string tools = 9;
-  bool enabled = 10;
+message UpsertSessionRuleRequest {
+  string id = 1;
+  string find = 2;
+  string replacement = 3;
+  string description = 4;
+  string action_type = 5;
+  string header_name = 6;
+  string parameter_name = 7;
+  string macro_description = 8;
+  string url_contains = 9;
+  repeated string tools = 10;
+  bool enabled = 11;
 }
+message GetSessionRuleRequest { string id = 1; }
 message ListSessionRulesRequest {}
 message SessionRuleEntry {
-  string find = 1;
-  string replacement = 2;
-  string description = 3;
-  string action_type = 4;
-  string header_name = 5;
-  string parameter_name = 6;
-  string macro_description = 7;
-  string url_contains = 8;
-  repeated string tools = 9;
-  bool enabled = 10;
+  string id = 1;
+  string find = 2;
+  string replacement = 3;
+  string description = 4;
+  string action_type = 5;
+  string header_name = 6;
+  string parameter_name = 7;
+  string macro_description = 8;
+  string url_contains = 9;
+  repeated string tools = 10;
+  bool enabled = 11;
 }
 message ListSessionRulesResponse { repeated SessionRuleEntry items = 1; }
-message RemoveSessionRulesRequest {}
+message DeleteSessionRuleRequest { string id = 1; }
 message MacroItem {
   string request = 1;
   string method = 2;

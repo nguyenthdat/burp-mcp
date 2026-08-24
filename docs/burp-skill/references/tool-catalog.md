@@ -135,9 +135,11 @@ to leave the connection open.
 | `burp_proxy_intercept_config` | `{master_intercept_enabled?, request_do_intercept?, response_do_intercept?, request_rules?, response_rules?, websocket_*, response_*}` | Read or patch Burp Proxy capture rules. Supports request/response interception enablement, ordered `and`/`or` rules, WebSocket directions/scope, automatic Content-Length updates, and response modification flags. Rule replacement requires `replace_request_rules` or `replace_response_rules`. |
 | `burp_cookie_jar` | `{limit?, domain?}` | List cookies; values are sensitive. |
 | `burp_cookie_jar_set` | `{name, value, domain, path?, expiration?}` | Set a cookie. Verify by listing it; expire temporary cookies during cleanup. |
-| `burp_session_create_rule` | `{find, replace}` | Create a text replacement session rule. Cleanup: `burp_session_remove_rule`. |
+| `burp_session_create_rule` | `{id?, find?, replace?, description?, action_type?, header_name?, parameter_name?, macro_description?, url_contains?, tools?, enabled?}` | Create a session rule and return its stable ID. |
+| `burp_session_get_rule` | `{id}` | Get one session rule by stable ID. |
+| `burp_session_update_rule` | `{id, find?, replace?, description?, action_type?, header_name?, parameter_name?, macro_description?, url_contains?, tools?, enabled?}` | Replace one session rule by ID. |
 | `burp_session_list_rules` | `{}` | List current session rules. |
-| `burp_session_remove_rule` | `{}` | Remove session rules. |
+| `burp_session_delete_rule` | `{id}` | Delete one session rule by ID. |
 | `burp_macro_list` | `{}` | List Burp session macros. |
 | `burp_macro_create` | `{description, serial_number?, items}` | Create/replace a macro; see item shape below. |
 | `burp_macro_run` | `{description}` | Execute requests from one named macro. |

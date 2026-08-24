@@ -7,31 +7,30 @@ use burp_protocol::BurpClient;
 use burp_protocol::protocol::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
     CloseWebSocketRequest, ConfigResponse, CookieJarRequest, CreateMacroRequest,
-    CreatePayloadListRequest, CreateSessionRuleRequest, CreateWebSocketRequest,
-    DeletePayloadListRequest,
-    DeleteScanConfigurationRequest,
+    CreatePayloadListRequest, CreateWebSocketRequest, DeletePayloadListRequest,
+    DeleteScanConfigurationRequest, DeleteSessionRuleRequest,
     DeleteScanResourcePoolRequest, ExportConfigRequest, ExtensionInfoRequest,
     GenerateCollaboratorPayloadsRequest, GenerateScannerReportRequest, GetJobResultRequest,
     GetJobStatusRequest, GetPayloadListRequest, GetScanConfigurationRequest,
-    GetScanResourcePoolRequest, HttpHeaderEntry, ImportBCheckRequest, ImportBambdaRequest,
-    ImportConfigRequest, ImportPayloadListRequest, InterceptStateRequest,
-    ListMacrosRequest, ListPayloadGeneratorsRequest, ListPayloadListsRequest,
-    ListPayloadProcessorsRequest, ListProxyRulesRequest, ListScanConfigurationsRequest,
-    ListScanResourcePoolsRequest, ListSessionRulesRequest,
-    UpsertScanConfigurationRequest, UpsertScanResourcePoolRequest,
+    GetScanResourcePoolRequest, GetSessionRuleRequest, HttpHeaderEntry,
+    ImportBCheckRequest, ImportBambdaRequest, ImportConfigRequest, ImportPayloadListRequest,
+    InterceptStateRequest, ListMacrosRequest, ListPayloadGeneratorsRequest,
+    ListPayloadListsRequest, ListPayloadProcessorsRequest, ListProxyRulesRequest,
+    ListScanConfigurationsRequest, ListScanResourcePoolsRequest, ListSessionRulesRequest,
     ListWebSocketsRequest, MacroDefinition, MacroItem, MacroParameter,
     ManagedWebSocketHistoryRequest, MutateScopeRequest, PageRequest,
     PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
     ProxyInterceptConfigRequest, ProxyInterceptRule, ProxyWebSocketHistoryRequest,
     RegisterHttpHandlerRequest, RegisterPayloadGeneratorRequest, RegisterPayloadProcessorRequest,
     RegisterProxyRuleRequest, RemoveMacroRequest, RemovePayloadGeneratorRequest,
-    RemovePayloadProcessorRequest, RemoveSessionRulesRequest, RunMacroRequest,
-    ScanIssueDetailRequest, ScanIssuesRequest, ScopeCheckRequest, SendRequestRequest,
-    SendRequestsRequest, SendToIntruderRequest, SendToRepeaterRequest, SendWebSocketBinaryRequest,
+    RemovePayloadProcessorRequest, RunMacroRequest, ScanIssueDetailRequest,
+    ScanIssuesRequest, ScopeCheckRequest, SendRequestRequest, SendRequestsRequest,
+    SendToIntruderRequest, SendToRepeaterRequest, SendWebSocketBinaryRequest,
     SendWebSocketTextRequest, SetCookieRequest, SetHighlightRequest, SetNoteRequest,
     SitemapSnapshotRequest, StartAuditRequest, StartBoundedInputMatrixRequest,
     StartConcurrentRequestCheckRequest, StartCrawlRequest, TargetInfoRequest,
-    UpdatePayloadListRequest,
+    UpdatePayloadListRequest, UpsertScanConfigurationRequest, UpsertScanResourcePoolRequest,
+    UpsertSessionRuleRequest,
 };
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
@@ -455,7 +454,8 @@ pub struct UpdatePayloadListInput {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct CreateSessionRuleInput {
+pub struct SessionRuleUpsertInput {
+    pub id: Option<String>,
     pub description: Option<String>,
     pub action_type: Option<String>,
     pub find: Option<String>,
@@ -467,6 +467,9 @@ pub struct CreateSessionRuleInput {
     pub tools: Option<Vec<String>>,
     pub enabled: Option<bool>,
 }
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SessionRuleIdInput { pub id: String }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct MacroParameterInput {
@@ -1349,66 +1352,51 @@ impl BurpTools {
 
     #[tool(
         name = "burp_session_create_rule",
-        description = "Register a scoped MCP session action: replace_text, set_header, set_parameter, or run_macro"
+        description = "Create a scoped MCP session rule and return its stable ID"
     )]
     async fn session_create_rule(
         &self,
-        Parameters(input): Parameters<CreateSessionRuleInput>,
+        Parameters(input): Parameters<SessionRuleUpsertInput>,
     ) -> String {
-        action_json(
-            self.client
-                .create_session_rule(CreateSessionRuleRequest {
-                    find: input.find.unwrap_or_default(),
-                    replacement: input.replace.unwrap_or_default(),
-                    description: input
-                        .description
-                        .unwrap_or_else(|| "Burp MCP session rule".to_owned()),
-                    action_type: input
-                        .action_type
-                        .unwrap_or_else(|| "replace_text".to_owned()),
-                    header_name: input.header_name.unwrap_or_default(),
-                    parameter_name: input.parameter_name.unwrap_or_default(),
-                    macro_description: input.macro_description.unwrap_or_default(),
-                    url_contains: input.url_contains.unwrap_or_default(),
-                    tools: input.tools.unwrap_or_default(),
-                    enabled: input.enabled.unwrap_or(true),
-                })
-                .await,
-        )
-    }
-
-    #[tool(
-        name = "burp_session_list_rules",
-        description = "List registered MCP session actions and scope"
-    )]
-    async fn session_list_rules(&self) -> String {
-        match self.client.list_session_rules(ListSessionRulesRequest {}).await {
-            Ok(response) => serde_json::json!({"rules": response.items.into_iter().map(|rule| serde_json::json!({
-                "description": rule.description,
-                "action_type": rule.action_type,
-                "find": rule.find,
-                "replace": rule.replacement,
-                "header_name": rule.header_name,
-                "parameter_name": rule.parameter_name,
-                "macro_description": rule.macro_description,
-                "url_contains": rule.url_contains,
-                "tools": rule.tools,
-                "enabled": rule.enabled,
-            })).collect::<Vec<_>>()}).to_string(),
+        match self.client.create_session_rule(session_rule_request(input)).await {
+            Ok(rule) => session_rule_json(rule).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
 
-    #[tool(
-        name = "burp_session_remove_rule",
-        description = "Remove the registered MCP session action"
-    )]
-    async fn session_remove_rule(&self) -> String {
-        action_json(
-            self.client
-                .remove_session_rules(RemoveSessionRulesRequest {})
-                .await,
-        )
+    #[tool(name = "burp_session_get_rule", description = "Get one MCP session rule by ID")]
+    async fn session_get_rule(&self, Parameters(input): Parameters<SessionRuleIdInput>) -> String {
+        match self.client.get_session_rule(GetSessionRuleRequest { id: input.id }).await {
+            Ok(rule) => session_rule_json(rule).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(name = "burp_session_update_rule", description = "Replace one MCP session rule by ID")]
+    async fn session_update_rule(
+        &self,
+        Parameters(input): Parameters<SessionRuleUpsertInput>,
+    ) -> String {
+        if input.id.as_deref().unwrap_or_default().is_empty() {
+            return serde_json::json!({"error": "id is required"}).to_string();
+        }
+        match self.client.update_session_rule(session_rule_request(input)).await {
+            Ok(rule) => session_rule_json(rule).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(name = "burp_session_list_rules", description = "List registered MCP session rules and scope")]
+    async fn session_list_rules(&self) -> String {
+        match self.client.list_session_rules(ListSessionRulesRequest {}).await {
+            Ok(response) => serde_json::json!({"rules": response.items.into_iter().map(session_rule_json).collect::<Vec<_>>() }).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(name = "burp_session_delete_rule", description = "Delete one MCP session rule by ID")]
+    async fn session_delete_rule(&self, Parameters(input): Parameters<SessionRuleIdInput>) -> String {
+        action_json(self.client.delete_session_rule(DeleteSessionRuleRequest { id: input.id }).await)
     }
 
     #[tool(
@@ -2957,6 +2945,38 @@ fn proxy_intercept_rule_json(rule: ProxyInterceptRule) -> serde_json::Value {
         "match_type": rule.match_type,
         "match_relationship": rule.match_relationship,
         "match_condition": rule.match_condition,
+    })
+}
+
+fn session_rule_request(input: SessionRuleUpsertInput) -> UpsertSessionRuleRequest {
+    UpsertSessionRuleRequest {
+        id: input.id.unwrap_or_default(),
+        find: input.find.unwrap_or_default(),
+        replacement: input.replace.unwrap_or_default(),
+        description: input.description.unwrap_or_else(|| "Burp MCP session rule".to_owned()),
+        action_type: input.action_type.unwrap_or_else(|| "replace_text".to_owned()),
+        header_name: input.header_name.unwrap_or_default(),
+        parameter_name: input.parameter_name.unwrap_or_default(),
+        macro_description: input.macro_description.unwrap_or_default(),
+        url_contains: input.url_contains.unwrap_or_default(),
+        tools: input.tools.unwrap_or_default(),
+        enabled: input.enabled.unwrap_or(true),
+    }
+}
+
+fn session_rule_json(rule: burp_protocol::protocol::SessionRuleEntry) -> serde_json::Value {
+    serde_json::json!({
+        "id": rule.id,
+        "description": rule.description,
+        "action_type": rule.action_type,
+        "find": rule.find,
+        "replace": rule.replacement,
+        "header_name": rule.header_name,
+        "parameter_name": rule.parameter_name,
+        "macro_description": rule.macro_description,
+        "url_contains": rule.url_contains,
+        "tools": rule.tools,
+        "enabled": rule.enabled,
     })
 }
 fn script_import_json(
