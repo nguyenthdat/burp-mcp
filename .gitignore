@@ -1,3 +1,6 @@
+# Local Oh My Pi harness configuration; never part of the product or release.
+/.omp/
+
 # Created by https://www.toptal.com/developers/gitignore/api/rust,node,python,kotlin,java
 # Edit at https://www.toptal.com/developers/gitignore?templates=rust,node,python,kotlin,java
 
