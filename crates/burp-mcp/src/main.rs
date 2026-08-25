@@ -1,3 +1,6 @@
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 mod cli;
 use crate::cli::{Cli, Command, ServeArgs};
 use anyhow::{Context, Result, anyhow, bail};
@@ -15,7 +18,8 @@ async fn main() -> Result<()> {
         None => run_server(ServeArgs::default()).await,
         Some(Command::Serve(config)) => run_server(config).await,
         Some(Command::Probe(config)) => {
-            run_probe(&config.resolved_endpoint().map_err(|error| anyhow!(error))?).await
+            let endpoint = config.resolved_endpoint().map_err(|error| anyhow!(error))?;
+            run_probe(&endpoint, config.resolved_tls_dir().as_deref()).await
         }
     }
 }
@@ -30,10 +34,10 @@ async fn run_server(config: ServeArgs) -> Result<()> {
         .with_ansi(false)
         .try_init()
         .ok();
-    let actor = spawn_client(BurpClientConfig {
-        endpoint: config.resolved_endpoint().map_err(|error| anyhow!(error))?,
-        ..BurpClientConfig::default()
-    })?;
+    let actor = spawn_client(client_config(
+        config.resolved_endpoint().map_err(|error| anyhow!(error))?,
+        config.resolved_tls_dir().as_deref(),
+    )?)?;
     let graph_path = config
         .enable_sitegraph
         .then(|| config.resolved_graph_path());
@@ -55,12 +59,58 @@ async fn run_server(config: ServeArgs) -> Result<()> {
 
 // This binary owns only CLI setup, dependency composition, and probing.
 
-async fn run_probe(endpoint: &str) -> Result<()> {
-    let client = spawn_client(BurpClientConfig {
-        endpoint: endpoint.to_owned(),
-        call_timeout: std::time::Duration::from_secs(10),
+fn client_config(endpoint: String, tls_dir: Option<&Path>) -> Result<BurpClientConfig> {
+    let tls = tls_dir.map(load_tls_config).transpose()?;
+    if endpoint.starts_with("https://") && tls.is_none() {
+        return Err(anyhow!("remote HTTPS endpoint requires an mTLS directory"));
+    }
+    Ok(BurpClientConfig {
+        endpoint,
+        tls,
         ..BurpClientConfig::default()
-    })?;
+    })
+}
+
+fn load_tls_config(directory: &Path) -> Result<burp_protocol::ClientTlsConfig> {
+    let read = |name: &str| -> Result<Vec<u8>> {
+        let path = directory.join(name);
+        if name.ends_with(".key") {
+            require_private_key_permissions(&path)?;
+        }
+        std::fs::read(&path).map_err(|error| anyhow!("failed to read {}: {error}", path.display()))
+    };
+    Ok(burp_protocol::ClientTlsConfig {
+        ca_certificate: read("ca.crt")?,
+        client_certificate: read("client.crt")?,
+        client_private_key: read("client.key")?,
+    })
+}
+
+#[cfg(unix)]
+fn require_private_key_permissions(path: &Path) -> Result<()> {
+    let mode = std::fs::metadata(path)?.permissions().mode() & 0o777;
+    if mode != 0o600 {
+        bail!(
+            "TLS private key {} must have mode 0600; found {:03o}",
+            path.display(),
+            mode
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn require_private_key_permissions(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+async fn run_probe(endpoint: &str, tls_dir: Option<&Path>) -> Result<()> {
+    let mut config = client_config(endpoint.to_owned(), tls_dir)?;
+    config.call_timeout = std::time::Duration::from_secs(15);
+    burp_protocol::connect_client(&config)
+        .await
+        .with_context(|| format!("connect to Burp gRPC endpoint {endpoint}"))?;
+    let client = spawn_client(config)?;
 
     let ping = client
         .probe_ping("burp-mcp-probe".to_owned())

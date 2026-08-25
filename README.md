@@ -22,23 +22,23 @@ Burp MCP connects MCP-compatible clients to Burp Suite through a native Rust std
 
 Some capabilities require Burp Suite Professional or a Burp feature that is available only in specific editions.
 
-Rust serves MCP over stdio and owns the
-bounded reconnecting gRPC actor, typed protocol client, local utility engine,
-and persistent sitegraph facade. Kotlin owns Montoya state and exposes only the
-loopback gRPC adapter on `127.0.0.1:9877`; the retired HTTP/JSON/NanoHTTPD path,
-Bearer-token file, Bun bridge, and CyberChef runtime are not production
-dependencies.
+Rust serves MCP over stdio and owns the bounded reconnecting gRPC actor, typed protocol client, local utility engine, and persistent sitegraph facade. Kotlin owns Montoya state and the gRPC adapter. The default remains zero-configuration plaintext on `127.0.0.1:9877`.
 
-Override the fixed-loopback gRPC port before starting Burp when required:
+The extension registers **Settings > Extensions > Burp MCP**. From that panel you can change the bind address and port, select local plaintext or remote mutual TLS, rotate certificates, and restart the gRPC server without reloading Burp.
 
-```sh
-BURP_MCP_GRPC_PORT=10077
-# JVM alternative: -Dburp.mcp.grpc.port=10077
+Remote mode creates this portable bundle by default:
+
+```text
+~/.config/burp-mcp/tls/
+├── ca.crt
+├── server.crt
+├── server.key
+├── client.crt
+├── client.key
+└── bundle.conf
 ```
 
-The endpoint deliberately has no application-level authentication and listens
-only on `127.0.0.1`; any local process that can reach the port can call it. Run
-the cross-language fixture with `scripts/run-grpc-interop.sh`. The remaining
+Keep `server.key` on the Burp machine. Copy only `ca.crt`, `client.crt`, and `client.key` to the same directory on a remote agent machine. On Unix, set `chmod 700 ~/.config/burp-mcp/tls && chmod 600 ~/.config/burp-mcp/tls/client.key`; the Rust client rejects a client key with any group/other permission bits. The Rust client discovers that directory automatically for HTTPS endpoints.
 Burp/JDK 25 interactive unload/reload gate is recorded in
 `docs/phase0-burp-jdk25-verification.md`.
 
@@ -102,7 +102,7 @@ Run the installed native server:
 }
 ```
 
-The server listens to the Kotlin extension at `http://127.0.0.1:9877` by default. Verify the extension before starting the MCP client:
+The server connects to the Kotlin extension at `http://127.0.0.1:9877` by default. Verify the extension before starting the MCP client:
 
 ```sh
 burp-mcp probe --endpoint http://127.0.0.1:9877
@@ -114,10 +114,10 @@ The optional `burp-skill` is documented in [docs/burp-skill](docs/burp-skill/SKI
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `BURP_MCP_GRPC_PORT` | `9877` | Loopback gRPC port used by Kotlin and Rust. |
-| `-Dburp.mcp.grpc.port=<port>` | `9877` | JVM override for the extension gRPC port. |
-| `BURP_MCP_GRPC_ENDPOINT` | `http://127.0.0.1:9877` | Rust endpoint; only IPv4 loopback is accepted. |
-| `BURP_MCP_ENABLE_SITEGRAPH` | `false` | Enable the advanced `sitegraph_*` tools and local SQLite graph. Equivalent CLI flag: `--enable-sitegraph`. |
+| `BURP_MCP_GRPC_PORT` | `9877` | Rust loopback port when an explicit endpoint is not set. |
+| `BURP_MCP_GRPC_ENDPOINT` | `http://127.0.0.1:9877` | Rust endpoint. Remote endpoints must use HTTPS. |
+| `BURP_MCP_TLS_DIR` | `~/.config/burp-mcp/tls` | Rust mTLS directory for HTTPS endpoints. Equivalent CLI flag: `--tls-dir`. |
+| Burp MCP settings panel | Local plaintext on `127.0.0.1:9877` | Kotlin bind address, port, security mode, certificate identities, rotation, and server restart. |
 | `BURP_MCP_GRAPH_PATH` | Platform data directory | SQLite sitegraph path; used only when sitegraph is enabled. Equivalent CLI flag: `--graph-path`. |
 | `BURP_MCP_SITEGRAPH_MODE` | `off` | Auto-index mode: `off`, `startup`, or `watch`; used only when sitegraph is enabled. |
 | `BURP_MCP_SITEGRAPH_INTERVAL_SECONDS` | `30` | Poll interval for sitegraph `watch` mode. |
@@ -134,16 +134,15 @@ For example:
 }
 ```
 
-The gRPC host is fixed to IPv4 loopback and cannot be configured. Every gRPC
-call must include a deadline of at most 30 seconds. `BURP_MCP_PORT`,
-`BURP_MCP_TOKEN`, `BURP_MCP_TRANSPORT` and their JVM equivalents are removed or
-ignored by the v3 Kotlin extension.
+Plaintext is accepted only on IPv4 loopback. Any non-loopback endpoint must use HTTPS with mutual TLS. Enter every DNS name or IP address clients use in the panel before generating certificates; endpoint hostname verification uses those certificate SANs. Rotating certificates invalidates previously copied client bundles.
 
 ## Security
 
 Burp MCP is dual-use security software intended only for systems you own or are explicitly authorized to test.
 
-- The extension listens on localhost by default.
+- The extension listens on IPv4 loopback without TLS by default.
+- Remote binding is available only with generated mutual TLS and required client certificates.
+- Treat `client.key`, `server.key`, and copied TLS directories as credentials; private files are written owner-only on POSIX systems.
 - High-impact tools retain the capabilities and side effects of the underlying Burp APIs.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request requirements. Report suspected vulnerabilities privately using [SECURITY.md](SECURITY.md); do not disclose them in public issues.

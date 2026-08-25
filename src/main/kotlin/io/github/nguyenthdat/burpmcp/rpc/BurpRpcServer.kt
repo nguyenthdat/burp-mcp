@@ -198,6 +198,11 @@ import io.grpc.ServerInterceptor
 import io.grpc.ServerInterceptors
 import io.grpc.Status
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
+import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts
+import io.grpc.netty.shaded.io.netty.handler.ssl.ClientAuth
+import io.github.nguyenthdat.burpmcp.GrpcSecurityMode
+import io.github.nguyenthdat.burpmcp.GrpcSettings
+import io.github.nguyenthdat.burpmcp.TlsBundle
 import io.grpc.protobuf.StatusProto
 import io.grpc.stub.StreamObserver
 import java.net.InetAddress
@@ -216,13 +221,24 @@ private const val GRPC_SHUTDOWN_SECONDS: Long = RpcLimits.SHUTDOWN_SECONDS
 
 internal class BurpRpcServer(
     private val api: MontoyaApi,
-    private val port: Int,
+    private val settings: GrpcSettings,
+    private val tlsBundle: TlsBundle? = null,
     private val clock: Clock = Clock.systemUTC(),
     private val serverFactory:
-        (InetSocketAddress, BurpServiceGrpc.BurpServiceImplBase, ExecutorService) -> Server =
-        { address, service, executor ->
+        (InetSocketAddress, BurpServiceGrpc.BurpServiceImplBase, ExecutorService, TlsBundle?) -> Server =
+        { address, service, executor, bundle ->
             NettyServerBuilder
                 .forAddress(address)
+                .apply {
+                    if (bundle != null) {
+                        sslContext(
+                            GrpcSslContexts.forServer(bundle.serverCertificate.toFile(), bundle.serverPrivateKey.toFile())
+                                .trustManager(bundle.caCertificate.toFile())
+                                .clientAuth(ClientAuth.REQUIRE)
+                                .build(),
+                        )
+                    }
+                }
                 .executor(executor)
                 .addService(ServerInterceptors.intercept(service, RpcDeadlineInterceptor))
                 .maxInboundMessageSize(GRPC_MAX_MESSAGE_BYTES)
@@ -232,6 +248,11 @@ internal class BurpRpcServer(
                 .build()
         },
 ) : AutoCloseable {
+    init {
+        require((settings.securityMode == GrpcSecurityMode.REMOTE_MTLS) == (tlsBundle != null)) {
+            "Remote mTLS settings require a TLS bundle; local plaintext settings forbid one"
+        }
+    }
     private val running = AtomicBoolean(false)
     private var server: Server? = null
     private var executor: ExecutorService? = null
@@ -239,7 +260,7 @@ internal class BurpRpcServer(
 
     fun start() {
         check(running.compareAndSet(false, true)) { "gRPC server is already running" }
-        val address = loopbackAddress(port)
+        val address = bindAddress(settings)
         val workerPool =
             ThreadPoolExecutor(
                 8,
@@ -254,7 +275,7 @@ internal class BurpRpcServer(
         try {
             val currentService = BurpRpcService(api, clock)
             service = currentService
-            server = serverFactory(address, currentService, workerPool).start()
+            server = serverFactory(address, currentService, workerPool, tlsBundle).start()
         } catch (exception: Exception) {
             workerPool.shutdownNow()
             executor = null
@@ -290,11 +311,13 @@ internal class BurpRpcServer(
     }
 
     internal companion object {
-        fun loopbackAddress(port: Int): InetSocketAddress {
-            require(port in 1..65535) { "gRPC port must be between 1 and 65535" }
-            val address = InetAddress.getByName("127.0.0.1")
-            require(address.isLoopbackAddress) { "gRPC server address must be loopback" }
-            return InetSocketAddress(address, port)
+        fun bindAddress(settings: GrpcSettings): InetSocketAddress {
+            settings.validate()
+            val address = InetAddress.getByName(settings.bindAddress)
+            if (settings.securityMode == GrpcSecurityMode.LOCAL_PLAINTEXT) {
+                require(address.isLoopbackAddress) { "Plaintext gRPC server address must be loopback" }
+            }
+            return InetSocketAddress(address, settings.port)
         }
     }
 }

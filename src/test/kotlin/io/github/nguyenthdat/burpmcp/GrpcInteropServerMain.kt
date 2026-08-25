@@ -59,7 +59,7 @@ object GrpcInteropServerMain {
     private fun startServer(
         api: MontoyaApi,
         port: Int,
-    ): BurpRpcServer = BurpRpcServer(api, port).also(BurpRpcServer::start)
+    ): BurpRpcServer = BurpRpcServer(api, GrpcSettings(port = port)).also(BurpRpcServer::start)
 
     @Suppress("UNCHECKED_CAST")
     private fun fakeMontoyaApi(): MontoyaApi =

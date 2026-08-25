@@ -257,7 +257,7 @@ Sitegraph is a Rust-owned SQLite metadata store. It stores endpoint and paramete
 ## v3 release checklist
 
 - Confirm the release branch is merged into `main`; the release workflow rejects commits outside `main`.
-- Keep the stable v3 version (`3.0.0`) consistent in `Cargo.toml`, `Cargo.lock`, `build.gradle.kts`, the MCP server handler, and `JarPackagingTest.kt`.
+- Keep the stable version consistent in `Cargo.toml`, `Cargo.lock`, `build.gradle.kts`, the MCP server handler, and `JarPackagingTest.kt`.
 - Create an annotated Git tag matching the workspace version (`vX.Y.Z`) and publish a non-prerelease GitHub Release from that exact tag commit.
 - Run `cargo fmt --all -- --check`, `cargo check --workspace --locked`, `cargo test --workspace --locked`, and `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`.
 - Run `gradle --no-daemon clean test jar -Pversion="X.Y.Z"`; verify the JAR manifest, packaged sitegraph rule-pack checksum, and absence of test classes.

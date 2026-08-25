@@ -3776,7 +3776,7 @@ fn macro_json(macro_definition: MacroDefinition) -> serde_json::Value {
     })
 }
 
-#[tool_handler(router = Self::burp_router(), name = "burp-mcp", version = "3.0.0")]
+#[tool_handler(router = Self::burp_router(), name = "burp-mcp", version = "3.0.1")]
 impl rmcp::ServerHandler for BurpTools {
     async fn call_tool(
         &self,
