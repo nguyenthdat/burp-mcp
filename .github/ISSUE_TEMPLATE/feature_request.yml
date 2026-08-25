@@ -1,7 +1,7 @@
 name: Feature request
 description: Propose a bounded user-visible capability or workflow improvement
 title: "feat: "
-labels: []
+labels: [enhancement]
 body:
   - type: textarea
     id: problem
