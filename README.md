@@ -126,6 +126,8 @@ Burp MCP is dual-use security software intended only for systems you own or are 
 - The extension listens on localhost by default.
 - High-impact tools retain the capabilities and side effects of the underlying Burp APIs.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request requirements. Report suspected vulnerabilities privately using [SECURITY.md](SECURITY.md); do not disclose them in public issues.
+
 
 ## Build and test
 
