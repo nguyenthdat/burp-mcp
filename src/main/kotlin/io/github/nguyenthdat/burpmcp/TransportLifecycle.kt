@@ -61,7 +61,7 @@ internal class TransportLifecycle(
     }
 
     @Synchronized
-    fun settings(): GrpcSettings? = currentSettings
+    fun settings(): GrpcSettings? = currentSettings?.takeIf { rpcServer?.isRunning() == true }
 
     @Synchronized
     override fun close() {

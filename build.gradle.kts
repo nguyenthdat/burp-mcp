@@ -119,6 +119,7 @@ tasks.jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     isReproducibleFileOrder = true
     isPreserveFileTimestamps = false
+    exclude("META-INF/*.SF", "META-INF/*.RSA", "META-INF/*.DSA")
     manifest {
         attributes(
             "Implementation-Title" to "Burp MCP",

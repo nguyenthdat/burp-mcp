@@ -112,7 +112,7 @@ internal class GrpcSettingsPanel(
         remoteMtls.isSelected = settings.securityMode == GrpcSecurityMode.REMOTE_MTLS
         serverNames.text = settings.serverNames.joinToString(",")
         tlsDirectory.text = settings.tlsDirectory.toString()
-        status.text = "Current server: ${lifecycle.settings()?.let { "${it.endpointScheme}://${it.bindAddress}:${it.port}" } ?: "stopped"}"
+        showServerStatus()
         updateEnabledState()
     }
 
@@ -124,7 +124,7 @@ internal class GrpcSettingsPanel(
     }
 
     private fun applyAndRestart() {
-        runAction("gRPC server restarted") {
+        runAction("Server restarted") {
             val settings = readSettings()
             if (settings.securityMode == GrpcSecurityMode.REMOTE_MTLS) tlsBundles.ensure(settings)
             lifecycle.restart(settings)
@@ -134,7 +134,7 @@ internal class GrpcSettingsPanel(
     }
 
     private fun rotateCertificates() {
-        runAction("Certificates rotated; gRPC server restarted") {
+        runAction("Certificates rotated; server restarted") {
             val settings = readSettings()
             require(settings.securityMode == GrpcSecurityMode.REMOTE_MTLS) { "Select Remote mutual TLS before rotating certificates" }
             tlsBundles.generate(settings.tlsDirectory, settings.serverNames)
@@ -147,11 +147,33 @@ internal class GrpcSettingsPanel(
     private fun runAction(success: String, action: () -> Unit) {
         try {
             action()
-            status.text = success
+            showServerStatus(success)
         } catch (exception: Exception) {
             api.logging().logToError("[MCP] settings action failed", exception)
-            status.text = "Error: ${exception.message}"
+            showServerStatus("Error: ${exception.message ?: exception.javaClass.simpleName}")
             JOptionPane.showMessageDialog(root, exception.message, "Burp MCP", JOptionPane.ERROR_MESSAGE)
         }
     }
+
+    private fun showServerStatus(prefix: String? = null) {
+        status.text = listOfNotNull(prefix, formatGrpcServerStatus(lifecycle.settings())).joinToString(". ")
+    }
+ }
+
+internal fun formatGrpcServerStatus(settings: GrpcSettings?): String {
+    if (settings == null) return "Stopped"
+
+    val listenAddress = formatHostPort(settings.bindAddress, settings.port)
+    val (security, clientHosts) = when (settings.securityMode) {
+        GrpcSecurityMode.LOCAL_PLAINTEXT -> "local plaintext" to listOf(settings.bindAddress)
+        GrpcSecurityMode.REMOTE_MTLS -> "mutual TLS" to settings.serverNames
+    }
+    val endpoints = clientHosts.joinToString(", ") { host -> "${settings.endpointScheme}://${formatHostPort(host, settings.port)}" }
+    val endpointLabel = if (clientHosts.size == 1) "client endpoint" else "client endpoints"
+    return "Running — listening on $listenAddress ($security); $endpointLabel $endpoints"
+}
+
+private fun formatHostPort(host: String, port: Int): String {
+    val formattedHost = if (':' in host && !host.startsWith('[')) "[$host]" else host
+    return "$formattedHost:$port"
 }

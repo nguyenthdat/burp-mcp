@@ -14,6 +14,9 @@ class JarPackagingTest {
         assertTrue(java.nio.file.Files.exists(jarPath), "extension JAR must be built before tests run")
 
         JarFile(jarPath.toFile()).use { jar ->
+            assertTrue(jar.entries().asSequence().none { entry ->
+                entry.name.matches(Regex("META-INF/[^/]+\\.(SF|RSA|DSA)"))
+            }, "fat JAR must not retain dependency signature files")
             assertNotNull(jar.getJarEntry("META-INF/extensions/burp-extension.properties"))
             assertNotNull(jar.getJarEntry("sitegraph/default-rules.json"))
             assertNotNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/BurpMcpExtension.class"))
