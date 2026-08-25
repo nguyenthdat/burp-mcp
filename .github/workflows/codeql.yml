@@ -53,6 +53,7 @@ jobs:
           languages: ${{ matrix.language }}
           queries: security-extended
           build-mode: ${{ matrix.language == 'rust' && 'none' || 'manual' }}
+          config-file: ./.github/codeql-config.yml
       - name: Set up Gradle
         if: matrix.language == 'java-kotlin'
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
