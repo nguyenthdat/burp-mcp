@@ -5,7 +5,7 @@ import java.security.MessageDigest
 
 plugins {
     kotlin("jvm") version "2.4.10"
-    id("com.google.protobuf") version "0.9.6"
+    id("com.google.protobuf") version "0.10.0"
 }
 
 val sitegraphRulePackSha256 = "5b63cb02091718b1c04ee30a9a89a7be1c01216a1365b266beb24fb6b3c6c3bf"
@@ -13,8 +13,8 @@ val sitegraphRulePackSha256 = "5b63cb02091718b1c04ee30a9a89a7be1c01216a1365b266b
 group = "io.github.nguyenthdat.burpmcp"
 version = providers.gradleProperty("version").orElse("3.0.0").get()
 
-val grpcVersion = "1.73.0"
-val protobufVersion = "4.31.1"
+val grpcVersion = "1.83.1"
+val protobufVersion = "4.36.0"
 
 repositories {
     mavenCentral()
@@ -50,14 +50,14 @@ dependencies {
     implementation("io.grpc:grpc-protobuf:$grpcVersion")
     implementation("com.google.protobuf:protobuf-java:$protobufVersion")
     implementation("io.grpc:grpc-stub:$grpcVersion")
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.20.1")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.20.1")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.22.2")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.22.2")
     implementation("com.google.re2j:re2j:1.8")
     compileOnly("org.apache.tomcat:annotations-api:6.0.53")
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("net.portswigger.burp.extensions:montoya-api:2026.7")
-    testImplementation("io.mockk:mockk:1.14.6")
+    testImplementation("io.mockk:mockk:1.14.11")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
