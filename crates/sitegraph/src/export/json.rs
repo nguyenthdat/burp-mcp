@@ -1,9 +1,9 @@
 use crate::storage::StorageError;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{Acquire, Row, SqlitePool};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JsonExport {
     pub nodes: Vec<Value>,
     pub edges: Vec<Value>,

@@ -18,7 +18,6 @@ class JarPackagingTest {
                 entry.name.matches(Regex("META-INF/[^/]+\\.(SF|RSA|DSA)"))
             }, "fat JAR must not retain dependency signature files")
             assertNotNull(jar.getJarEntry("META-INF/extensions/burp-extension.properties"))
-            assertNotNull(jar.getJarEntry("sitegraph/default-rules.json"))
             assertNotNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/BurpMcpExtension.class"))
             assertNotNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/rpc/BurpRpcServer.class"))
             assertNotNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/grpc/v1/BurpServiceGrpc.class"))
@@ -26,7 +25,7 @@ class JarPackagingTest {
             assertNotNull(jar.getJarEntry("com/google/protobuf/ByteString.class"))
             assertNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/BurpRpcServerTest.class"))
             assertEquals("Burp MCP", jar.manifest.mainAttributes.getValue("Implementation-Title"))
-            assertEquals("3.0.1", jar.manifest.mainAttributes.getValue("Implementation-Version"))
+            assertEquals("3.0.2", jar.manifest.mainAttributes.getValue("Implementation-Version"))
         }
     }
 }

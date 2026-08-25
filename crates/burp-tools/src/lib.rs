@@ -2,7 +2,6 @@ mod sitegraph;
 mod utility;
 
 use crate::sitegraph::SitegraphIndexer;
-use ::sitegraph::SiteGraph;
 use burp_protocol::BurpClient;
 use burp_protocol::protocol::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
@@ -39,6 +38,7 @@ use rmcp::model::{CallToolRequestParams, CallToolResponse, CallToolResult, Conte
 use rmcp::service::RequestContext;
 use rmcp::{RoleServer, schemars, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
+use sitegraph_daemon::{GraphBackend, connect_or_spawn};
 use std::path::Path;
 use std::sync::Arc;
 use utility_engine::{self as utility_engine_api, DataValue};
@@ -851,7 +851,7 @@ const SITEGRAPH_TOOL_PREFIX: &str = "sitegraph_";
 
 #[derive(Clone)]
 struct SitegraphRuntime {
-    graph: Arc<SiteGraph>,
+    graph: GraphBackend,
     indexer: SitegraphIndexer,
     auto_index_shutdown: Arc<tokio::sync::watch::Sender<bool>>,
     auto_index_task: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
@@ -865,7 +865,11 @@ pub struct BurpTools {
 
 #[tool_router(router = burp_router)]
 impl BurpTools {
-    pub async fn new(client: BurpClient, graph_path: Option<&Path>) -> Result<Self, String> {
+    pub async fn new(
+        client: BurpClient,
+        graph_path: Option<&Path>,
+        daemon_endpoint: Option<&Path>,
+    ) -> Result<Self, String> {
         let Some(graph_path) = graph_path else {
             return Ok(Self {
                 client,
@@ -905,12 +909,14 @@ impl BurpTools {
                 );
             }
         };
-        let graph = Arc::new(
-            SiteGraph::open_with_id(&resolved_path, graph_id)
+        let daemon = match daemon_endpoint {
+            Some(endpoint) => sitegraph_daemon::Client::new(endpoint),
+            None => connect_or_spawn(&resolved_path, &graph_id)
                 .await
                 .map_err(|error| error.to_string())?,
-        );
-        let indexer = SitegraphIndexer::spawn(client.clone(), Arc::clone(&graph));
+        };
+        let graph = GraphBackend::Remote(daemon);
+        let indexer = SitegraphIndexer::spawn(client.clone(), graph.clone());
         let (auto_index_shutdown, _) = tokio::sync::watch::channel(false);
         Ok(Self {
             client,
@@ -3776,7 +3782,7 @@ fn macro_json(macro_definition: MacroDefinition) -> serde_json::Value {
     })
 }
 
-#[tool_handler(router = Self::burp_router(), name = "burp-mcp", version = "3.0.1")]
+#[tool_handler(router = Self::burp_router(), name = "burp-mcp", version = "3.0.2")]
 impl rmcp::ServerHandler for BurpTools {
     async fn call_tool(
         &self,

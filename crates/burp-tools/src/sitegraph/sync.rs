@@ -1,23 +1,22 @@
 use ::sitegraph::{
-    IssueObservation, SiteGraph, SitemapObservation, SyncBatch, SyncContext, SyncSummary,
-    WebSocketObservation,
+    IssueObservation, SitemapObservation, SyncBatch, SyncContext, SyncSummary, WebSocketObservation,
 };
 use burp_protocol::protocol::{
     PageRequest, ProxyWebSocketHistoryRequest, ScanIssuesRequest, SitemapSnapshotRequest,
 };
 use burp_protocol::{BurpClient, ClientError};
-use std::sync::Arc;
+use sitegraph_daemon::GraphBackend;
 
 const PAGE_SIZE: u32 = 500;
 
 #[derive(Clone)]
 pub(crate) struct SiteGraphSynchronizer {
     client: BurpClient,
-    graph: Arc<SiteGraph>,
+    graph: GraphBackend,
 }
 
 impl SiteGraphSynchronizer {
-    pub(crate) fn new(client: BurpClient, graph: Arc<SiteGraph>) -> Self {
+    pub(crate) fn new(client: BurpClient, graph: GraphBackend) -> Self {
         Self { client, graph }
     }
 

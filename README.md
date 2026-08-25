@@ -121,6 +121,7 @@ The optional `burp-skill` is documented in [docs/burp-skill](docs/burp-skill/SKI
 | `BURP_MCP_GRAPH_PATH` | Platform data directory | SQLite sitegraph path; used only when sitegraph is enabled. Equivalent CLI flag: `--graph-path`. |
 | `BURP_MCP_SITEGRAPH_MODE` | `off` | Auto-index mode: `off`, `startup`, or `watch`; used only when sitegraph is enabled. |
 | `BURP_MCP_SITEGRAPH_INTERVAL_SECONDS` | `30` | Poll interval for sitegraph `watch` mode. |
+| `BURP_MCP_SITEGRAPH_DAEMON` | Auto-spawn beside graph DB | Explicit shared-daemon endpoint file; used only when sitegraph is enabled. |
 
 Sitegraph is an advanced, manual opt-in feature for the release after v3. To
 enable it now, add `--enable-sitegraph` to the MCP client arguments. Merely

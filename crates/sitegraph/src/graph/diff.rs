@@ -1,8 +1,8 @@
 use crate::storage::StorageError;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct GraphDiff {
     pub added_node_ids: Vec<String>,
     pub updated_node_ids: Vec<String>,

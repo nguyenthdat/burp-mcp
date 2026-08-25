@@ -16,6 +16,7 @@ http.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sitegraph-daemon = { path = "../sitegraph-daemon" }
 tokio.workspace = true
 tonic.workspace = true
 tracing.workspace = true

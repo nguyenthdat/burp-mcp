@@ -15,6 +15,7 @@ serde.workspace = true
 regex.workspace = true
 serde_json.workspace = true
 sitegraph = { path = "../sitegraph" }
+sitegraph-daemon = { path = "../sitegraph-daemon" }
 tokio.workspace = true
 time.workspace = true
 utility-engine = { path = "../utility-engine" }

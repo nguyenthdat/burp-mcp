@@ -32,8 +32,21 @@ Optional configuration:
 | `BURP_MCP_GRAPH_PATH` | platform data directory | Graph root or explicit SQLite path. |
 | `BURP_MCP_SITEGRAPH_MODE` | `off` | `off`, `startup`, or `watch`. |
 | `BURP_MCP_SITEGRAPH_INTERVAL_SECONDS` | `30` | Delay between bounded `watch` sync attempts. |
+| `BURP_MCP_SITEGRAPH_DAEMON` | auto-discovered per graph | Explicit `0600` daemon endpoint file for clients that must not auto-spawn. |
 
 A graph path or indexing mode does not enable sitegraph by itself. Restart the server after changing the enable flag.
+
+## Shared daemon mode
+
+The Rust `sitegraph-daemon` owns one SQLite connection pool per project graph. MCP
+processes connect to it through a loopback TCP endpoint described by a `0600`
+endpoint file. The first `burp-mcp serve --enable-sitegraph` instance starts the
+daemon automatically; later instances reuse it. To connect explicitly, set
+`BURP_MCP_SITEGRAPH_DAEMON` or pass `--sitegraph-daemon PATH`.
+
+The daemon is project-scoped, authenticated with a random per-startup token, and
+uses newline-delimited JSON with bounded 128 MiB frames. Do not expose its
+endpoint outside the local host or share one graph between unrelated projects.
 
 ## Data and privacy boundary
 

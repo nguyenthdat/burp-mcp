@@ -277,7 +277,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "burp-mcp"
-version = "3.0.1"
+version = "3.0.2"
 dependencies = [
  "anyhow",
  "burp-protocol",
@@ -289,6 +289,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sitegraph-daemon",
  "tokio",
  "tonic",
  "tracing",
@@ -297,7 +298,7 @@ dependencies = [
 
 [[package]]
 name = "burp-protocol"
-version = "3.0.1"
+version = "3.0.2"
 dependencies = [
  "anyhow",
  "prost",
@@ -312,7 +313,7 @@ dependencies = [
 
 [[package]]
 name = "burp-tools"
-version = "3.0.1"
+version = "3.0.2"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -323,6 +324,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sitegraph",
+ "sitegraph-daemon",
  "time",
  "tokio",
  "utility-engine",
@@ -692,6 +694,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]
@@ -2218,7 +2230,7 @@ checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
 name = "sitegraph"
-version = "3.0.1"
+version = "3.0.2"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -2236,6 +2248,22 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "sitegraph-daemon"
+version = "3.0.2"
+dependencies = [
+ "base64 0.22.1",
+ "fs2",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "sitegraph",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2941,7 +2969,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "utility-engine"
-version = "3.0.1"
+version = "3.0.2"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -3084,6 +3112,28 @@ dependencies = [
  "libredox",
  "wasite",
 ]
+
+[[package]]
+name = "winapi"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
+dependencies = [
+ "winapi-i686-pc-windows-gnu",
+ "winapi-x86_64-pc-windows-gnu",
+]
+
+[[package]]
+name = "winapi-i686-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
+
+[[package]]
+name = "winapi-x86_64-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windows-core"

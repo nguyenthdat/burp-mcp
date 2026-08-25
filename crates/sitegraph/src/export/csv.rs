@@ -1,8 +1,8 @@
 use crate::storage::StorageError;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CsvExport {
     pub csv: String,
     pub total: u64,

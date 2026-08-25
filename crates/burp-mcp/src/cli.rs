@@ -15,11 +15,26 @@ pub enum Command {
     Serve(ServeArgs),
     /// Verify the Kotlin RPC adapter and transport limits.
     Probe(ProbeArgs),
+    #[command(name = "__sitegraph-daemon", hide = true)]
+    SitegraphDaemon(SitegraphDaemonArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SitegraphDaemonArgs {
+    #[arg(long)]
+    pub graph_path: std::path::PathBuf,
+    #[arg(long)]
+    pub graph_id: String,
+    #[arg(long)]
+    pub endpoint_file: std::path::PathBuf,
 }
 
 #[derive(Debug, Clone, Args)]
 pub struct ServeArgs {
     /// Burp RPC endpoint. Plaintext is limited to IPv4 loopback; remote endpoints require HTTPS and mTLS.
+    /// Optional endpoint file for an already-running shared sitegraph daemon.
+    #[arg(long, env = "BURP_MCP_SITEGRAPH_DAEMON")]
+    pub sitegraph_daemon: Option<std::path::PathBuf>,
     #[arg(long, env = "BURP_MCP_GRPC_ENDPOINT", value_parser = parse_endpoint)]
     pub endpoint: Option<String>,
 
@@ -63,11 +78,12 @@ impl Default for ServeArgs {
             endpoint: None,
             port: None,
             tls_dir: None,
-            stdio: true,
+            sitegraph_daemon: None,
             graph_path: None,
             enable_sitegraph: false,
             sitegraph_mode: "off".to_owned(),
             sitegraph_interval_seconds: 30,
+            stdio: true,
         }
     }
 }

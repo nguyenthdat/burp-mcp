@@ -2,8 +2,7 @@ use regex::bytes::Regex;
 use serde::Deserialize;
 use std::collections::HashSet;
 
-const DEFAULT_RULE_PACK: &[u8] =
-    include_bytes!("../../../../src/main/resources/sitegraph/default-rules.json");
+const DEFAULT_RULE_PACK: &[u8] = include_bytes!("rules/default-rules.json");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuleMatch {

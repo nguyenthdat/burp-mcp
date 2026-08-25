@@ -50,9 +50,9 @@ main() {
   os="$(uname -s)"
   arch="$(uname -m)"
   case "$os/$arch" in
-    Linux/x86_64|Linux/amd64) asset="burp-mcp-linux-x86_64" ;;
-    Darwin/arm64|Darwin/aarch64) asset="burp-mcp-macos-aarch64" ;;
-    Darwin/x86_64|Darwin/amd64) asset="burp-mcp-macos-x86_64" ;;
+    Linux/x86_64|Linux/amd64) asset="burp-mcp-linux-x86_64"; daemon_asset="sitegraph-daemon-linux-x86_64" ;;
+    Darwin/arm64|Darwin/aarch64) asset="burp-mcp-macos-aarch64"; daemon_asset="sitegraph-daemon-macos-aarch64" ;;
+    Darwin/x86_64|Darwin/amd64) asset="burp-mcp-macos-x86_64"; daemon_asset="sitegraph-daemon-macos-x86_64" ;;
     *) fail "unsupported platform: $os/$arch" ;;
   esac
 
@@ -61,16 +61,21 @@ main() {
 
   echo "Installing burp-mcp from $DOWNLOAD_BASE"
   download "$DOWNLOAD_BASE/$asset" "$tmp_dir/$asset"
+  download "$DOWNLOAD_BASE/$daemon_asset" "$tmp_dir/$daemon_asset"
   download "$DOWNLOAD_BASE/SHA256SUMS" "$tmp_dir/SHA256SUMS"
   verify_checksum "$tmp_dir" "$asset"
+  verify_checksum "$tmp_dir" "$daemon_asset"
 
-  chmod 0755 "$tmp_dir/$asset"
+  chmod 0755 "$tmp_dir/$asset" "$tmp_dir/$daemon_asset"
   "$tmp_dir/$asset" --version >/dev/null
   mkdir -p "$INSTALL_DIR"
   staged="$INSTALL_DIR/.burp-mcp.new.$$"
+  daemon_staged="$INSTALL_DIR/.sitegraph-daemon.new.$$"
   install -m 0755 "$tmp_dir/$asset" "$staged"
+  install -m 0755 "$tmp_dir/$daemon_asset" "$daemon_staged"
   mv -f "$staged" "$INSTALL_DIR/burp-mcp"
-  echo "Installed $INSTALL_DIR/burp-mcp"
+  mv -f "$daemon_staged" "$INSTALL_DIR/sitegraph-daemon"
+  echo "Installed $INSTALL_DIR/burp-mcp and $INSTALL_DIR/sitegraph-daemon"
 
   case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;

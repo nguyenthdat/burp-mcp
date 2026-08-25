@@ -21,6 +21,16 @@ async fn main() -> Result<()> {
             let endpoint = config.resolved_endpoint().map_err(|error| anyhow!(error))?;
             run_probe(&endpoint, config.resolved_tls_dir().as_deref()).await
         }
+        Some(Command::SitegraphDaemon(config)) => {
+            let server = sitegraph_daemon::Server::bind(
+                &config.graph_path,
+                &config.graph_id,
+                config.endpoint_file,
+            )
+            .await?;
+            server.run().await?;
+            Ok(())
+        }
     }
 }
 
@@ -41,9 +51,13 @@ async fn run_server(config: ServeArgs) -> Result<()> {
     let graph_path = config
         .enable_sitegraph
         .then(|| config.resolved_graph_path());
-    let tools = BurpTools::new(actor, graph_path.as_deref())
-        .await
-        .map_err(|error| anyhow!(error))?;
+    let tools = BurpTools::new(
+        actor,
+        graph_path.as_deref(),
+        config.sitegraph_daemon.as_deref(),
+    )
+    .await
+    .map_err(|error| anyhow!(error))?;
     tools
         .start_auto_index(
             &config.sitegraph_mode,

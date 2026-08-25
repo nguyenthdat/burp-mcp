@@ -6,13 +6,14 @@ members = [
     "crates/burp-tools",
     "crates/sitegraph",
     "crates/utility-engine",
+    "crates/sitegraph-daemon",
 ]
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
-version = "3.0.1"
+version = "3.0.2"
 
 [workspace.metadata]
 authors = ["Dat Nguyen <dat.nguyen@bitbytelab.io>"]
@@ -24,6 +25,7 @@ blake3 = "1.8.3"
 brotli = "8.0.2"
 html-escape = "0.2.13"
 flate2 = "1.1.5"
+fs2 = "0.4.3"
 num-bigint = "0.4.6"
 hmac = "0.12.1"
 md-5 = "0.10.6"
@@ -49,6 +51,7 @@ tonic = { version = "0.14.6", features = ["transport", "tls-ring"] }
 tonic-prost = "0.14.6"
 rmcp = { version = "3.1.4", features = ["macros", "server", "transport-io"] }
 prost-build = "0.14.4"
+getrandom = "0.3.4"
 protoc-bin-vendored = "3.2.0"
 tonic-prost-build = "0.14.6"
 schemars = "1.1.0"

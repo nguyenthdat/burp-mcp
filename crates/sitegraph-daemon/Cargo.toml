@@ -1,0 +1,25 @@
+[package]
+name = "sitegraph-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+base64.workspace = true
+fs2.workspace = true
+getrandom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sitegraph = { path = "../sitegraph" }
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[[bin]]
+name = "sitegraph-daemon"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile.workspace = true
+
