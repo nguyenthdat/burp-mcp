@@ -23,7 +23,7 @@ class JarPackagingTest {
             assertNotNull(jar.getJarEntry("com/google/protobuf/ByteString.class"))
             assertNull(jar.getJarEntry("io/github/nguyenthdat/burpmcp/BurpRpcServerTest.class"))
             assertEquals("Burp MCP", jar.manifest.mainAttributes.getValue("Implementation-Title"))
-            assertEquals("3.0.0-alpha.1", jar.manifest.mainAttributes.getValue("Implementation-Version"))
+            assertEquals("3.0.0", jar.manifest.mainAttributes.getValue("Implementation-Version"))
         }
     }
 }

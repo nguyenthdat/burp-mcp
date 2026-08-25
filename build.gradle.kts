@@ -11,7 +11,7 @@ plugins {
 val sitegraphRulePackSha256 = "5b63cb02091718b1c04ee30a9a89a7be1c01216a1365b266beb24fb6b3c6c3bf"
 
 group = "io.github.nguyenthdat.burpmcp"
-version = providers.gradleProperty("version").orElse("3.0.0-alpha.1").get()
+version = providers.gradleProperty("version").orElse("3.0.0").get()
 
 val grpcVersion = "1.73.0"
 val protobufVersion = "4.31.1"

@@ -15,7 +15,7 @@ This preliminary catalog is a reference for live testing. It explains what each 
 
 ## Inventory
 
-The runtime currently registers **104 tools**.
+The default v3 runtime registers **90 tools**. Enabling the advanced sitegraph adds **14 tools**.
 
 | Feature group | Tools |
 |---|---:|
@@ -34,7 +34,7 @@ The runtime currently registers **104 tools**.
 | Collaborator and custom findings | 3 |
 | Managed WebSockets | 6 |
 | Bambda and BCheck import | 2 |
-| Sitegraph | 14 |
+| Sitegraph (advanced opt-in) | 14 |
 | Offline decoder | 1 |
 
 ## Connection and project configuration
@@ -233,9 +233,9 @@ Import does not mean execution. Import only reviewed source with a unique fixtur
 | `burp_bambda_import` | Validate and import Bambda source into Burp. | Import a harmless fixture and verify it appears in the UI; cleanup may be manual. |
 | `burp_bcheck_import` | Validate and import BCheck source into Burp. | Import a harmless fixture and verify parser/UI acceptance; do not expect a scan to start. |
 
-## Sitegraph
+## Sitegraph (advanced opt-in)
 
-Sitegraph is a Rust-owned SQLite metadata store. It stores endpoint and parameter metadata plus graph evidence, not raw message bodies or parameter values.
+Sitegraph is a Rust-owned SQLite metadata store. It stores endpoint and parameter metadata plus graph evidence, not raw message bodies or parameter values. It is disabled and omitted from the MCP tool inventory by default in v3. Restart `burp-mcp` with `--enable-sitegraph` (or `BURP_MCP_ENABLE_SITEGRAPH=true`) to expose these tools; setting only `--graph-path` or `--sitegraph-mode` does not enable them.
 
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
@@ -253,6 +253,18 @@ Sitegraph is a Rust-owned SQLite metadata store. It stores endpoint and paramete
 | `sitegraph_diff` | Report node/edge changes between Unix timestamps. | Sync a baseline, add a fixture, sync again, then diff the two times. |
 | `sitegraph_trace` | Trace paths from a source node with direction/depth/edge filters. | Use a small known graph and verify paths never exceed requested depth. |
 | `sitegraph_export` | Export a metadata page as JSON or CSV. | Exercise both formats and pagination; confirm no raw bodies or parameter values leak. |
+
+## v3 release checklist
+
+- Confirm the release branch is merged into `main`; the release workflow rejects commits outside `main`.
+- Keep the stable v3 version (`3.0.0`) consistent in `Cargo.toml`, `Cargo.lock`, `build.gradle.kts`, the MCP server handler, and `JarPackagingTest.kt`.
+- Create an annotated Git tag matching the workspace version (`vX.Y.Z`) and publish a non-prerelease GitHub Release from that exact tag commit.
+- Run `cargo fmt --all -- --check`, `cargo check --workspace --locked`, `cargo test --workspace --locked`, and `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`.
+- Run `gradle --no-daemon clean test jar -Pversion="X.Y.Z"`; verify the JAR manifest, packaged sitegraph rule-pack checksum, and absence of test classes.
+- Run `scripts/run-grpc-interop.sh` and `cargo run -p burp-mcp --locked -- probe --endpoint http://127.0.0.1:9877` against the release extension.
+- Build the release bundle, verify `SHA256SUMS`, and inspect the SBOM before publishing assets.
+- Smoke-test default MCP startup: `sitegraph_*` tools are absent. Then restart with `--enable-sitegraph` and verify the 14 advanced tools are present.
+- Record that sitegraph is intentionally manual opt-in for v3; sitemap graph expansion remains follow-up release scope.
 
 ## Offline decoder
 

@@ -17,7 +17,7 @@ Burp MCP connects MCP-compatible clients to Burp Suite through a native Rust std
 - Import Bambdas and BChecks without executing them automatically.
 - Apply HTTP handlers, proxy rules, and session rules.
 - Read and mutate Proxy listeners, script filters, and request/response interception rules through one operation-based configuration tool.
-- Persist a privacy-preserving SQLite site graph containing endpoint metadata and parameter names, never parameter values or message bodies.
+- Optionally persist a privacy-preserving SQLite site graph containing endpoint metadata and parameter names, never parameter values or message bodies. This advanced feature is disabled by default for v3.
 - Run deterministic, binary-safe utility recipes without network, filesystem, browser, or arbitrary-code capabilities.
 
 Some capabilities require Burp Suite Professional or a Burp feature that is available only in specific editions.
@@ -88,7 +88,7 @@ Run the downloaded native `burp-mcp` binary. Example MCP server configuration on
 }
 ```
 
-On Windows, set `command` to the absolute path of `burp-mcp.exe`. The binary accepts `--endpoint` and `--graph-path`; environment equivalents are listed below.
+On Windows, set `command` to the absolute path of `burp-mcp.exe`. The binary accepts `--endpoint`; sitegraph flags are listed below.
 
 ## Configuration
 
@@ -97,6 +97,22 @@ On Windows, set `command` to the absolute path of `burp-mcp.exe`. The binary acc
 | `BURP_MCP_GRPC_PORT` | `9877` | Loopback gRPC port used by Kotlin and Rust. |
 | `-Dburp.mcp.grpc.port=<port>` | `9877` | JVM override for the extension gRPC port. |
 | `BURP_MCP_GRPC_ENDPOINT` | `http://127.0.0.1:9877` | Rust endpoint; only IPv4 loopback is accepted. |
+| `BURP_MCP_ENABLE_SITEGRAPH` | `false` | Enable the advanced `sitegraph_*` tools and local SQLite graph. Equivalent CLI flag: `--enable-sitegraph`. |
+| `BURP_MCP_GRAPH_PATH` | Platform data directory | SQLite sitegraph path; used only when sitegraph is enabled. Equivalent CLI flag: `--graph-path`. |
+| `BURP_MCP_SITEGRAPH_MODE` | `off` | Auto-index mode: `off`, `startup`, or `watch`; used only when sitegraph is enabled. |
+| `BURP_MCP_SITEGRAPH_INTERVAL_SECONDS` | `30` | Poll interval for sitegraph `watch` mode. |
+
+Sitegraph is an advanced, manual opt-in feature for the release after v3. To
+enable it now, add `--enable-sitegraph` to the MCP client arguments. Merely
+setting a graph path or indexing mode does not expose or initialize sitegraph.
+For example:
+
+```json
+{
+  "command": "/absolute/path/to/burp-mcp",
+  "args": ["serve", "--enable-sitegraph", "--sitegraph-mode", "off"]
+}
+```
 
 The gRPC host is fixed to IPv4 loopback and cannot be configured. Every gRPC
 call must include a deadline of at most 30 seconds. `BURP_MCP_PORT`,

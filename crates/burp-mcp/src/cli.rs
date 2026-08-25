@@ -26,9 +26,15 @@ pub struct ServeArgs {
     /// Burp RPC port, used when --endpoint is not set.
     #[arg(long, env = "BURP_MCP_GRPC_PORT", value_parser = parse_port)]
     pub port: Option<u16>,
-    /// SQLite sitegraph path. Defaults to the platform data directory.
+    /// SQLite sitegraph path. Defaults to the platform data directory when sitegraph is enabled.
     #[arg(long, env = "BURP_MCP_GRAPH_PATH")]
     pub graph_path: Option<String>,
+
+    /// Enable the advanced sitegraph tools and local SQLite graph.
+    ///
+    /// Disabled by default; set this explicitly for a manual opt-in.
+    #[arg(long, env = "BURP_MCP_ENABLE_SITEGRAPH", default_value_t = false)]
+    pub enable_sitegraph: bool,
 
     /// Sitegraph indexing mode. Auto-index is opt-in.
     #[arg(long, env = "BURP_MCP_SITEGRAPH_MODE", default_value = "off", value_parser = parse_sitegraph_mode)]
@@ -54,6 +60,7 @@ impl Default for ServeArgs {
             port: None,
             stdio: true,
             graph_path: None,
+            enable_sitegraph: false,
             sitegraph_mode: "off".to_owned(),
             sitegraph_interval_seconds: 30,
         }
@@ -177,5 +184,55 @@ mod tests {
     #[test]
     fn default_endpoint_is_stable() {
         assert_eq!("http://127.0.0.1:9877", DEFAULT_ENDPOINT);
+    }
+
+    #[test]
+    fn sitegraph_is_disabled_by_default_and_requires_explicit_opt_in() {
+        let cli = Cli::try_parse_from(["burp-mcp", "serve"]).expect("serve CLI must parse");
+        let Some(Command::Serve(args)) = cli.command else {
+            panic!("expected serve command");
+        };
+        assert!(!args.enable_sitegraph);
+
+        let cli = Cli::try_parse_from(["burp-mcp", "serve", "--enable-sitegraph"])
+            .expect("sitegraph opt-in must parse");
+        let Some(Command::Serve(args)) = cli.command else {
+            panic!("expected serve command");
+        };
+        assert!(args.enable_sitegraph);
+    }
+
+    #[test]
+    fn sitegraph_mode_without_enable_flag_does_not_enable_sitegraph() {
+        let cli = Cli::try_parse_from(["burp-mcp", "serve", "--sitegraph-mode", "watch"])
+            .expect("sitegraph mode must parse");
+        let Some(Command::Serve(args)) = cli.command else {
+            panic!("expected serve command");
+        };
+        assert!(!args.enable_sitegraph);
+        assert_eq!("watch", args.sitegraph_mode);
+    }
+
+    #[test]
+    fn sitegraph_opt_in_accepts_manual_path_and_mode() {
+        let cli = Cli::try_parse_from([
+            "burp-mcp",
+            "serve",
+            "--enable-sitegraph",
+            "--graph-path",
+            "/tmp/burp-mcp-graph.sqlite",
+            "--sitegraph-mode",
+            "startup",
+        ])
+        .expect("manual sitegraph configuration must parse");
+        let Some(Command::Serve(args)) = cli.command else {
+            panic!("expected serve command");
+        };
+        assert!(args.enable_sitegraph);
+        assert_eq!("startup", args.sitegraph_mode);
+        assert_eq!(
+            std::path::Path::new("/tmp/burp-mcp-graph.sqlite"),
+            args.resolved_graph_path()
+        );
     }
 }

@@ -62,21 +62,19 @@ async fn kotlin_server_echoes_binary_payloads_and_handles_concurrency() -> Resul
     let audit = actor
         .start_audit(StartAuditRequest {
             url: "https://example.test/".to_owned(),
-            active: false,
+            audit_type: "passive".to_owned(),
+            ..StartAuditRequest::default()
         })
         .await?;
     assert!(audit.id.starts_with("job-"));
-    assert_eq!("scanner_audit", audit.operation);
-    assert!(matches!(audit.state.as_str(), "queued" | "running"));
+    assert_eq!("scanner_passive_snapshot", audit.operation);
+    assert_eq!("completed", audit.state);
     let stopped = actor
         .stop_audit(CancelJobRequest {
             id: audit.id.clone(),
         })
         .await?;
-    assert!(matches!(
-        stopped.state.as_str(),
-        "queued" | "running" | "completed" | "failed" | "cancelled"
-    ));
+    assert_eq!("completed", stopped.state);
     let removed = actor
         .remove_audit(CancelJobRequest { id: audit.id })
         .await?;
