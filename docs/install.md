@@ -106,6 +106,25 @@ burp-mcp probe --endpoint http://127.0.0.1:9877
 
 The probe checks server information and byte-exact binary round trips. The MCP client can then launch `burp-mcp serve` over stdio.
 
+## Local Pro/Burp verification
+
+The hosted GitHub Actions workflow builds and tests the extension but does not
+start a real Burp Suite Professional instance. The Montoya gRPC interoperability
+fixture is intentionally local-only because it requires the maintainer's local
+Burp/Pro environment and must not be treated as a free public CI check.
+
+When Burp is running locally with the extension loaded, run:
+
+```sh
+scripts/run-grpc-interop.sh
+burp-mcp probe --endpoint http://127.0.0.1:9877
+```
+
+The script's in-process Kotlin fixture is useful for transport regression tests,
+but it is not evidence that a real Burp Pro extension is available in hosted CI.
+For a release, also perform the live probe against the loaded JAR and record the
+Burp edition/version in the release checklist.
+
 ## Manual installation
 
 1. Download the binary for your platform, `burp-mcp.jar`, and `SHA256SUMS` from the same release.

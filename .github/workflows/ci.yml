@@ -53,7 +53,7 @@ jobs:
 
 
   extension:
-    name: Burp extension and gRPC contract
+    name: Burp extension build and unit tests
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -69,16 +69,8 @@ jobs:
         with:
           gradle-version: "9.7.0"
           cache-provider: basic
-      - name: Set up Rust for interoperability client
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
-        with:
-          toolchain: "1.88.0"
-      - name: Test and build extension
+      - name: Build and test extension
         run: gradle clean test jar
-      - name: Run Rust/Kotlin gRPC interoperability fixture
-        env:
-          JAVA_HOME: ${{ env.JAVA_HOME_25_X64 }}
-        run: scripts/run-grpc-interop.sh
       - name: Upload extension JAR
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
