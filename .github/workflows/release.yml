@@ -85,7 +85,7 @@ jobs:
             asset: burp-mcp-linux-x86_64
           - os: macos-15
             asset: burp-mcp-macos-aarch64
-          - os: macos-13
+          - os: macos-15-intel
             asset: burp-mcp-macos-x86_64
     runs-on: ${{ matrix.os }}
     permissions:
