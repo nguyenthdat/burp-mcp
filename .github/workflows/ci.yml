@@ -63,6 +63,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
+          cache: gradle
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
         with:
@@ -75,6 +76,8 @@ jobs:
       - name: Test and build extension
         run: gradle clean test jar
       - name: Run Rust/Kotlin gRPC interoperability fixture
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME_25_X64 }}
         run: scripts/run-grpc-interop.sh
       - name: Upload extension JAR
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

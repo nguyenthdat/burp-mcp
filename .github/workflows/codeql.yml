@@ -52,10 +52,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           queries: security-extended
-          build-mode: manual
-      - name: Build Rust for analysis
-        if: matrix.language == 'rust'
-        run: cargo build --workspace --all-targets --all-features --locked
+          build-mode: ${{ matrix.language == 'rust' && 'none' || 'manual' }}
       - name: Set up Gradle
         if: matrix.language == 'java-kotlin'
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
@@ -64,6 +61,8 @@ jobs:
           cache-disabled: true
       - name: Build Kotlin for analysis
         if: matrix.language == 'java-kotlin'
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -Dkotlin.daemon.jvm.options=-Xmx3g
         run: gradle --no-daemon classes
       - name: Analyze
         uses: github/codeql-action/analyze@42947a340483f03ba47bb1a039b2c519aab3df85
