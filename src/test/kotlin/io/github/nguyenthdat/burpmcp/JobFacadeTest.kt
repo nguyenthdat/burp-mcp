@@ -35,7 +35,7 @@ class JobFacadeTest {
     @Test
     fun `cancels a running job and ignores late completion`() {
         JobFacade().use { jobs ->
-            val entered = CountDownLatch(1)
+            val entered = CountDownLatch(8)
             val release = CountDownLatch(1)
             val started =
                 jobs.start("test") {
@@ -43,13 +43,26 @@ class JobFacadeTest {
                     release.await()
                     TaskJobOutput(1, 0)
                 }
+            repeat(7) { index ->
+                jobs.start("blocker-$index") {
+                    entered.countDown()
+                    release.await()
+                    TaskJobOutput(1, 0)
+                }
+            }
             assertTrue(entered.await(2, TimeUnit.SECONDS))
 
             val cancelled = assertNotNull(jobs.cancel(started.id))
+            val marker = jobs.start("marker") { TaskJobOutput(0, 0) }
+            awaitTerminal(jobs, marker.id)
+            val terminal = assertNotNull(jobs.status(started.id))
             release.countDown()
 
             assertEquals(JobState.CANCELLED, cancelled.state)
-            assertEquals(JobState.CANCELLED, awaitTerminal(jobs, started.id).state)
+            assertEquals(null, cancelled.error)
+            assertEquals(JobState.CANCELLED, terminal.state)
+            assertEquals(null, terminal.error)
+            assertEquals(terminal, jobs.result(started.id))
         }
     }
 

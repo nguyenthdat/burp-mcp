@@ -1,0 +1,15 @@
+# Default review ownership for every repository path.
+* @nguyenthdat
+
+# Release, security, and automation changes require owner review.
+/.github/ @nguyenthdat
+/Cargo.toml @nguyenthdat
+/Cargo.lock @nguyenthdat
+/build.gradle.kts @nguyenthdat
+/proto/ @nguyenthdat
+/scripts/ @nguyenthdat
+
+# Cross-language transport and release-critical runtime modules.
+/crates/burp-mcp/ @nguyenthdat
+/crates/burp-protocol/ @nguyenthdat
+/src/main/ @nguyenthdat

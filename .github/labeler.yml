@@ -1,0 +1,34 @@
+rust:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "Cargo.toml"
+          - "Cargo.lock"
+          - "crates/**/*.rs"
+
+kotlin:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "build.gradle.kts"
+          - "src/**/*.kt"
+          - "proto/**/*.proto"
+
+sitegraph:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/sitegraph/**"
+          - "crates/burp-tools/src/sitegraph/**"
+          - "docs/sitemap-graph-research-report.md"
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "scripts/**"
+
+security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "SECURITY.md"
+          - ".github/workflows/codeql.yml"
+          - ".github/workflows/scorecard.yml"
+          - ".github/workflows/dependency-review.yml"

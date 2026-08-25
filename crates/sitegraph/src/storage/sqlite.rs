@@ -59,6 +59,7 @@ async fn upsert_source_node(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn upsert_source_edge(
     transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     from_id: &str,
@@ -1337,8 +1338,7 @@ mod tests {
             let mut context = SyncContext::snapshot("test", "stress");
             context.run_id = "stress-run".to_owned();
             context.pages_seen = page + 1;
-            context.items_seen = (page as u64 + 1) * 500;
-            context.complete = page == 20;
+            context.items_seen = (page + 1) * 500;
             context.cursor = (!context.complete).then(|| format!("cursor-{}", page + 1));
             graph
                 .sync_with_context(

@@ -34,8 +34,10 @@ async fn run_server(config: ServeArgs) -> Result<()> {
         endpoint: config.resolved_endpoint().map_err(|error| anyhow!(error))?,
         ..BurpClientConfig::default()
     })?;
-    let graph_path = config.resolved_graph_path();
-    let tools = BurpTools::new(actor, &graph_path)
+    let graph_path = config
+        .enable_sitegraph
+        .then(|| config.resolved_graph_path());
+    let tools = BurpTools::new(actor, graph_path.as_deref())
         .await
         .map_err(|error| anyhow!(error))?;
     tools

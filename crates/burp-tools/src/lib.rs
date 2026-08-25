@@ -847,18 +847,31 @@ pub struct SiteGraphExportInput {
     pub limit: Option<u32>,
 }
 
+const SITEGRAPH_TOOL_PREFIX: &str = "sitegraph_";
+
 #[derive(Clone)]
-pub struct BurpTools {
-    client: BurpClient,
-    sitegraph: Arc<SiteGraph>,
-    sitegraph_indexer: SitegraphIndexer,
+struct SitegraphRuntime {
+    graph: Arc<SiteGraph>,
+    indexer: SitegraphIndexer,
     auto_index_shutdown: Arc<tokio::sync::watch::Sender<bool>>,
     auto_index_task: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
+#[derive(Clone)]
+pub struct BurpTools {
+    client: BurpClient,
+    sitegraph: Option<SitegraphRuntime>,
+}
+
 #[tool_router(router = burp_router)]
 impl BurpTools {
-    pub async fn new(client: BurpClient, graph_path: &Path) -> Result<Self, String> {
+    pub async fn new(client: BurpClient, graph_path: Option<&Path>) -> Result<Self, String> {
+        let Some(graph_path) = graph_path else {
+            return Ok(Self {
+                client,
+                sitegraph: None,
+            });
+        };
         let identity = client
             .server_info(burp_protocol::protocol::ServerInfoRequest {})
             .await
@@ -892,20 +905,49 @@ impl BurpTools {
                 );
             }
         };
-        let sitegraph = Arc::new(
+        let graph = Arc::new(
             SiteGraph::open_with_id(&resolved_path, graph_id)
                 .await
                 .map_err(|error| error.to_string())?,
         );
-        let sitegraph_indexer = SitegraphIndexer::spawn(client.clone(), Arc::clone(&sitegraph));
+        let indexer = SitegraphIndexer::spawn(client.clone(), Arc::clone(&graph));
         let (auto_index_shutdown, _) = tokio::sync::watch::channel(false);
         Ok(Self {
             client,
-            sitegraph,
-            sitegraph_indexer,
-            auto_index_shutdown: Arc::new(auto_index_shutdown),
-            auto_index_task: Arc::new(tokio::sync::Mutex::new(None)),
+            sitegraph: Some(SitegraphRuntime {
+                graph,
+                indexer,
+                auto_index_shutdown: Arc::new(auto_index_shutdown),
+                auto_index_task: Arc::new(tokio::sync::Mutex::new(None)),
+            }),
         })
+    }
+    fn sitegraph(&self) -> &SitegraphRuntime {
+        self.sitegraph
+            .as_ref()
+            .expect("sitegraph tools must not be routed when sitegraph is disabled")
+    }
+
+    fn tool_router(&self) -> rmcp::handler::server::tool::ToolRouter<Self> {
+        Self::tool_router_for(self.sitegraph.is_some())
+    }
+
+    fn tool_router_for(sitegraph_enabled: bool) -> rmcp::handler::server::tool::ToolRouter<Self> {
+        let mut router = Self::burp_router() + Self::utility_router();
+        if !sitegraph_enabled {
+            router
+                .map
+                .retain(|name, _| !name.starts_with(SITEGRAPH_TOOL_PREFIX));
+        }
+        router
+    }
+
+    fn validate_sitegraph_mode(sitegraph_enabled: bool, mode: &str) -> Result<(), String> {
+        if sitegraph_enabled || mode == "off" {
+            Ok(())
+        } else {
+            Err("sitegraph must be enabled before selecting an indexing mode".to_owned())
+        }
     }
 
     pub async fn start_auto_index(
@@ -913,15 +955,19 @@ impl BurpTools {
         mode: &str,
         interval: std::time::Duration,
     ) -> Result<(), String> {
+        Self::validate_sitegraph_mode(self.sitegraph.is_some(), mode)?;
+        let Some(sitegraph) = &self.sitegraph else {
+            return Ok(());
+        };
         match mode {
             "off" => Ok(()),
             "startup" => {
-                self.sitegraph_indexer.sync(String::new()).await?;
+                sitegraph.indexer.sync(String::new()).await?;
                 Ok(())
             }
             "watch" => {
-                let indexer = self.sitegraph_indexer.clone();
-                let mut shutdown = self.auto_index_shutdown.subscribe();
+                let indexer = sitegraph.indexer.clone();
+                let mut shutdown = sitegraph.auto_index_shutdown.subscribe();
                 let task = tokio::spawn(async move {
                     loop {
                         tokio::select! {
@@ -936,7 +982,7 @@ impl BurpTools {
                         }
                     }
                 });
-                *self.auto_index_task.lock().await = Some(task);
+                *sitegraph.auto_index_task.lock().await = Some(task);
                 Ok(())
             }
             _ => Err(format!("unsupported sitegraph mode: {mode}")),
@@ -944,11 +990,14 @@ impl BurpTools {
     }
 
     pub async fn shutdown(&self) {
-        let _ = self.auto_index_shutdown.send(true);
-        if let Some(task) = self.auto_index_task.lock().await.take() {
+        let Some(sitegraph) = &self.sitegraph else {
+            return;
+        };
+        let _ = sitegraph.auto_index_shutdown.send(true);
+        if let Some(task) = sitegraph.auto_index_task.lock().await.take() {
             let _ = tokio::time::timeout(std::time::Duration::from_secs(5), task).await;
         }
-        self.sitegraph_indexer.shutdown().await;
+        sitegraph.indexer.shutdown().await;
     }
 
     #[tool(
@@ -2971,8 +3020,11 @@ impl BurpTools {
         )
     )]
     async fn sitegraph_sync(&self, Parameters(input): Parameters<SiteGraphSyncInput>) -> String {
-        match self
-            .sitegraph_indexer
+        let Some(sitegraph) = &self.sitegraph else {
+            return sitegraph_disabled_json();
+        };
+        match sitegraph
+            .indexer
             .sync(input.url_prefix.unwrap_or_default())
             .await
         {
@@ -2999,7 +3051,8 @@ impl BurpTools {
             return serde_json::json!({"error": "limit must be between 1 and 500"}).to_string();
         }
         match self
-            .sitegraph
+            .sitegraph()
+            .graph
             .search(&input.query, input.cursor.unwrap_or(0) as u64, limit as u64)
             .await
         {
@@ -3022,7 +3075,7 @@ impl BurpTools {
         &self,
         Parameters(input): Parameters<SiteGraphEndpointInput>,
     ) -> String {
-        match self.sitegraph.endpoint(&input.id).await {
+        match self.sitegraph().graph.endpoint(&input.id).await {
             Ok(Some(endpoint)) => serde_json::to_string(&endpoint).expect("endpoint serializes"),
             Ok(None) => serde_json::json!({"error": "endpoint not found"}).to_string(),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
@@ -3040,7 +3093,10 @@ impl BurpTools {
         )
     )]
     async fn sitegraph_status(&self) -> String {
-        match self.sitegraph_indexer.status().await {
+        let Some(sitegraph) = &self.sitegraph else {
+            return sitegraph_disabled_json();
+        };
+        match sitegraph.indexer.status().await {
             Ok(status) => serde_json::to_string(&status).expect("graph status serializes"),
             Err(error) => serde_json::json!({"error": error}).to_string(),
         }
@@ -3087,7 +3143,7 @@ impl BurpTools {
         )
     )]
     async fn sitegraph_projects(&self) -> String {
-        match self.sitegraph.status().await {
+        match self.sitegraph().graph.status().await {
             Ok(status) => serde_json::json!({
                 "active_graph_id": status.graph_id,
                 "items": [{
@@ -3115,7 +3171,7 @@ impl BurpTools {
         )
     )]
     async fn sitegraph_stats(&self) -> String {
-        match self.sitegraph.status().await {
+        match self.sitegraph().graph.status().await {
             Ok(status) => serde_json::json!({
                 "total_nodes": status.total_nodes,
                 "total_edges": status.total_edges,
@@ -3146,7 +3202,8 @@ impl BurpTools {
             Err(error) => return serde_json::json!({"error": error}).to_string(),
         };
         match self
-            .sitegraph
+            .sitegraph()
+            .graph
             .neighbors(&input.id, input.cursor.unwrap_or(0) as u64, limit as u64)
             .await
         {
@@ -3174,7 +3231,12 @@ impl BurpTools {
         if max_depth == 0 || max_depth > MAX_TRAVERSAL_DEPTH {
             return serde_json::json!({"error": "max_depth must be between 1 and 8"}).to_string();
         }
-        match self.sitegraph.trace(&input.id, max_depth, limit).await {
+        match self
+            .sitegraph()
+            .graph
+            .trace(&input.id, max_depth, limit)
+            .await
+        {
             Ok(page) => serde_json::to_string(&page).expect("trace page serializes"),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
@@ -3199,7 +3261,8 @@ impl BurpTools {
             return serde_json::json!({"error": "max_depth must be between 1 and 16"}).to_string();
         }
         match self
-            .sitegraph
+            .sitegraph()
+            .graph
             .shortest_path(&input.from_id, &input.to_id, max_depth as usize)
             .await
         {
@@ -3226,7 +3289,12 @@ impl BurpTools {
             Ok(limit) => limit,
             Err(error) => return serde_json::json!({"error": error}).to_string(),
         };
-        match self.sitegraph.endpoint_clusters(limit as usize).await {
+        match self
+            .sitegraph()
+            .graph
+            .endpoint_clusters(limit as usize)
+            .await
+        {
             Ok(items) => serde_json::json!({
                 "items": items,
                 "total": items.len(),
@@ -3261,7 +3329,8 @@ impl BurpTools {
             return serde_json::json!({"error": "max_depth must be between 1 and 16"}).to_string();
         }
         match self
-            .sitegraph
+            .sitegraph()
+            .graph
             .impact(&input.id, max_depth as usize, limit as usize)
             .await
         {
@@ -3292,7 +3361,8 @@ impl BurpTools {
             Err(error) => return serde_json::json!({"error": error}).to_string(),
         };
         match self
-            .sitegraph
+            .sitegraph()
+            .graph
             .diff(input.since, input.cursor.unwrap_or(0) as u64, limit as u64)
             .await
         {
@@ -3331,18 +3401,19 @@ impl BurpTools {
             Ok(limit) => limit as u64,
             Err(error) => return serde_json::json!({"error": error}).to_string(),
         };
+        let graph = &self.sitegraph().graph;
         match (profile, format) {
-            ("metadata", "json") => match self.sitegraph.export_json(cursor, limit).await {
+            ("metadata", "json") => match graph.export_json(cursor, limit).await {
                 Ok(export) => serde_json::to_string(&export).expect("JSON graph export serializes"),
                 Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
             },
-            ("exact", "json") => match self.sitegraph.export_exact_json(cursor, limit).await {
+            ("exact", "json") => match graph.export_exact_json(cursor, limit).await {
                 Ok(export) => {
                     serde_json::to_string(&export).expect("exact graph export serializes")
                 }
                 Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
             },
-            (_, "csv") => match self.sitegraph.export_csv(cursor, limit).await {
+            (_, "csv") => match graph.export_csv(cursor, limit).await {
                 Ok(export) => serde_json::to_string(
                     &serde_json::json!({"profile": profile, "export": export}),
                 )
@@ -3705,15 +3776,15 @@ fn macro_json(macro_definition: MacroDefinition) -> serde_json::Value {
     })
 }
 
-#[tool_handler(router = Self::burp_router(), name = "burp-mcp", version = "3.0.0-alpha.1")]
+#[tool_handler(router = Self::burp_router(), name = "burp-mcp", version = "3.0.0")]
 impl rmcp::ServerHandler for BurpTools {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, rmcp::ErrorData> {
+        let router = self.tool_router();
         let tool_context = ToolCallContext::new(self, request, context);
-        let router = Self::burp_router() + Self::utility_router();
         let response = router.call(tool_context).await?;
         Ok(mark_embedded_error(response))
     }
@@ -3723,9 +3794,8 @@ impl rmcp::ServerHandler for BurpTools {
         _request: Option<rmcp::model::PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ListToolsResult, rmcp::ErrorData> {
-        let router = Self::burp_router() + Self::utility_router();
         Ok(rmcp::model::ListToolsResult::with_all_items(
-            router.list_all(),
+            self.tool_router().list_all(),
         ))
     }
 }
@@ -3734,6 +3804,7 @@ fn mark_embedded_error(response: CallToolResponse) -> CallToolResponse {
     let CallToolResponse::Complete(result) = response else {
         return response;
     };
+
     if result.is_error == Some(true) {
         return CallToolResponse::Complete(result);
     }
@@ -3755,6 +3826,12 @@ fn mark_embedded_error(response: CallToolResponse) -> CallToolResponse {
     };
     let value = serde_json::json!({"error": error});
     CallToolResponse::Complete(CallToolResult::structured_error(value))
+}
+fn sitegraph_disabled_json() -> String {
+    serde_json::json!({
+        "error": "sitegraph is disabled; restart burp-mcp with --enable-sitegraph"
+    })
+    .to_string()
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -4330,8 +4407,9 @@ mod contract_tests {
         BurpTools, DecoderInput, ExportRequestInput, ProxyHistoryInput,
         ProxyInterceptRuleBooleanOperatorInput, ProxyInterceptRuleInput,
         ProxyInterceptRuleMatchTypeInput, ProxyInterceptRuleRelationshipInput,
-        ProxySettingsUpdateInput, RegisterProxyRuleInput, export_request_text,
-        normalize_decoder_operation, proxy_settings_operation, to_proxy_history_request,
+        ProxySettingsUpdateInput, RegisterProxyRuleInput, SITEGRAPH_TOOL_PREFIX,
+        export_request_text, normalize_decoder_operation, proxy_settings_operation,
+        to_proxy_history_request,
     };
     use serde_json::Value;
     use std::collections::BTreeSet;
@@ -4591,6 +4669,39 @@ mod contract_tests {
             request_enabled: None,
             response_enabled: None,
         }
+    }
+
+    #[test]
+    fn sitegraph_tools_are_hidden_until_explicitly_enabled() {
+        let disabled = BurpTools::tool_router_for(false);
+        assert!(
+            disabled
+                .list_all()
+                .iter()
+                .all(|tool| !tool.name.starts_with(SITEGRAPH_TOOL_PREFIX))
+        );
+
+        let enabled_sitegraph_tools = BurpTools::tool_router_for(true)
+            .list_all()
+            .into_iter()
+            .filter(|tool| tool.name.starts_with(SITEGRAPH_TOOL_PREFIX))
+            .collect::<Vec<_>>();
+        assert_eq!(14, enabled_sitegraph_tools.len());
+        assert!(
+            enabled_sitegraph_tools
+                .iter()
+                .any(|tool| tool.name == "sitegraph_search")
+        );
+    }
+
+    #[test]
+    fn disabled_sitegraph_rejects_indexing_modes() {
+        assert_eq!(Ok(()), BurpTools::validate_sitegraph_mode(false, "off"));
+        assert_eq!(
+            Err("sitegraph must be enabled before selecting an indexing mode".to_owned()),
+            BurpTools::validate_sitegraph_mode(false, "startup")
+        );
+        assert_eq!(Ok(()), BurpTools::validate_sitegraph_mode(true, "watch"));
     }
 
     #[test]

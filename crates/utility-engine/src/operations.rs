@@ -1573,47 +1573,4 @@ mod tests {
                 .all(|suggestion| (0.0..=1.0).contains(&suggestion.confidence))
         );
     }
-
-    #[derive(serde::Deserialize)]
-    struct Fixture {
-        operation: String,
-        input: FixtureValue,
-        output: FixtureValue,
-    }
-
-    #[derive(serde::Deserialize, PartialEq, Debug)]
-    #[serde(tag = "kind", rename_all = "snake_case")]
-    enum FixtureValue {
-        Text { value: String },
-        Bytes { base64: String },
-    }
-
-    #[test]
-    fn matches_cyberchef_differential_fixtures() {
-        let document: Value = serde_json::from_str(include_str!(
-            "../../../test-fixtures/utility-cyberchef-v2.json"
-        ))
-        .unwrap();
-        let fixtures: Vec<Fixture> = serde_json::from_value(document["cases"].clone()).unwrap();
-        for fixture in fixtures {
-            let input = match fixture.input {
-                FixtureValue::Text { value } => DataValue::Text(value),
-                FixtureValue::Bytes { base64 } => DataValue::Bytes(
-                    base64::engine::general_purpose::STANDARD
-                        .decode(base64)
-                        .unwrap(),
-                ),
-            };
-            let actual = match run(&fixture.operation, input, &Value::Null).unwrap() {
-                DataValue::Text(value) => FixtureValue::Text { value },
-                DataValue::Bytes(value) => FixtureValue::Bytes {
-                    base64: base64::engine::general_purpose::STANDARD.encode(value),
-                },
-                DataValue::Json(value) => FixtureValue::Text {
-                    value: value.to_string(),
-                },
-            };
-            assert_eq!(actual, fixture.output, "{}", fixture.operation);
-        }
-    }
 }

@@ -90,7 +90,7 @@ impl SyncContext {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyncCoverage {
     pub complete: bool,
     pub items_indexed: u64,
@@ -114,19 +114,6 @@ pub struct SyncSummary {
     pub pages_seen: u64,
     pub tombstoned_nodes: u64,
     pub tombstoned_edges: u64,
-}
-impl Default for SyncCoverage {
-    fn default() -> Self {
-        Self {
-            complete: false,
-            items_indexed: 0,
-            source_total: None,
-            pages_read: 0,
-            end_of_source: false,
-            cancelled: false,
-            last_cursor: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
