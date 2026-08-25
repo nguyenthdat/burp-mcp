@@ -30,7 +30,7 @@ md-5 = "0.10.6"
 http = "1.3.1"
 petgraph = "0.8.3"
 proptest = "1.9.0"
-sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros", "json"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros", "json"] }
 tempfile = "3.23.0"
 time = { version = "0.3.44", features = ["serde"] }
 url = "2.5.7"
