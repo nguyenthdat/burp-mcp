@@ -22,7 +22,7 @@ Burp MCP connects MCP-compatible clients to Burp Suite through a native Rust std
 
 Some capabilities require Burp Suite Professional or a Burp feature that is available only in specific editions.
 
-`PLAN.md` defines the v3 architecture. Rust serves MCP over stdio and owns the
+Rust serves MCP over stdio and owns the
 bounded reconnecting gRPC actor, typed protocol client, local utility engine,
 and persistent sitegraph facade. Kotlin owns Montoya state and exposes only the
 loopback gRPC adapter on `127.0.0.1:9877`; the retired HTTP/JSON/NanoHTTPD path,
