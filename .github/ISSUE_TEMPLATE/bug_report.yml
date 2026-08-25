@@ -1,0 +1,61 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Burp MCP
+title: "bug: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, private traffic, customer data, or unredacted sensitive payloads. Report security vulnerabilities privately according to SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Burp MCP version
+      placeholder: 3.0.0
+    validations:
+      required: true
+  - type: input
+    id: burp
+    attributes:
+      label: Burp Suite version and edition
+      placeholder: 2026.7 Professional
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: State the observed behavior and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest deterministic sequence that reproduces the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs or output
+      render: text
+  - type: checkboxes
+    id: authorization
+    attributes:
+      label: Authorization and data handling
+      options:
+        - label: I tested only systems I own or am explicitly authorized to assess.
+          required: true
+        - label: I removed credentials, private traffic, and sensitive target data.
+          required: true
