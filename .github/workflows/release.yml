@@ -60,11 +60,11 @@ jobs:
           gradle --no-daemon clean test jar -Pversion="${GITHUB_REF_NAME#v}"
       - name: Stage release bundle
         run: |
-          cargo cyclonedx --manifest-path crates/burp-mcp/Cargo.toml --format json --describe binaries --override-filename burp-mcp.cdx
+          cargo cyclonedx --manifest-path crates/burp-mcp/Cargo.toml --format json --describe binaries
           mkdir -p release
           # Native platform binaries are supplied by the native-assets matrix.
           cp build/libs/burp-mcp.jar release/burp-mcp.jar
-          cp crates/burp-mcp/burp-mcp.cdx.json release/burp-mcp.cdx.json
+          mv crates/burp-mcp/burp-mcp-*.cdx.json crates/burp-mcp/burp-mcp.cdx.json
           (cd release && sha256sum * > SHA256SUMS)
       - name: Upload immutable release bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
