@@ -2,6 +2,6 @@ name: Burp MCP CodeQL configuration
 
 paths-ignore:
   - .omp/**
-  - docs/burp-extensions-montoya-api/**
+  - docs/**
   - build/**
   - target/**
