@@ -22,7 +22,16 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 gradle --no-daemon clean test jar
 ```
 
-Run `scripts/run-grpc-interop.sh` when changing protobuf definitions, the Kotlin gRPC adapter, `burp-protocol`, or native transport behavior.
+
+## Hosted CI and local Burp verification
+
+Hosted GitHub Actions builds the Kotlin extension and runs unit/contract tests,
+but it does not start a real Burp Suite Professional instance. The live Montoya
+gRPC probe and any edition-dependent Scanner/Pro behavior must be verified
+locally by a maintainer with Burp available. Use `scripts/run-grpc-interop.sh`
+for the local transport fixture and `burp-mcp probe` against the loaded JAR for
+the live check; record the Burp edition/version for release evidence.
+
 
 ## Pull requests
 
