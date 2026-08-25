@@ -22,16 +22,18 @@ Tool names below are server-local names. A client may expose them with an MCP
 server prefix. The runtime tool schema is authoritative; never invent a field
 that is absent from the exposed schema.
 
-## Non-negotiable boundaries
+Read [`references/burp-workflows.md`](references/burp-workflows.md) before choosing a common Burp workflow. It contains first-party PortSwigger links for proxy setup, scope, HTTP history, Repeater, Intruder, Scanner, extensions, logging, and the distinction between Burp's internal site map and a target `/sitemap.xml`.
+
+## Safety contract
 
 1. **Require authorization.** Identify the exact target and allowed activity
    before sending traffic, fuzzing, crawling, polling Collaborator, or changing
    Burp state. Existing Burp scope is a routing control, not proof of
    authorization. If authorization or the target boundary is missing, ask one
    direct question before any active action.
-2. **Start read-only.** Prefer Proxy history, site map, scanner issues, target
-   info, sitegraph, and offline decoder operations. Add traffic or mutate Burp
-   state only when the task requires it.
+2. **Start read-only.** Prefer Proxy history, Target > Site map, scanner issues,
+   target info, sitegraph, and offline decoder operations. Add traffic or mutate
+   Burp state only when the task requires it.
 3. **Preserve operator state.** Record every temporary scope entry, intercept
    change, handler, proxy rule, session rule, macro, cookie, job, and managed
    WebSocket. Restore or remove it before finishing unless the user explicitly
@@ -40,20 +42,23 @@ that is absent from the exposed schema.
    remain blocked in the Burp UI, and this MCP surface has no forward/drop
    operation. Read `burp_intercept_state` before automated traffic; if it is
    enabled, ask before temporarily disabling it and restore the original state.
-5. **Do not request active scanning.** `burp_scan` supports `mode: "passive"`;
-   `mode: "active"` returns an unsupported error. Burp edition and advertised
-   capabilities may further limit crawl, audit, Collaborator, or Scanner tools.
+5. **Prefer passive and low-impact operation.** `burp_scan` supports
+   `mode: "passive"`; `mode: "active"` returns an unsupported error. Edition and
+   advertised capabilities may further limit crawl, audit, Collaborator, or
+   Scanner tools. Active audit, Intruder, fuzzing, race tests, brute force,
+   state-changing endpoints, and DoS mode require explicit authorization,
+   narrow bounds, and an operator-visible plan.
 6. **Keep every operation bounded.** Page through results, use narrow URL
-   filters/prefixes, keep parallel batches small, and use the minimum useful
-   fuzz wordlist or race count. Never create an unbounded polling loop.
-7. **Verify effects, not acknowledgements.** A successful handler, session,
-   cookie, scope, macro, request, or job call proves only that the call was
-   accepted. Verify the observable result through Proxy detail, job results,
-   the cookie/rule list, or the relevant read API.
-8. **Minimize sensitive output.** Do not echo authentication tokens, session
-   cookies, full bodies, or Collaborator payloads unless they are necessary
-   evidence. The local sitegraph is intended for endpoint metadata and
-   parameter names, not parameter values or message bodies.
+   filters/prefixes, cap limits/depth/concurrency, and stop when output is enough
+   for the evidence claim.
+7. **Protect secrets and evidence.** Never disclose Burp CA private keys,
+   credentials, session cookies, Collaborator secrets, raw private traffic, or
+   parameter values. Redact exported evidence and treat local sitegraph SQLite
+   files as sensitive metadata.
+8. **Distinguish maps.** Burp Target > Site map, target `/sitemap.xml`, and the
+   optional Rust sitegraph are different data sources. Do not claim that one
+   implies the others. Read `references/burp-workflows.md` and
+   `../../sitegraph.md` when the task mentions sitemap or sitegraph.
 
 ## Workflow
 
@@ -204,6 +209,12 @@ traffic:
 4. Treat MD5 and SHA-1 output as compatibility data, not secure cryptography.
 
 For persistent target structure:
+
+Sitegraph is disabled by default in v3. Before asking the operator to restart
+with `--enable-sitegraph`, read the dedicated
+[`docs/sitegraph.md`](../sitegraph.md) reference for privacy, partitioning,
+sync modes, tool groups, retention, and the distinction from Burp Target > Site
+map and target `/sitemap.xml`.
 
 1. `sitegraph_sync` with the narrowest useful URL prefix.
 2. Check `sitegraph_status` or `sitegraph_stats`.

@@ -66,20 +66,34 @@ Utility inputs are bounded to 16 MiB, recipes to 64 steps, and batches to 100 it
 
 ## Install
 
-### 1. Load the Burp extension
+See the complete [installation guide](docs/install.md) for macOS/Linux curl installation, checksum verification, Burp extension loading, MCP client configuration, optional skill installation, manual installation, and uninstall steps.
 
-Download `burp-mcp.jar` from the latest [GitHub Release](https://github.com/nguyenthdat/burp-mcp/releases), then add it in Burp Suite:
+### Quick install on macOS or Linux
 
-1. Open **Extensions**.
-2. Select **Installed**.
-3. Click **Add**.
-4. Choose **Java** and select `burp-mcp.jar`.
+Review [`install.sh`](install.sh), then install the verified native binary with:
 
-The extension starts the typed loopback gRPC service on `127.0.0.1:9877` by default.
+```sh
+curl -fsSL https://raw.githubusercontent.com/nguyenthdat/burp-mcp/main/install.sh | bash
+```
 
-### 2. Configure an MCP client
+Install the native binary plus the repository's Burp skill:
 
-Run the downloaded native `burp-mcp` binary. Example MCP server configuration on macOS or Linux:
+```sh
+curl -fsSL https://raw.githubusercontent.com/nguyenthdat/burp-mcp/main/install.sh \
+  | bash -s -- --with-skill --agent codex
+```
+
+The installer detects Linux x86_64 and macOS arm64/x86_64, verifies the release
+asset against `SHA256SUMS`, installs to `~/.local/bin`, and never uses `sudo`.
+Windows users should follow the manual release-asset steps in the guide.
+
+### Load the Burp extension
+
+Download `burp-mcp.jar` from the [latest GitHub Release](https://github.com/nguyenthdat/burp-mcp/releases/latest), then in Burp Suite open **Extensions > Installed > Add**, select **Java**, and choose the JAR.
+
+### Configure an MCP client
+
+Run the installed native server:
 
 ```json
 {
@@ -88,7 +102,13 @@ Run the downloaded native `burp-mcp` binary. Example MCP server configuration on
 }
 ```
 
-On Windows, set `command` to the absolute path of `burp-mcp.exe`. The binary accepts `--endpoint`; sitegraph flags are listed below.
+The server listens to the Kotlin extension at `http://127.0.0.1:9877` by default. Verify the extension before starting the MCP client:
+
+```sh
+burp-mcp probe --endpoint http://127.0.0.1:9877
+```
+
+The optional `burp-skill` is documented in [docs/burp-skill](docs/burp-skill/SKILL.md). Sitegraph is disabled by default; use the separate [sitegraph reference](docs/sitegraph.md) before enabling it.
 
 ## Configuration
 
