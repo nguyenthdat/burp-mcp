@@ -12,6 +12,7 @@ burp-tools = { path = "../burp-tools" }
 clap.workspace = true
 rmcp.workspace = true
 regex.workspace = true
+http.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

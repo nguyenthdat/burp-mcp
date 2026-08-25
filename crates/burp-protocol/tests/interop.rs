@@ -21,11 +21,12 @@ async fn kotlin_server_echoes_binary_payloads_and_handles_concurrency() -> Resul
         );
         return Ok(());
     };
-    let mut client = connect_client(
-        &endpoint,
-        Duration::from_secs(10),
-        DEFAULT_MAX_MESSAGE_BYTES,
-    )
+    let mut client = connect_client(&BurpClientConfig {
+        endpoint: endpoint.clone(),
+        call_timeout: Duration::from_secs(10),
+        max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,
+        ..BurpClientConfig::default()
+    })
     .await
     .context("connect to Kotlin gRPC server")?;
 
@@ -58,6 +59,7 @@ async fn kotlin_server_echoes_binary_payloads_and_handles_concurrency() -> Resul
         call_timeout: Duration::from_secs(2),
         queue_capacity: 8,
         max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,
+        tls: None,
     })?;
     let audit = actor
         .start_audit(StartAuditRequest {
@@ -119,8 +121,13 @@ async fn kotlin_server_honors_deadlines_and_reconnects_after_restart() -> Result
         );
         return Ok(());
     };
-    let mut client =
-        connect_client(&endpoint, Duration::from_secs(2), DEFAULT_MAX_MESSAGE_BYTES).await?;
+    let mut client = connect_client(&BurpClientConfig {
+        endpoint: endpoint.clone(),
+        call_timeout: Duration::from_secs(2),
+        max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,
+        ..BurpClientConfig::default()
+    })
+    .await?;
     let mut delayed = Request::new(EchoBytesRequest {
         payload: vec![],
         delay_millis: 500,
@@ -145,6 +152,7 @@ async fn kotlin_server_honors_deadlines_and_reconnects_after_restart() -> Result
         call_timeout: Duration::from_millis(500),
         queue_capacity: 8,
         max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,
+        tls: None,
     })?;
     assert!(
         actor

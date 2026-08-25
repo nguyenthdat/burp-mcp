@@ -25,7 +25,9 @@ Do not include live credentials, private target data, customer traffic, or destr
 
 ## Security model
 
-Burp MCP exposes dual-use Burp Suite capabilities. The Kotlin extension listens only on IPv4 loopback, and the local machine is the trust boundary. Users remain responsible for authorization, workstation access, MCP client configuration, and target scope.
+Burp MCP exposes dual-use Burp Suite capabilities. The Kotlin extension defaults to IPv4 loopback plaintext, making the local machine the trust boundary. Remote binding is an explicit settings-panel option and requires mutual TLS: the server validates a client certificate and the Rust client validates the server certificate hostname/IP against the generated private CA.
+
+The extension generates `ca.crt`, server identity, and client identity under `~/.config/burp-mcp/tls` by default. Keep `server.key` on the Burp host; copy only `ca.crt`, `client.crt`, and `client.key` to an authorized agent host. Private keys are credentials. Rotation replaces the CA and both identities, immediately revoking old copied bundles. Plaintext non-loopback endpoints are rejected by both Kotlin and Rust.
 
 ## Repository security controls
 

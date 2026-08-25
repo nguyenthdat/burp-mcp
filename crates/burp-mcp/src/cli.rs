@@ -19,13 +19,17 @@ pub enum Command {
 
 #[derive(Debug, Clone, Args)]
 pub struct ServeArgs {
-    /// Burp RPC endpoint. Only IPv4 loopback endpoints are accepted.
+    /// Burp RPC endpoint. Plaintext is limited to IPv4 loopback; remote endpoints require HTTPS and mTLS.
     #[arg(long, env = "BURP_MCP_GRPC_ENDPOINT", value_parser = parse_endpoint)]
     pub endpoint: Option<String>,
 
     /// Burp RPC port, used when --endpoint is not set.
     #[arg(long, env = "BURP_MCP_GRPC_PORT", value_parser = parse_port)]
     pub port: Option<u16>,
+
+    /// Directory containing ca.crt, client.crt, and client.key for remote mTLS.
+    #[arg(long, env = "BURP_MCP_TLS_DIR")]
+    pub tls_dir: Option<String>,
     /// SQLite sitegraph path. Defaults to the platform data directory when sitegraph is enabled.
     #[arg(long, env = "BURP_MCP_GRAPH_PATH")]
     pub graph_path: Option<String>,
@@ -58,6 +62,7 @@ impl Default for ServeArgs {
         Self {
             endpoint: None,
             port: None,
+            tls_dir: None,
             stdio: true,
             graph_path: None,
             enable_sitegraph: false,
@@ -72,6 +77,10 @@ impl ServeArgs {
         resolve_endpoint(self.endpoint.as_deref(), self.port)
     }
 
+    pub fn resolved_tls_dir(&self) -> Option<std::path::PathBuf> {
+        resolve_tls_dir(&self.resolved_endpoint().ok()?, self.tls_dir.as_deref())
+    }
+
     pub fn resolved_graph_path(&self) -> std::path::PathBuf {
         self.graph_path
             .as_deref()
@@ -82,18 +91,26 @@ impl ServeArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct ProbeArgs {
-    /// Burp RPC endpoint. Only IPv4 loopback endpoints are accepted.
+    /// Burp RPC endpoint. Plaintext is limited to IPv4 loopback; remote endpoints require HTTPS and mTLS.
     #[arg(long, env = "BURP_MCP_GRPC_ENDPOINT", value_parser = parse_endpoint)]
     pub endpoint: Option<String>,
 
     /// Burp RPC port, used when --endpoint is not set.
     #[arg(long, env = "BURP_MCP_GRPC_PORT", value_parser = parse_port)]
     pub port: Option<u16>,
+
+    /// Directory containing ca.crt, client.crt, and client.key for remote mTLS.
+    #[arg(long, env = "BURP_MCP_TLS_DIR")]
+    pub tls_dir: Option<String>,
 }
 
 impl ProbeArgs {
     pub fn resolved_endpoint(&self) -> Result<String, String> {
         resolve_endpoint(self.endpoint.as_deref(), self.port)
+    }
+
+    pub fn resolved_tls_dir(&self) -> Option<std::path::PathBuf> {
+        resolve_tls_dir(&self.resolved_endpoint().ok()?, self.tls_dir.as_deref())
     }
 }
 
@@ -117,12 +134,48 @@ fn default_graph_path() -> std::path::PathBuf {
     base.join("burp-mcp/graphs/default.sqlite")
 }
 
+fn resolve_tls_dir(endpoint: &str, explicit: Option<&str>) -> Option<std::path::PathBuf> {
+    if !endpoint.starts_with("https://") {
+        return None;
+    }
+    Some(
+        explicit
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(default_tls_dir),
+    )
+}
+
+fn default_tls_dir() -> std::path::PathBuf {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("burp-mcp")
+        .join("tls")
+}
+
 fn parse_endpoint(endpoint: &str) -> Result<String, String> {
-    let Some(port) = endpoint.strip_prefix("http://127.0.0.1:") else {
-        return Err("Burp RPC endpoint must be http://127.0.0.1:<port>".to_owned());
-    };
-    parse_port(port)?;
-    Ok(endpoint.to_owned())
+    let uri: http::Uri = endpoint
+        .parse()
+        .map_err(|_| "Burp RPC endpoint must be a valid URI".to_owned())?;
+    let scheme = uri
+        .scheme_str()
+        .ok_or_else(|| "Burp RPC endpoint requires http or https".to_owned())?;
+    let host = uri
+        .host()
+        .ok_or_else(|| "Burp RPC endpoint requires a host".to_owned())?;
+    let port = uri
+        .port_u16()
+        .ok_or_else(|| "Burp RPC endpoint requires an explicit port".to_owned())?;
+    if scheme == "http" && host == "127.0.0.1" && port > 0 {
+        return Ok(endpoint.to_owned());
+    }
+    if scheme == "https" && port > 0 {
+        return Ok(endpoint.to_owned());
+    }
+    Err("Burp RPC endpoint must be http://127.0.0.1:<port> or https://<host>:<port>".to_owned())
 }
 
 fn parse_port(port: &str) -> Result<u16, String> {
@@ -175,10 +228,35 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_loopback_endpoint() {
-        let error = Cli::try_parse_from(["burp-mcp", "serve", "--endpoint", "http://0.0.0.0:9877"])
-            .expect_err("non-loopback endpoint must fail");
-        assert!(error.to_string().contains("127.0.0.1"));
+    fn rejects_remote_plaintext_endpoint() {
+        let error =
+            Cli::try_parse_from(["burp-mcp", "serve", "--endpoint", "http://10.10.0.8:9877"])
+                .expect_err("remote plaintext endpoint must fail");
+        assert!(error.to_string().contains("https"));
+    }
+
+    #[test]
+    fn accepts_remote_https_and_explicit_tls_directory() {
+        let cli = Cli::try_parse_from([
+            "burp-mcp",
+            "probe",
+            "--endpoint",
+            "https://burp-vm.test:9877",
+            "--tls-dir",
+            "/tmp/burp-mcp-tls",
+        ])
+        .expect("remote mTLS CLI must parse");
+        let Some(Command::Probe(args)) = cli.command else {
+            panic!("expected probe command")
+        };
+        assert_eq!(
+            "https://burp-vm.test:9877",
+            args.resolved_endpoint().unwrap()
+        );
+        assert_eq!(
+            std::path::PathBuf::from("/tmp/burp-mcp-tls"),
+            args.resolved_tls_dir().unwrap()
+        );
     }
 
     #[test]

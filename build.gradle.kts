@@ -11,7 +11,7 @@ plugins {
 val sitegraphRulePackSha256 = "5b63cb02091718b1c04ee30a9a89a7be1c01216a1365b266beb24fb6b3c6c3bf"
 
 group = "io.github.nguyenthdat.burpmcp"
-version = providers.gradleProperty("version").orElse("3.0.0").get()
+version = providers.gradleProperty("version").orElse("3.0.1").get()
 
 val grpcVersion = "1.83.1"
 val protobufVersion = "4.36.0"
@@ -53,6 +53,7 @@ dependencies {
     implementation("com.fasterxml.jackson.core:jackson-databind:2.22.2")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.22.2")
     implementation("com.google.re2j:re2j:1.8")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.85")
     compileOnly("org.apache.tomcat:annotations-api:6.0.53")
 
     testImplementation(kotlin("test-junit5"))
@@ -90,6 +91,7 @@ tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
     options.release.set(25)
 }
+
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()

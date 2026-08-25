@@ -20,7 +20,7 @@ esac
 cat >"$TMP/$asset" <<'EOF'
 #!/usr/bin/env bash
 [ "${1:-}" = "--version" ] || exit 1
-echo "burp-mcp 3.0.0"
+echo "burp-mcp 3.0.1"
 EOF
 chmod +x "$TMP/$asset"
 if command -v sha256sum >/dev/null 2>&1; then
@@ -46,6 +46,6 @@ sed -e 's#case "$DOWNLOAD_BASE" in#case "$DOWNLOAD_BASE" in\n    http://127.0.0.
     "$ROOT/install.sh" >"$TEST_INSTALLER"
 BURP_MCP_DOWNLOAD_BASE="http://127.0.0.1:18473" \
   bash "$TEST_INSTALLER" --dir "$TMP/bin" >"$TMP/install.log"
-"$TMP/bin/burp-mcp" --version | grep -q '3.0.0'
+"$TMP/bin/burp-mcp" --version | grep -q '3.0.1'
 
 echo "installer smoke test passed"

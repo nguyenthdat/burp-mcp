@@ -40,7 +40,7 @@ class BurpRpcServerTest {
     @Test
     fun `binds to IPv4 loopback and serves typed calls`() {
         val port = availablePort()
-        server = BurpRpcServer(fake(MontoyaApi::class.java), port, Clock.fixed(Instant.ofEpochMilli(42), ZoneOffset.UTC))
+        server = BurpRpcServer(fake(MontoyaApi::class.java), GrpcSettings(port = port), clock = Clock.fixed(Instant.ofEpochMilli(42), ZoneOffset.UTC))
         server?.start()
 
         channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
@@ -62,7 +62,7 @@ class BurpRpcServerTest {
     @Test
     fun `starts stops and removes scanner audits through typed RPCs`() {
         val port = availablePort()
-        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server = BurpRpcServer(fake(MontoyaApi::class.java), GrpcSettings(port = port))
         server?.start()
         channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
         val client = BurpServiceGrpc.newBlockingStub(channel).withDeadlineAfter(2, TimeUnit.SECONDS)
@@ -88,7 +88,7 @@ class BurpRpcServerTest {
     @Test
     fun `passive audit returns stateless completed snapshot without audit handle`() {
         val port = availablePort()
-        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server = BurpRpcServer(fake(MontoyaApi::class.java), GrpcSettings(port = port))
         server?.start()
         channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
         val client = BurpServiceGrpc.newBlockingStub(channel).withDeadlineAfter(2, TimeUnit.SECONDS)
@@ -113,7 +113,7 @@ class BurpRpcServerTest {
     @Test
     fun `echoes zero one and ten MiB payloads byte exactly`() {
         val port = availablePort()
-        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server = BurpRpcServer(fake(MontoyaApi::class.java), GrpcSettings(port = port))
         server?.start()
         channel = NettyChannelBuilder
             .forAddress("127.0.0.1", port)
@@ -131,7 +131,7 @@ class BurpRpcServerTest {
     @Test
     fun `rejects calls without the mandatory client deadline`() {
         val port = availablePort()
-        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server = BurpRpcServer(fake(MontoyaApi::class.java), GrpcSettings(port = port))
         server?.start()
         channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
         val client = BurpServiceGrpc.newBlockingStub(channel)
@@ -147,7 +147,7 @@ class BurpRpcServerTest {
     @Test
     fun `rejects a client deadline above the server maximum`() {
         val port = availablePort()
-        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server = BurpRpcServer(fake(MontoyaApi::class.java), GrpcSettings(port = port))
         server?.start()
         channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
         val client =
@@ -166,7 +166,7 @@ class BurpRpcServerTest {
     @Test
     fun `deadline cancels a delayed unary call`() {
         val port = availablePort()
-        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server = BurpRpcServer(fake(MontoyaApi::class.java), GrpcSettings(port = port))
         server?.start()
         channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
         val client = BurpServiceGrpc.newBlockingStub(channel).withDeadlineAfter(25, TimeUnit.MILLISECONDS)
@@ -184,7 +184,7 @@ class BurpRpcServerTest {
     @Test
     fun `rejects requests above the configured message limit`() {
         val port = availablePort()
-        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server = BurpRpcServer(fake(MontoyaApi::class.java), GrpcSettings(port = port))
         server?.start()
         channel =
             NettyChannelBuilder
@@ -208,7 +208,7 @@ class BurpRpcServerTest {
     @Test
     fun `validation failures are returned as invalid argument`() {
         val port = availablePort()
-        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server = BurpRpcServer(fake(MontoyaApi::class.java), GrpcSettings(port = port))
         server?.start()
         channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
         val client = BurpServiceGrpc.newBlockingStub(channel).withDeadlineAfter(5, TimeUnit.SECONDS)
@@ -242,7 +242,7 @@ class BurpRpcServerTest {
     @Test
     fun `polling Collaborator before payload generation returns an empty page`() {
         val port = availablePort()
-        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server = BurpRpcServer(fake(MontoyaApi::class.java), GrpcSettings(port = port))
         server?.start()
         channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
         val client = BurpServiceGrpc.newBlockingStub(channel).withDeadlineAfter(2, TimeUnit.SECONDS)
@@ -268,7 +268,7 @@ class BurpRpcServerTest {
     @Test
     fun `close releases listener and is idempotent`() {
         val port = availablePort()
-        server = BurpRpcServer(fake(MontoyaApi::class.java), port)
+        server = BurpRpcServer(fake(MontoyaApi::class.java), GrpcSettings(port = port))
         server?.start()
         server?.close()
         server?.close()

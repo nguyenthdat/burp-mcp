@@ -13,12 +13,15 @@ use protocol as proto;
 
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::{
+    Certificate, Channel, ClientTlsConfig as TonicTlsConfig, Endpoint, Identity,
+};
 use tonic::{Request, Status};
 
 mod config;
 pub use config::{
-    BurpClientConfig, DEFAULT_CALL_TIMEOUT, DEFAULT_MAX_MESSAGE_BYTES, DEFAULT_QUEUE_CAPACITY,
+    BurpClientConfig, ClientTlsConfig, DEFAULT_CALL_TIMEOUT, DEFAULT_MAX_MESSAGE_BYTES,
+    DEFAULT_QUEUE_CAPACITY,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -1118,31 +1121,32 @@ async fn run_actor(config: BurpClientConfig, mut receiver: mpsc::Receiver<Comman
 }
 
 pub async fn connect_client(
-    endpoint: &str,
-    timeout: Duration,
-    max_message_bytes: usize,
+    config: &BurpClientConfig,
 ) -> Result<proto::burp_service_client::BurpServiceClient<Channel>, tonic::transport::Error> {
-    let channel = Endpoint::from_shared(endpoint.to_owned())?
-        .connect_timeout(timeout)
-        .timeout(timeout)
-        .tcp_keepalive(Some(Duration::from_secs(30)))
-        .connect()
-        .await?;
+    let mut endpoint = Endpoint::from_shared(config.endpoint.clone())?
+        .connect_timeout(config.call_timeout)
+        .timeout(config.call_timeout)
+        .tcp_keepalive(Some(Duration::from_secs(30)));
+    if let Some(tls) = &config.tls {
+        let ca = &tls.ca_certificate;
+        let certificate = &tls.client_certificate;
+        let private_key = &tls.client_private_key;
+        endpoint = endpoint.tls_config(
+            TonicTlsConfig::new()
+                .ca_certificate(Certificate::from_pem(ca))
+                .identity(Identity::from_pem(certificate, private_key)),
+        )?;
+    }
+    let channel = endpoint.connect().await?;
     Ok(proto::burp_service_client::BurpServiceClient::new(channel)
-        .max_decoding_message_size(max_message_bytes)
-        .max_encoding_message_size(max_message_bytes))
+        .max_decoding_message_size(config.max_message_bytes)
+        .max_encoding_message_size(config.max_message_bytes))
 }
 
 async fn connect(
     config: &BurpClientConfig,
 ) -> Option<proto::burp_service_client::BurpServiceClient<Channel>> {
-    connect_client(
-        &config.endpoint,
-        config.call_timeout,
-        config.max_message_bytes,
-    )
-    .await
-    .ok()
+    connect_client(config).await.ok()
 }
 
 async fn execute(

@@ -12,30 +12,64 @@ internal class TransportLifecycle(
     private val logging: Logging,
 ) : AutoCloseable {
     private var rpcServer: BurpRpcServer? = null
+    private var currentSettings: GrpcSettings? = null
     private var closed = false
 
-    fun start(config: ExtensionConfig) {
+    @Synchronized
+    fun start(settings: GrpcSettings) {
         check(!closed) { "transport lifecycle is closed" }
+        settings.validate()
+        val tlsBundle = if (settings.securityMode == GrpcSecurityMode.REMOTE_MTLS) TlsBundleManager().ensure(settings) else null
         try {
-            rpcServer = BurpRpcServer(api, config.grpcPort).also { it.start() }
+            rpcServer = BurpRpcServer(api, settings, tlsBundle).also { it.start() }
+            currentSettings = settings
             logging.logToOutput(
-                "[MCP] gRPC server ready on 127.0.0.1:${config.grpcPort} " +
-                    "(HTTP/2, max message ${GRPC_MAX_MESSAGE_BYTES / (1024 * 1024)} MiB, " +
+                "[MCP] gRPC server ready on ${settings.bindAddress}:${settings.port} " +
+                    "(${settings.securityMode}, HTTP/2, max message ${GRPC_MAX_MESSAGE_BYTES / (1024 * 1024)} MiB, " +
                     "max RPC ${GRPC_MAX_RPC_TIMEOUT_SECONDS}s)",
             )
-            logging.logToOutput("[MCP] gRPC has no application token; any local process can connect")
+            if (tlsBundle == null) {
+                logging.logToOutput("[MCP] local plaintext is restricted to IPv4 loopback")
+            } else {
+                logging.logToOutput("[MCP] remote gRPC requires a client certificate trusted by ${tlsBundle.caCertificate}")
+            }
         } catch (exception: Exception) {
             rpcServer?.close()
             rpcServer = null
-            logging.logToError("[MCP] gRPC server failed on port ${config.grpcPort}", exception)
+            currentSettings = null
+            logging.logToError("[MCP] gRPC server failed on ${settings.bindAddress}:${settings.port}", exception)
+            throw exception
         }
     }
 
+    @Synchronized
+    fun restart(settings: GrpcSettings) {
+        check(!closed) { "transport lifecycle is closed" }
+        val previousSettings = currentSettings
+        rpcServer?.close()
+        rpcServer = null
+        currentSettings = null
+        try {
+            start(settings)
+        } catch (exception: Exception) {
+            if (previousSettings != null) {
+                runCatching { start(previousSettings) }
+                    .onFailure { rollback -> logging.logToError("[MCP] failed to restore previous gRPC server", rollback) }
+            }
+            throw exception
+        }
+    }
+
+    @Synchronized
+    fun settings(): GrpcSettings? = currentSettings
+
+    @Synchronized
     override fun close() {
         if (closed) return
         closed = true
         rpcServer?.close()
         rpcServer = null
+        currentSettings = null
         logging.logToOutput("[MCP] gRPC server stopped")
     }
 }
