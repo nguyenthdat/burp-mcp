@@ -54,6 +54,21 @@ Fields ending in `?` are optional. `{}` means no arguments.
 | `burp_annotate` | `{index, note}` | Persist a Proxy history note. |
 | `burp_extract_from_response` | `{index, regex, limit?}` | Extract bounded regex matches from one response. |
 
+## MCP-controlled interception
+
+| Tool | Input | Purpose |
+|---|---|---|
+| `burp_intercept_controller` | `{enabled?, timeout_seconds?}` | Read/configure the MCP-owned HTTP interception queue; timeout auto-forwards pending messages. |
+| `burp_intercepted_messages` | `{limit?, cursor?}` | Page pending HTTP requests/responses with lossless base64 messages. |
+| `burp_control_intercepted_message` | `{id, action, message_base64?}` | `forward`, `drop`, or send one pending HTTP message to manual Intercept; optional base64 replaces the complete message. |
+| `burp_websocket_intercept_controller` | `{enabled?, timeout_seconds?}` | Read/configure MCP interception of Proxy WebSocket text/binary messages. |
+| `burp_intercepted_websocket_messages` | `{limit?, cursor?}` | Page pending WebSocket messages with type, direction, phase, and base64 payload. |
+| `burp_control_intercepted_websocket_message` | `{id, action, payload_base64?}` | `forward`, `drop`, or send one pending WebSocket message to manual Intercept; optional base64 replaces payload bytes. |
+
+These controllers are independent of master `burp_intercept_state`. Enable them
+only around scoped traffic, act once per selected ID, then drain pending items
+and disable the controller.
+
 ## Sending and preparing HTTP requests
 
 | Tool | Input | Purpose |
@@ -244,23 +259,30 @@ verify a signature. MD5 and SHA-1 are marked cryptographically weak.
 
 | Tool | Input | Purpose |
 |---|---|---|
-| `sitegraph_sync` | `{url_prefix?}` | Synchronize bounded sitemap and issue metadata into local SQLite. |
-| `sitegraph_status` | `{}` | Read synchronization/schema status. |
+| `sitegraph_config` | `{}` | Read effective indexing mode and interval. |
+| `sitegraph_sync` | `{url_prefix?}` | Synchronize bounded sitemap, history, issue, technology, and WebSocket observations. |
+| `sitegraph_status` | `{}` | Read indexer and graph synchronization/schema status. |
 | `sitegraph_stats` | `{}` | Read node/edge counts and last sync time. |
-| `sitegraph_search` | `{query, limit?, cursor?}` | Search normalized endpoints. |
+| `sitegraph_projects` | `{}` | Read the active project-scoped graph identity. |
+| `sitegraph_search` | `{query, limit?, cursor?}` | Search normalized endpoint metadata. |
+| `sitegraph_history_search` | `{query, source?, limit?, cursor?}` | Search indexed raw evidence; `source` is `all`, `http`, or `websocket`. |
 | `sitegraph_endpoint_detail` | `{id}` | Read one endpoint by stable ID. |
 | `sitegraph_neighbors` | `{id, limit?, cursor?}` | Page adjacent nodes. |
 | `sitegraph_trace` | `{id, max_depth?, limit?}` | Traverse relationships to depth 1..8. |
-| `sitegraph_diff` | `{since, limit?, cursor?}` | Read nodes changed since a Unix timestamp. |
-| `sitegraph_export` | `{format?, limit?, cursor?}` | Export a bounded metadata page as JSON or CSV. |
+| `sitegraph_shortest_path` | `{from_id, to_id, max_depth?}` | Find one bounded shortest path. |
+| `sitegraph_clusters` | `{limit?}` | Cluster endpoints by origin and first path segment. |
+| `sitegraph_impact` | `{id, max_depth?, limit?}` | List bounded downstream impact nodes. |
+| `sitegraph_diff` | `{since, limit?, cursor?}` | Read graph changes since a Unix timestamp. |
+| `sitegraph_export` | `{profile?, format?, snapshot_id?, limit?, cursor?}` | Export metadata (`json`/`csv`) or sensitive exact evidence (`profile=exact`, JSON). |
 
-Sync before querying when freshness matters. Sitegraph persistence is
-privacy-preserving metadata storage, not an archive of HTTP bodies or parameter
-values.
+Sync before querying when freshness matters. Metadata queries avoid raw bodies.
+`sitegraph_history_search` snippets and `sitegraph_export` with `profile=exact`
+contain sensitive project-local evidence; constrain and redact them.
 
 ## Cleanup checklist
 
 - Restore original intercept state.
+- Drain and disable both MCP-owned intercept controllers.
 - Remove temporary scope entries, HTTP/proxy/session rules, and macros.
 - Expire temporary cookies and verify the cookie jar.
 - Close every managed WebSocket.

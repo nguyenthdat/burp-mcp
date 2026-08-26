@@ -1,0 +1,310 @@
+{
+  "id": "burp-mcp-sitegraph",
+  "version": "2026.08.25",
+  "max_matches": 256,
+  "rules": [
+    {
+      "id": "shiro_remember_me",
+      "pattern": "(?:^|[?&])rememberMe=[^&\\s]+",
+      "capture_group": 0,
+      "severity": "high",
+      "surfaces": [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "jwt",
+      "pattern": "eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}",
+      "capture_group": 0,
+      "severity": "high",
+      "surfaces": [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "basic_auth",
+      "pattern": "(?i)\\bBasic\\s+[A-Za-z0-9+/=_:-]{8,256}",
+      "capture_group": 0,
+      "severity": "high",
+      "surfaces": [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "bearer_auth",
+      "pattern": "(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]{8,512}",
+      "capture_group": 0,
+      "severity": "high",
+      "surfaces": [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "secret_assignment",
+      "pattern": "(?i)(?:api[_-]?key|secret|token|access[_-]?token|client[_-]?secret|authorization)\\s*[:=]\\s*[\\\"']?([^\\\"'&\\s]{4,256})",
+      "capture_group": 1,
+      "severity": "high",
+      "surfaces": [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "password_assignment",
+      "pattern": "(?i)(?:password|passwd|pwd)\\s*[:=]\\s*[\\\"']([^\\\"']{1,128})[\\\"']",
+      "capture_group": 1,
+      "severity": "high",
+      "surfaces": [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "cloud_access_key",
+      "pattern": "(?i)\\b(?:AKIA|ASIA)[A-Z0-9]{16}\\b",
+      "capture_group": 0,
+      "severity": "high",
+      "surfaces": [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "aliyun_access_key",
+      "pattern": "\\bLTAI[a-zA-Z0-9]{12,32}\\b",
+      "capture_group": 0,
+      "severity": "high",
+      "surfaces": [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "jdbc_connection",
+      "pattern": "(?i)jdbc:[a-z][a-z0-9+.-]*://[^\\s\\\"']{4,512}",
+      "capture_group": 0,
+      "severity": "high",
+      "surfaces": [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "private_key_block",
+      "pattern": "-----BEGIN [A-Z0-9 ]+ PRIVATE KEY-----",
+      "capture_group": 0,
+      "severity": "high",
+      "surfaces": [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "email_address",
+      "pattern": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,63}\\b",
+      "capture_group": 0,
+      "severity": "medium",
+      "surfaces": [
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "internal_ipv4",
+      "pattern": "\\b(?:127\\.0\\.0\\.1|10\\.(?:[0-9]{1,3}\\.){2}[0-9]{1,3}|172\\.(?:1[6-9]|2[0-9]|3[01])\\.(?:[0-9]{1,3}\\.)[0-9]{1,3}|192\\.168\\.(?:[0-9]{1,3}\\.)[0-9]{1,3})\\b",
+      "capture_group": 0,
+      "severity": "medium",
+      "surfaces": [
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "unix_password_file",
+      "pattern": "(?m)^[^:]{1,64}:[^:]*:[0-9]+:[0-9]+:[^:]*:/[^:]*:/(?:bin|usr/bin)/(?:ba|z|fi|sh)sh$",
+      "capture_group": 0,
+      "severity": "critical",
+      "surfaces": [
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "windows_path",
+      "pattern": "[A-Za-z]:\\\\(?:[^<>:/|?*\\r\\n]+\\\\)+[^<>:/|?*\\r\\n]+",
+      "capture_group": 0,
+      "severity": "medium",
+      "surfaces": [
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "debug_parameter",
+      "pattern": "(?i)(?:^|[?&])((?:access|adm|admin|alter|cfg|clone|config|create|dbg|debug|delete|disable|edit|enable|exec|execute|grant|load|make|modify|rename|reset|root|shell|test|toggle))=",
+      "capture_group": 1,
+      "severity": "medium",
+      "surfaces": ["request_message", "websocket_payload", "websocket_edited_payload"]
+    },
+    {
+      "id": "pagination_parameter",
+      "pattern": "(?i)(?:^|[?&])((?:size|page|page_size|num|limit|start|end|count|offset))=[^&\\s]*",
+      "capture_group": 1,
+      "severity": "low",
+      "surfaces": ["request_message", "websocket_payload", "websocket_edited_payload"]
+    },
+    {
+      "id": "url_parameter",
+      "pattern": "=\\s*[\\\"']?((?:https?://)[^\\s\\\"'&<>]{4,1024})",
+      "capture_group": 1,
+      "severity": "medium",
+      "surfaces": [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "absolute_url",
+      "pattern": "https?://[-A-Za-z0-9+&@#/%?=~_|!:,.;\\u4E00-\\u9FFF]+",
+      "capture_group": 0,
+      "severity": "low",
+      "surfaces": [
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "relative_api_link",
+      "pattern": "[\\\"'`]((?:/|\\.\\./|\\./)(?:api|graphql|swagger|openapi|admin|internal|debug)(?:/[A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-]*)?)[\\\"'`]",
+      "capture_group": 1,
+      "severity": "medium",
+      "surfaces": [
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "source_map",
+      "pattern": "(?:^|[\\\"'`])[^\\\"'`\\s]{1,512}\\.js\\.map(?:[?#][^\\\"'`\\s]*)?",
+      "capture_group": 0,
+      "severity": "medium",
+      "surfaces": [
+        "response_body",
+        "response_message",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    },
+    {
+      "id": "swagger_marker",
+      "pattern": "(?i)(?:swagger-ui(?:\\.html)?|\\\"swagger\\\"\\s*:|openapi\\s*[:=])",
+      "capture_group": 0,
+      "severity": "low",
+      "surfaces": ["response_body", "response_message"]
+    },
+    {
+      "id": "vite_dev_client",
+      "pattern": "/@vite/client",
+      "capture_group": 0,
+      "severity": "medium",
+      "surfaces": ["response_body", "response_message"]
+    },
+    {
+      "id": "file_upload_form",
+      "pattern": "(?i)<input\\b[^>]*\\btype\\s*=\\s*[\\\"']file[\\\"']",
+      "capture_group": 0,
+      "severity": "low",
+      "surfaces": ["response_body"]
+    },
+    {
+      "id": "local_storage_identity",
+      "pattern": "(?i)\\b(?:localStorage|sessionStorage)\\.(?:setItem|getItem)\\s*\\(\\s*[\\\"']([^\\\"']{1,128})",
+      "capture_group": 1,
+      "severity": "medium",
+      "surfaces": ["response_body", "response_message"]
+    },
+    {
+      "id": "cookie_identity",
+      "pattern": "(?i)\\b(?:setCookie|Cookies\\.set)\\s*\\(\\s*[\\\"']([^\\\"']{1,128})",
+      "capture_group": 1,
+      "severity": "medium",
+      "surfaces": ["response_body", "response_message"]
+    },
+    {
+      "id": "router_push",
+      "pattern": "(?:\\$router\\.push|router\\.navigate|history\\.pushState)\\s*\\(",
+      "capture_group": 0,
+      "severity": "low",
+      "surfaces": ["response_body", "response_message"]
+    },
+    {
+      "id": "location_header",
+      "pattern": "(?im)^Location:\\s*([^\\r\\n]{1,1024})",
+      "capture_group": 1,
+      "severity": "low",
+      "surfaces": ["response_message"]
+    },
+    {
+      "id": "xml_secret_element",
+      "pattern": "(?i)<(?:password|secret|token|apiKey|accessKey)>[^<]{1,256}</(?:password|secret|token|apiKey|accessKey)>",
+      "capture_group": 0,
+      "severity": "high",
+      "surfaces": [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload"
+      ]
+    }
+  ]
+}

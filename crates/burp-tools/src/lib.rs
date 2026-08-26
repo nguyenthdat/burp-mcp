@@ -2,22 +2,24 @@ mod sitegraph;
 mod utility;
 
 use crate::sitegraph::SitegraphIndexer;
-use ::sitegraph::SiteGraph;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use burp_protocol::BurpClient;
 use burp_protocol::protocol::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
-    CloseWebSocketRequest, ConfigResponse, CookieJarRequest, CreateMacroRequest,
+    CloseWebSocketRequest, ConfigResponse, ControlInterceptedMessageRequest,
+    ControlInterceptedWebSocketMessageRequest, CookieJarRequest, CreateMacroRequest,
     CreatePayloadListRequest, CreateWebSocketRequest, DeletePayloadListRequest,
     DeleteScanConfigurationRequest, DeleteScanResourcePoolRequest, DeleteSessionRuleRequest,
     ExportConfigRequest, ExtensionInfoRequest, GenerateCollaboratorPayloadsRequest,
     GenerateScannerReportRequest, GetJobResultRequest, GetJobStatusRequest, GetPayloadListRequest,
     GetScanConfigurationRequest, GetScanResourcePoolRequest, GetSessionRuleRequest,
     HttpHeaderEntry, ImportBCheckRequest, ImportBambdaRequest, ImportConfigRequest,
-    ImportPayloadListRequest, InterceptStateRequest, ListMacrosRequest,
-    ListPayloadGeneratorsRequest, ListPayloadListsRequest, ListPayloadProcessorsRequest,
-    ListProxyRulesRequest, ListScanConfigurationsRequest, ListScanResourcePoolsRequest,
-    ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition, MacroItem, MacroParameter,
-    ManagedWebSocketHistoryRequest, MutateScopeRequest, PageRequest,
+    ImportPayloadListRequest, InterceptAction, InterceptControllerConfigRequest,
+    InterceptStateRequest, InterceptedMessagesRequest, InterceptedWebSocketMessagesRequest,
+    ListMacrosRequest, ListPayloadGeneratorsRequest, ListPayloadListsRequest,
+    ListPayloadProcessorsRequest, ListProxyRulesRequest, ListScanConfigurationsRequest,
+    ListScanResourcePoolsRequest, ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition,
+    MacroItem, MacroParameter, ManagedWebSocketHistoryRequest, MutateScopeRequest, PageRequest,
     PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
     ProxyInterceptConfigRequest, ProxyInterceptConfigResponse, ProxyInterceptRule,
     ProxyInterceptRuleDelete, ProxyInterceptRuleMutation, ProxyInterceptToggle, ProxyListener,
@@ -31,7 +33,7 @@ use burp_protocol::protocol::{
     SitemapSnapshotRequest, StartAuditRequest, StartBoundedInputMatrixRequest,
     StartConcurrentRequestCheckRequest, StartCrawlRequest, TargetInfoRequest,
     UpdatePayloadListRequest, UpsertScanConfigurationRequest, UpsertScanResourcePoolRequest,
-    UpsertSessionRuleRequest,
+    UpsertSessionRuleRequest, WebSocketInterceptControllerConfigRequest,
 };
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
@@ -39,6 +41,7 @@ use rmcp::model::{CallToolRequestParams, CallToolResponse, CallToolResult, Conte
 use rmcp::service::RequestContext;
 use rmcp::{RoleServer, schemars, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
+use sitegraph_daemon::{GraphBackend, connect_or_spawn};
 use std::path::Path;
 use std::sync::Arc;
 use utility_engine::{self as utility_engine_api, DataValue};
@@ -84,6 +87,8 @@ struct ProxyHistoryItemOutput {
     status: u32,
     length: u64,
     has_response: bool,
+    request_base64: String,
+    response_base64: Option<String>,
     notes: Option<String>,
     highlight: Option<String>,
 }
@@ -103,8 +108,8 @@ pub struct ProxyDetailInput {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 struct ProxyDetailOutput {
     index: u32,
-    request: String,
-    response: Option<String>,
+    request_base64: String,
+    response_base64: Option<String>,
     notes: Option<String>,
     highlight: Option<String>,
 }
@@ -198,6 +203,49 @@ pub struct ScanIssueDetailInput {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SetInterceptStateInput {
     pub enabled: bool,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct InterceptControllerInput {
+    pub enabled: Option<bool>,
+    pub timeout_seconds: Option<u32>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct InterceptedMessagesInput {
+    pub limit: Option<u32>,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum InterceptActionInput {
+    Forward,
+    Drop,
+    Intercept,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ControlInterceptedMessageInput {
+    pub id: u64,
+    pub action: InterceptActionInput,
+    #[schemars(
+        description = "Optional complete replacement HTTP message encoded as standard Base64"
+    )]
+    pub message_base64: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct InterceptedMessageOutput {
+    id: u64,
+    direction: String,
+    phase: String,
+    url: String,
+    method: String,
+    status: u32,
+    is_in_scope: bool,
+    request_base64: String,
+    response_base64: Option<String>,
 }
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -316,6 +364,39 @@ impl ProxyInterceptRuleInput {
 pub struct ProxyWebSocketHistoryInput {
     pub limit: Option<u32>,
     pub cursor: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct WebSocketInterceptControllerInput {
+    pub enabled: Option<bool>,
+    pub timeout_seconds: Option<u32>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct InterceptedWebSocketMessagesInput {
+    pub limit: Option<u32>,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ControlInterceptedWebSocketMessageInput {
+    pub id: u64,
+    pub action: InterceptActionInput,
+    #[schemars(
+        description = "Optional replacement payload encoded as standard Base64; empty Base64 replaces with an empty payload"
+    )]
+    pub payload_base64: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct InterceptedWebSocketMessageOutput {
+    id: u64,
+    web_socket_id: u32,
+    upgrade_url: String,
+    direction: String,
+    message_type: String,
+    phase: String,
+    payload_base64: String,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -782,14 +863,16 @@ pub struct SiteGraphSyncInput {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct SiteGraphConfigInput {
-    pub mode: Option<String>,
-    pub interval_seconds: Option<u64>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SiteGraphSearchInput {
     pub query: String,
+    pub limit: Option<u32>,
+    pub cursor: Option<u32>,
+}
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SiteGraphHistorySearchInput {
+    pub query: String,
+    #[schemars(description = "History source: all, http, or websocket")]
+    pub source: Option<String>,
     pub limit: Option<u32>,
     pub cursor: Option<u32>,
 }
@@ -851,8 +934,10 @@ const SITEGRAPH_TOOL_PREFIX: &str = "sitegraph_";
 
 #[derive(Clone)]
 struct SitegraphRuntime {
-    graph: Arc<SiteGraph>,
+    graph: GraphBackend,
     indexer: SitegraphIndexer,
+    mode: Arc<str>,
+    interval_seconds: u64,
     auto_index_shutdown: Arc<tokio::sync::watch::Sender<bool>>,
     auto_index_task: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
@@ -865,8 +950,13 @@ pub struct BurpTools {
 
 #[tool_router(router = burp_router)]
 impl BurpTools {
-    pub async fn new(client: BurpClient, graph_path: Option<&Path>) -> Result<Self, String> {
-        let Some(graph_path) = graph_path else {
+    pub async fn new(
+        client: BurpClient,
+        project_root: Option<&Path>,
+        daemon_endpoint: Option<&Path>,
+        rules_path: &Path,
+    ) -> Result<Self, String> {
+        let Some(project_root) = project_root else {
             return Ok(Self {
                 client,
                 sitegraph: None,
@@ -878,26 +968,13 @@ impl BurpTools {
             .ok();
         let (resolved_path, graph_id) = match identity {
             Some(info) if !info.graph_id.is_empty() => {
-                let root = if graph_path.extension().is_some() {
-                    graph_path.parent().unwrap_or_else(|| Path::new("."))
-                } else {
-                    graph_path
-                };
                 let file_name = if info.project_temporary {
                     format!("temp-{}.sqlite", info.graph_id)
                 } else {
                     format!("{}.sqlite", info.graph_id)
                 };
-                (root.join("projects").join(file_name), info.graph_id)
+                (project_root.join(file_name), info.graph_id)
             }
-            _ if graph_path.extension().is_some() => (
-                graph_path.to_path_buf(),
-                graph_path
-                    .file_stem()
-                    .and_then(|value| value.to_str())
-                    .unwrap_or("offline")
-                    .to_owned(),
-            ),
             _ => {
                 return Err(
                     "project identity unavailable; refusing to open a shared fallback graph"
@@ -905,18 +982,22 @@ impl BurpTools {
                 );
             }
         };
-        let graph = Arc::new(
-            SiteGraph::open_with_id(&resolved_path, graph_id)
+        let daemon = match daemon_endpoint {
+            Some(endpoint) => sitegraph_daemon::Client::new(endpoint),
+            None => connect_or_spawn(&resolved_path, &graph_id, rules_path)
                 .await
                 .map_err(|error| error.to_string())?,
-        );
-        let indexer = SitegraphIndexer::spawn(client.clone(), Arc::clone(&graph));
+        };
+        let graph = GraphBackend::Remote(daemon);
+        let indexer = SitegraphIndexer::spawn(client.clone(), graph.clone());
         let (auto_index_shutdown, _) = tokio::sync::watch::channel(false);
         Ok(Self {
             client,
             sitegraph: Some(SitegraphRuntime {
                 graph,
                 indexer,
+                mode: Arc::from("off"),
+                interval_seconds: 30,
                 auto_index_shutdown: Arc::new(auto_index_shutdown),
                 auto_index_task: Arc::new(tokio::sync::Mutex::new(None)),
             }),
@@ -951,14 +1032,16 @@ impl BurpTools {
     }
 
     pub async fn start_auto_index(
-        &self,
+        &mut self,
         mode: &str,
         interval: std::time::Duration,
     ) -> Result<(), String> {
         Self::validate_sitegraph_mode(self.sitegraph.is_some(), mode)?;
-        let Some(sitegraph) = &self.sitegraph else {
+        let Some(sitegraph) = &mut self.sitegraph else {
             return Ok(());
         };
+        sitegraph.mode = Arc::from(mode);
+        sitegraph.interval_seconds = interval.as_secs();
         match mode {
             "off" => Ok(()),
             "startup" => {
@@ -1023,16 +1106,22 @@ impl BurpTools {
             Ok(response) => {
                 let page = response.page.unwrap_or_default();
                 serde_json::to_string(&ProxyHistoryOutput {
-                    items: response.items.into_iter().map(|item| ProxyHistoryItemOutput {
-                        index: item.index,
-                        method: item.method,
-                        url: item.url,
-                        status: item.status,
-                        length: item.length,
-                        has_response: item.has_response,
-                        notes: (!item.notes.is_empty()).then_some(item.notes),
-                        highlight: (!item.highlight.is_empty()).then_some(item.highlight),
-                    }).collect(),
+                    items: response
+                        .items
+                        .into_iter()
+                        .map(|item| ProxyHistoryItemOutput {
+                            index: item.index,
+                            method: item.method,
+                            url: item.url,
+                            status: item.status,
+                            length: item.length,
+                            has_response: item.has_response,
+                            request_base64: STANDARD.encode(item.request),
+                            response_base64: item.has_response.then(|| STANDARD.encode(item.response)),
+                            notes: (!item.notes.is_empty()).then_some(item.notes),
+                            highlight: (!item.highlight.is_empty()).then_some(item.highlight),
+                        })
+                        .collect(),
                     total: page.total,
                     truncated: page.truncated,
                     next_cursor: (!page.next_cursor.is_empty()).then_some(page.next_cursor),
@@ -1060,9 +1149,9 @@ impl BurpTools {
         match self.client.proxy_detail(ProxyDetailRequest { index }).await {
             Ok(detail) => serde_json::to_string(&ProxyDetailOutput {
                 index: detail.index,
-                request: String::from_utf8_lossy(&detail.request).into_owned(),
-                response: (!detail.response.is_empty())
-                    .then(|| String::from_utf8_lossy(&detail.response).into_owned()),
+                request_base64: STANDARD.encode(detail.request),
+                response_base64: (!detail.response.is_empty())
+                    .then(|| STANDARD.encode(detail.response)),
                 notes: (!detail.notes.is_empty()).then_some(detail.notes),
                 highlight: (!detail.highlight.is_empty()).then_some(detail.highlight),
             })
@@ -3060,6 +3149,39 @@ impl BurpTools {
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
+    #[tool(
+        name = "sitegraph_history_search",
+        description = "Full-text search indexed raw HTTP requests/responses and WebSocket payload history with source filtering and bounded pagination",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn sitegraph_history_search(
+        &self,
+        Parameters(input): Parameters<SiteGraphHistorySearchInput>,
+    ) -> String {
+        let limit = input.limit.unwrap_or(100);
+        if limit == 0 || limit > 500 {
+            return serde_json::json!({"error": "limit must be between 1 and 500"}).to_string();
+        }
+        match self
+            .sitegraph()
+            .graph
+            .search_history(
+                &input.query,
+                input.source.as_deref(),
+                input.cursor.unwrap_or(0) as u64,
+                limit as u64,
+            )
+            .await
+        {
+            Ok(result) => serde_json::to_string(&result).expect("history search page serializes"),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
 
     #[tool(
         name = "sitegraph_endpoint_detail",
@@ -3104,30 +3226,25 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_config",
-        description = "Read or validate sitegraph auto-index configuration; mode is off, startup, or watch",
+        description = "Read the active sitegraph auto-index configuration; edit config.toml and restart to change it",
         annotations(
-            read_only_hint = false,
+            read_only_hint = true,
             destructive_hint = false,
             idempotent_hint = true,
             open_world_hint = false
         )
     )]
-    async fn sitegraph_config(
-        &self,
-        Parameters(input): Parameters<SiteGraphConfigInput>,
-    ) -> String {
-        let mode = input.mode.unwrap_or_else(|| "off".to_owned());
-        if !matches!(mode.as_str(), "off" | "startup" | "watch") {
-            return serde_json::json!({"error": "mode must be off, startup, or watch"}).to_string();
-        }
-        let interval_seconds = input.interval_seconds.unwrap_or(30).max(1);
+    async fn sitegraph_config(&self) -> String {
+        let Some(sitegraph) = &self.sitegraph else {
+            return sitegraph_disabled_json();
+        };
         serde_json::json!({
-            "mode": mode,
-            "interval_seconds": interval_seconds,
+            "mode": sitegraph.mode,
+            "interval_seconds": sitegraph.interval_seconds,
             "page_size": 500,
             "queue_capacity": 32,
             "max_items": null,
-            "note": "configuration changes apply on the next process start"
+            "note": "edit ~/.config/burp-mcp/config.toml or the selected config file and restart burp-mcp"
         })
         .to_string()
     }
@@ -3562,6 +3679,245 @@ impl BurpTools {
                 .await,
         )
     }
+
+    #[tool(
+        name = "burp_intercept_controller",
+        description = "Read or configure MCP-controlled Burp Proxy request/response interception. Disabled by default; pending messages forward when timeout expires.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn intercept_controller(
+        &self,
+        Parameters(input): Parameters<InterceptControllerInput>,
+    ) -> String {
+        match self
+            .client
+            .intercept_controller_config(InterceptControllerConfigRequest {
+                enabled: input.enabled,
+                timeout_seconds: input.timeout_seconds,
+            })
+            .await
+        {
+            Ok(state) => serde_json::json!({
+                "enabled": state.enabled,
+                "timeout_seconds": state.timeout_seconds,
+                "pending": state.pending,
+            })
+            .to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_intercepted_messages",
+        description = "List HTTP requests and responses currently paused by the MCP intercept controller, including lossless Base64 raw messages",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn intercepted_messages(
+        &self,
+        Parameters(input): Parameters<InterceptedMessagesInput>,
+    ) -> String {
+        let limit = input.limit.unwrap_or(100);
+        if limit > MAX_PAGE_SIZE {
+            return serde_json::json!({"error": "limit must be at most 500"}).to_string();
+        }
+        match self
+            .client
+            .intercepted_messages(InterceptedMessagesRequest {
+                page: Some(PageRequest {
+                    limit,
+                    cursor: input.cursor.unwrap_or_default(),
+                }),
+            })
+            .await
+        {
+            Ok(response) => {
+                let page = response.page.unwrap_or_default();
+                serde_json::json!({
+                    "items": response.items.into_iter().map(intercepted_message_output).collect::<Vec<_>>(),
+                    "total": page.total,
+                    "truncated": page.truncated,
+                    "next_cursor": (!page.next_cursor.is_empty()).then_some(page.next_cursor),
+                }).to_string()
+            }
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_control_intercepted_message",
+        description = "Forward, drop, or send an MCP-paused HTTP message to Burp's manual Intercept tab; optionally replace the complete raw request/response from standard Base64 before acting",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn control_intercepted_message(
+        &self,
+        Parameters(input): Parameters<ControlInterceptedMessageInput>,
+    ) -> String {
+        let action = match input.action {
+            InterceptActionInput::Forward => InterceptAction::Forward,
+            InterceptActionInput::Drop => InterceptAction::Drop,
+            InterceptActionInput::Intercept => InterceptAction::Intercept,
+        } as i32;
+        let message = match input.message_base64 {
+            Some(value) => match STANDARD.decode(value) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    return serde_json::json!({"error": format!("invalid message_base64: {error}")})
+                        .to_string();
+                }
+            },
+            None => Vec::new(),
+        };
+        match self
+            .client
+            .control_intercepted_message(ControlInterceptedMessageRequest {
+                id: input.id,
+                action,
+                message,
+            })
+            .await
+        {
+            Ok(response) => response
+                .message
+                .map(intercepted_message_output)
+                .map(|item| serde_json::to_string(&item).expect("intercept output must serialize"))
+                .unwrap_or_else(|| {
+                    serde_json::json!({"error": "empty intercept response"}).to_string()
+                }),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+    #[tool(
+        name = "burp_websocket_intercept_controller",
+        description = "Read or configure MCP-controlled Burp Proxy WebSocket interception for text and binary messages",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn websocket_intercept_controller(
+        &self,
+        Parameters(input): Parameters<WebSocketInterceptControllerInput>,
+    ) -> String {
+        match self.client.websocket_intercept_controller_config(WebSocketInterceptControllerConfigRequest {
+            enabled: input.enabled,
+            timeout_seconds: input.timeout_seconds,
+        }).await {
+            Ok(state) => serde_json::json!({"enabled": state.enabled, "timeout_seconds": state.timeout_seconds, "pending": state.pending}).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_intercepted_websocket_messages",
+        description = "List text and binary WebSocket messages currently paused by the MCP intercept controller",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn intercepted_websocket_messages(
+        &self,
+        Parameters(input): Parameters<InterceptedWebSocketMessagesInput>,
+    ) -> String {
+        let limit = input.limit.unwrap_or(100);
+        if limit > MAX_PAGE_SIZE {
+            return serde_json::json!({"error": "limit must be at most 500"}).to_string();
+        }
+        match self
+            .client
+            .intercepted_websocket_messages(InterceptedWebSocketMessagesRequest {
+                page: Some(PageRequest {
+                    limit,
+                    cursor: input.cursor.unwrap_or_default(),
+                }),
+            })
+            .await
+        {
+            Ok(response) => {
+                let page = response.page.unwrap_or_default();
+                serde_json::json!({
+                    "items": response.items.into_iter().map(intercepted_websocket_message_output).collect::<Vec<_>>(),
+                    "total": page.total,
+                    "truncated": page.truncated,
+                    "next_cursor": (!page.next_cursor.is_empty()).then_some(page.next_cursor),
+                }).to_string()
+            }
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_control_intercepted_websocket_message",
+        description = "Forward, drop, or send a paused text/binary WebSocket message to Burp's manual Intercept tab; optionally replace its raw payload from standard Base64",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn control_intercepted_websocket_message(
+        &self,
+        Parameters(input): Parameters<ControlInterceptedWebSocketMessageInput>,
+    ) -> String {
+        let action = match input.action {
+            InterceptActionInput::Forward => InterceptAction::Forward,
+            InterceptActionInput::Drop => InterceptAction::Drop,
+            InterceptActionInput::Intercept => InterceptAction::Intercept,
+        } as i32;
+        let replace_payload = input.payload_base64.is_some();
+        let payload = match input.payload_base64 {
+            Some(value) => match STANDARD.decode(value) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    return serde_json::json!({"error": format!("invalid payload_base64: {error}")})
+                        .to_string();
+                }
+            },
+            None => Vec::new(),
+        };
+        match self
+            .client
+            .control_intercepted_websocket_message(ControlInterceptedWebSocketMessageRequest {
+                id: input.id,
+                action,
+                payload,
+                replace_payload,
+            })
+            .await
+        {
+            Ok(response) => response
+                .message
+                .map(intercepted_websocket_message_output)
+                .map(|item| {
+                    serde_json::to_string(&item).expect("WebSocket intercept output must serialize")
+                })
+                .unwrap_or_else(|| {
+                    serde_json::json!({"error": "empty WebSocket intercept response"}).to_string()
+                }),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
     #[tool(
         name = "burp_proxy_intercept_config",
         description = "Read Burp Proxy request, response, WebSocket interception filters and response modification settings",
@@ -3687,6 +4043,7 @@ impl BurpTools {
         let limit = input.limit.unwrap_or(50).min(MAX_PAGE_SIZE);
         match self.client.proxy_websocket_history(ProxyWebSocketHistoryRequest {
             page: Some(PageRequest { limit, cursor: input.cursor.unwrap_or_default() }),
+            after_id: None,
         }).await {
             Ok(response) => serde_json::json!({
                 "items": response.items.into_iter().map(|item| serde_json::json!({
@@ -3776,7 +4133,7 @@ fn macro_json(macro_definition: MacroDefinition) -> serde_json::Value {
     })
 }
 
-#[tool_handler(router = Self::burp_router(), name = "burp-mcp", version = "3.0.1")]
+#[tool_handler(router = Self::burp_router(), name = "burp-mcp", version = "3.0.2")]
 impl rmcp::ServerHandler for BurpTools {
     async fn call_tool(
         &self,
@@ -3879,6 +4236,36 @@ fn session_rule_request(input: SessionRuleUpsertInput) -> UpsertSessionRuleReque
         url_contains: input.url_contains.unwrap_or_default(),
         tools: input.tools.unwrap_or_default(),
         enabled: input.enabled.unwrap_or(true),
+    }
+}
+
+fn intercepted_websocket_message_output(
+    item: burp_protocol::protocol::InterceptedWebSocketMessage,
+) -> InterceptedWebSocketMessageOutput {
+    InterceptedWebSocketMessageOutput {
+        id: item.id,
+        web_socket_id: item.web_socket_id,
+        upgrade_url: item.upgrade_url,
+        direction: item.direction,
+        message_type: item.message_type,
+        phase: item.phase,
+        payload_base64: STANDARD.encode(item.payload),
+    }
+}
+
+fn intercepted_message_output(
+    item: burp_protocol::protocol::InterceptedMessage,
+) -> InterceptedMessageOutput {
+    InterceptedMessageOutput {
+        id: item.id,
+        direction: item.direction,
+        phase: item.phase,
+        url: item.url,
+        method: item.method,
+        status: item.status,
+        is_in_scope: item.is_in_scope,
+        request_base64: STANDARD.encode(item.request),
+        response_base64: (!item.response.is_empty()).then(|| STANDARD.encode(item.response)),
     }
 }
 
@@ -4262,6 +4649,7 @@ fn to_proxy_history_request(input: ProxyHistoryInput, limit: u32) -> ProxyHistor
         status_filter: input.status_filter,
         has_notes: input.has_notes.unwrap_or(false),
         color: input.color.unwrap_or_default(),
+        after_id: None,
     }
 }
 
@@ -4686,11 +5074,16 @@ mod contract_tests {
             .into_iter()
             .filter(|tool| tool.name.starts_with(SITEGRAPH_TOOL_PREFIX))
             .collect::<Vec<_>>();
-        assert_eq!(14, enabled_sitegraph_tools.len());
+        assert_eq!(15, enabled_sitegraph_tools.len());
         assert!(
             enabled_sitegraph_tools
                 .iter()
                 .any(|tool| tool.name == "sitegraph_search")
+        );
+        assert!(
+            enabled_sitegraph_tools
+                .iter()
+                .any(|tool| tool.name == "sitegraph_history_search")
         );
     }
 

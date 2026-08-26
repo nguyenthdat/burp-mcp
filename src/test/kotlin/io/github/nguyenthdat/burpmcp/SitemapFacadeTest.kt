@@ -1,8 +1,10 @@
 package io.github.nguyenthdat.burpmcp
 
 import burp.api.montoya.MontoyaApi
+import burp.api.montoya.core.ByteArray
 import burp.api.montoya.http.message.HttpRequestResponse
 import burp.api.montoya.http.message.requests.HttpRequest
+import burp.api.montoya.http.message.responses.HttpResponse
 import burp.api.montoya.sitemap.SiteMap
 import java.lang.reflect.Proxy as ReflectionProxy
 import kotlin.test.Test
@@ -29,6 +31,23 @@ class SitemapFacadeTest {
         assertEquals(0, item.status)
         assertEquals("", item.contentType)
         assertEquals(0, item.responseBody.size)
+    }
+
+    @Test
+    fun `copies complete response body bytes without calling Montoya subArray`() {
+        val expected = ByteArray(2 * 1024 * 1024) { index -> (index and 0xff).toByte() }
+        val body = fake<burp.api.montoya.core.ByteArray>(mapOf("getBytes" to { expected }, "length" to { expected.size }))
+        val response = fake<HttpResponse>(mapOf("body" to { body }))
+        val entry = fake<HttpRequestResponse>(mapOf("response" to { response }))
+        val siteMap = fake<SiteMap>(mapOf("requestResponses" to { listOf(entry) }))
+
+        val item = SitemapFacade(fake(mapOf("siteMap" to { siteMap })))
+            .snapshot(SitemapQuery("", 10, 0))
+            .items
+            .single()
+
+        assertEquals(expected.size, item.responseBody.size)
+        assertEquals(expected.toList(), item.responseBody.toList())
     }
 
     @Suppress("UNCHECKED_CAST")

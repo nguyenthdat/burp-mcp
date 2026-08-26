@@ -66,14 +66,10 @@ internal class SitemapFacade(
     }
 
     private fun boundedBody(response: burp.api.montoya.http.message.responses.HttpResponse?): ByteArray =
-        runCatching {
-            response?.body()?.let { body ->
-                body.subArray(0, minOf(body.length(), MAX_GRAPH_BODY_BYTES)).bytes
-            } ?: byteArrayOf()
-        }.getOrElse { byteArrayOf() }
+        runCatching { response?.body()?.bytes?: byteArrayOf() }
+            .getOrElse { byteArrayOf() }
 
     private companion object {
-        const val MAX_GRAPH_BODY_BYTES = 1024 * 1024
         const val MAX_GRAPH_URL_BYTES = 8 * 1024
     }
 }

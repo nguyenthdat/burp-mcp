@@ -1,8 +1,14 @@
 use crate::storage::StorageError;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiffEvidence {
+    pub source: String,
+    pub since: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct GraphDiff {
     pub added_node_ids: Vec<String>,
     pub updated_node_ids: Vec<String>,
@@ -13,7 +19,7 @@ pub struct GraphDiff {
     pub truncated: bool,
     pub next_cursor: Option<u64>,
     pub last_synced_at: Option<i64>,
-    pub evidence: serde_json::Value,
+    pub evidence: DiffEvidence,
 }
 
 pub async fn since(
@@ -78,6 +84,9 @@ pub async fn since(
         truncated: next < total,
         next_cursor: (next < total).then_some(next),
         last_synced_at,
-        evidence: serde_json::json!({"source": "node, edge and tombstone revisions", "since": since}),
+        evidence: DiffEvidence {
+            source: "node, edge and tombstone revisions".to_owned(),
+            since,
+        },
     })
 }

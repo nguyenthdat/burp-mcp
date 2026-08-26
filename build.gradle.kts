@@ -1,6 +1,5 @@
 import com.google.protobuf.gradle.id
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import java.security.MessageDigest
 
 
 plugins {
@@ -8,10 +7,10 @@ plugins {
     id("com.google.protobuf") version "0.10.0"
 }
 
-val sitegraphRulePackSha256 = "5b63cb02091718b1c04ee30a9a89a7be1c01216a1365b266beb24fb6b3c6c3bf"
 
+val sitegraphRulePackSha256 = "0ad7dbd9d752b914aefbc37f6958495af956156865ce1392014ec86f8f69a398"
 group = "io.github.nguyenthdat.burpmcp"
-version = providers.gradleProperty("version").orElse("3.0.1").get()
+version = providers.gradleProperty("version").orElse("3.0.2").get()
 
 val grpcVersion = "1.83.1"
 val protobufVersion = "4.36.0"
@@ -102,17 +101,6 @@ tasks.withType<Test>().configureEach {
     )
 }
 
-tasks.processResources {
-    inputs.property("sitegraphRulePackSha256", sitegraphRulePackSha256)
-    doLast {
-        val packaged = destinationDir.resolve("sitegraph/default-rules.json")
-        check(packaged.isFile) { "missing packaged sitegraph default rule pack" }
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(packaged.readBytes())
-            .joinToString("") { byte -> "%02x".format(byte) }
-        check(digest == sitegraphRulePackSha256) { "sitegraph default rule pack checksum mismatch" }
-    }
-}
 
 tasks.jar {
     archiveFileName.set("burp-mcp.jar")

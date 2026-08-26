@@ -9,7 +9,11 @@ pub struct Relationship {
 }
 
 pub fn relationships(observation: &SitemapObservation) -> Vec<Relationship> {
-    let mut values = Vec::new();
+    let mut values = Vec::with_capacity(
+        1 + observation.response_links.len()
+            + observation.form_actions.len()
+            + observation.script_sources.len(),
+    );
     push(
         &mut values,
         "redirect",
@@ -25,11 +29,7 @@ pub fn relationships(observation: &SitemapObservation) -> Vec<Relationship> {
     for value in &observation.script_sources {
         push(&mut values, "script", &observation.url, value);
     }
-    if observation
-        .content_type
-        .to_ascii_lowercase()
-        .contains("html")
-    {
+    if contains_ascii_case_insensitive(&observation.content_type, "html") {
         for reference in html::references(&observation.response_body) {
             push(
                 &mut values,
@@ -39,11 +39,7 @@ pub fn relationships(observation: &SitemapObservation) -> Vec<Relationship> {
             );
         }
     }
-    if observation
-        .content_type
-        .to_ascii_lowercase()
-        .contains("javascript")
-    {
+    if contains_ascii_case_insensitive(&observation.content_type, "javascript") {
         for route in javascript::routes(&observation.response_body) {
             push(
                 &mut values,
@@ -65,4 +61,11 @@ fn push(values: &mut Vec<Relationship>, kind: &'static str, base: &str, value: &
     if let Some(target_url) = metadata_url(value, base) {
         values.push(Relationship { kind, target_url });
     }
+}
+
+fn contains_ascii_case_insensitive(value: &str, needle: &str) -> bool {
+    value
+        .as_bytes()
+        .windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
 }

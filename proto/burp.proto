@@ -15,6 +15,12 @@ service BurpService {
   rpc ProxyDetail(ProxyDetailRequest) returns (ProxyDetailResponse);
   rpc ScanIssues(ScanIssuesRequest) returns (ScanIssuesResponse);
   rpc SitemapSnapshot(SitemapSnapshotRequest) returns (SitemapSnapshotResponse);
+  rpc InterceptedMessages(InterceptedMessagesRequest) returns (InterceptedMessagesResponse);
+  rpc ControlInterceptedMessage(ControlInterceptedMessageRequest) returns (InterceptedMessageResponse);
+  rpc InterceptControllerConfig(InterceptControllerConfigRequest) returns (InterceptControllerConfigResponse);
+  rpc InterceptedWebSocketMessages(InterceptedWebSocketMessagesRequest) returns (InterceptedWebSocketMessagesResponse);
+  rpc ControlInterceptedWebSocketMessage(ControlInterceptedWebSocketMessageRequest) returns (InterceptedWebSocketMessageResponse);
+  rpc WebSocketInterceptControllerConfig(WebSocketInterceptControllerConfigRequest) returns (WebSocketInterceptControllerConfigResponse);
   rpc EventsSince(EventsSinceRequest) returns (EventsSinceResponse);
   rpc TargetInfo(TargetInfoRequest) returns (TargetInfoResponse);
   rpc ScopeCheck(ScopeCheckRequest) returns (ScopeCheckResponse);
@@ -116,6 +122,7 @@ message ProxyHistoryRequest {
   optional uint32 status_filter = 4;
   bool has_notes = 5;
   string color = 6;
+  optional uint32 after_id = 7;
 }
 message ProxyHistoryResponse {
   repeated ProxyHistoryEntry items = 1;
@@ -130,6 +137,11 @@ message ProxyHistoryEntry {
   bool has_response = 6;
   string notes = 7;
   string highlight = 8;
+  bytes request = 9;
+  bytes response = 10;
+  uint32 id = 11;
+  string time = 12;
+  string content_type = 13;
 }
 message ProxyDetailRequest { uint32 index = 1; }
 message ProxyDetailResponse {
@@ -266,6 +278,73 @@ message ProxyInterceptRule {
   string match_condition = 5;
 }
 message ProxySettingsRequest {}
+message InterceptedMessagesRequest { PageRequest page = 1; }
+message InterceptedMessagesResponse {
+  repeated InterceptedMessage items = 1;
+  PageInfo page = 2;
+}
+message InterceptedMessage {
+  uint64 id = 1;
+  string direction = 2;
+  string url = 3;
+  string method = 4;
+  uint32 status = 5;
+  bool is_in_scope = 6;
+  bytes request = 7;
+  bytes response = 8;
+  string phase = 9;
+}
+enum InterceptAction {
+  INTERCEPT_ACTION_UNSPECIFIED = 0;
+  INTERCEPT_ACTION_FORWARD = 1;
+  INTERCEPT_ACTION_DROP = 2;
+  INTERCEPT_ACTION_INTERCEPT = 3;
+}
+message ControlInterceptedMessageRequest {
+  uint64 id = 1;
+  InterceptAction action = 2;
+  bytes message = 3;
+}
+message InterceptedMessageResponse { InterceptedMessage message = 1; }
+message InterceptControllerConfigRequest {
+  optional bool enabled = 1;
+  optional uint32 timeout_seconds = 2;
+}
+message InterceptControllerConfigResponse {
+  bool enabled = 1;
+  uint32 timeout_seconds = 2;
+  uint32 pending = 3;
+}
+message InterceptedWebSocketMessagesRequest { PageRequest page = 1; }
+message InterceptedWebSocketMessagesResponse {
+  repeated InterceptedWebSocketMessage items = 1;
+  PageInfo page = 2;
+}
+message InterceptedWebSocketMessage {
+  uint64 id = 1;
+  uint32 web_socket_id = 2;
+  string upgrade_url = 3;
+  string direction = 4;
+  string message_type = 5;
+  string phase = 6;
+  bytes payload = 7;
+}
+message ControlInterceptedWebSocketMessageRequest {
+  uint64 id = 1;
+  InterceptAction action = 2;
+  bytes payload = 3;
+  bool replace_payload = 4;
+}
+message InterceptedWebSocketMessageResponse { InterceptedWebSocketMessage message = 1; }
+message WebSocketInterceptControllerConfigRequest {
+  optional bool enabled = 1;
+  optional uint32 timeout_seconds = 2;
+}
+message WebSocketInterceptControllerConfigResponse {
+  bool enabled = 1;
+  uint32 timeout_seconds = 2;
+  uint32 pending = 3;
+}
 message ProxySettingsResponse {
   repeated ProxyListener listeners = 1;
   repeated ProxyScriptFilter script_filters = 2;
@@ -330,7 +409,10 @@ message ProxyInterceptConfigResponse {
   bool response_remove_all_javascript = 15;
   bool request_fix_missing_new_lines = 16;
 }
-message ProxyWebSocketHistoryRequest { PageRequest page = 1; }
+message ProxyWebSocketHistoryRequest {
+  PageRequest page = 1;
+  optional uint32 after_id = 2;
+}
 message ProxyWebSocketEntry {
   uint32 index = 1;
   uint32 id = 2;

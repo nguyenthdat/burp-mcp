@@ -95,6 +95,12 @@ There are two distinct rule systems:
 | `burp_remove_proxy_rule` | Remove one Proxy rule by ID, or clear all rules when ID is omitted. | Remove only the fixture ID; use clear-all only in an isolated test project. |
 | `burp_intercept_state` | Read the master Proxy interception state. | Capture this baseline before any Intercept mutation. |
 | `burp_set_intercept_state` | Enable or disable master Proxy interception. | Toggle while monitoring the UI, read it back, and restore immediately to avoid blocked traffic. |
+| `burp_intercept_controller` | Read or configure the MCP-owned HTTP interception queue and timeout; intercepted messages auto-forward on timeout. | Enable only for a narrow fixture, confirm the timeout, then disable it and verify `pending` returns to zero. |
+| `burp_intercepted_messages` | Page HTTP requests/responses paused by the MCP intercept controller, including lossless base64 messages. | Generate one scoped fixture message and verify direction, phase, URL, and pagination without logging sensitive payloads. |
+| `burp_control_intercepted_message` | Forward, drop, or send one MCP-paused HTTP message to Burp's manual Intercept tab; optionally replace the complete message from base64. | Use a harmless fixture, preserve the original bytes unless replacement is required, and ensure no message remains pending. |
+| `burp_websocket_intercept_controller` | Read or configure MCP-owned interception for Proxy WebSocket text and binary messages. | Enable only around fixture traffic, verify timeout/pending state, then disable it. |
+| `burp_intercepted_websocket_messages` | Page text/binary WebSocket messages paused by the MCP controller. | Verify message type, direction, phase, base64 payload, and cursor behavior on a fixture connection. |
+| `burp_control_intercepted_websocket_message` | Forward, drop, or send one paused WebSocket message to Burp's manual Intercept tab; optionally replace payload bytes from base64. | Act on one fixture ID, verify the returned action/state, then drain or disable the controller. |
 | `burp_proxy_intercept_config` | Legacy focused read of request, response, WebSocket interception filters, and response modification. | Compare the result with the Proxy settings UI; prefer `burp_proxy_settings` for new flows. |
 | `burp_update_proxy_intercept_config` | Legacy bulk patch of interception settings; replacing rule arrays requires matching replace flags. | Use a complete baseline and restore it exactly; prefer granular operations below. |
 | `burp_proxy_settings` | Read listeners, script filters, and request/response interception settings and rules together. | Capture a baseline and compare listener ports and Intercept settings with the Burp UI. |
@@ -235,16 +241,17 @@ Import does not mean execution. Import only reviewed source with a unique fixtur
 
 ## Sitegraph (advanced opt-in)
 
-Sitegraph is a Rust-owned SQLite metadata store. It stores endpoint and parameter metadata plus graph evidence, not raw message bodies or parameter values. It is disabled and omitted from the MCP tool inventory by default in v3. Restart `burp-mcp` with `--enable-sitegraph` (or `BURP_MCP_ENABLE_SITEGRAPH=true`) to expose these tools; setting only `--graph-path` or `--sitegraph-mode` does not enable them.
+Sitegraph is a Rust-owned, project-scoped SQLite graph. It stores normalized structure plus project-local exact HTTP/WebSocket evidence used by `sitegraph_history_search` and exact export. Treat the database as sensitive engagement data. It is disabled and omitted from the MCP tool inventory by default in v3. Restart `burp-mcp` with `--enable-sitegraph` (or `BURP_MCP_ENABLE_SITEGRAPH=true`) to expose these tools; setting only `--sitegraph-project-root` or `--sitegraph-mode` does not enable them.
 
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
-| `sitegraph_config` | Read or change auto-index mode (`off`, `once`, `watch`) and sync interval. | Save the baseline, change one safe setting, read it back, then restore it. |
+| `sitegraph_config` | Read the effective auto-index mode and sync interval. Changes must be made in Burp MCP `config.toml` and applied by restart. | Compare the response with the selected configuration file. |
 | `sitegraph_sync` | Synchronize the current Burp site-map snapshot into the graph. | Generate known entries, sync, and inspect inserted/updated counts. |
 | `sitegraph_status` | Return local sitegraph synchronization and schema status. | Compare index freshness/schema status before and after a fixture sync. |
 | `sitegraph_stats` | Return graph ID, mode, project counts, and node/edge totals. | Compare totals before and after fixture sync. |
 | `sitegraph_projects` | List known graph project partitions. | Confirm the active graph/project metadata. |
 | `sitegraph_search` | Search graph nodes by metadata query. | Find a known fixture host, path, or parameter; expect no raw body/value. |
+| `sitegraph_history_search` | Full-text search indexed HTTP request/response and WebSocket payload evidence, optionally filtered by `http`, `websocket`, or `all`. | Search a unique fixture marker, verify source filtering and pagination, and avoid copying sensitive snippets into reports. |
 | `sitegraph_neighbors` | Return inbound/outbound neighboring nodes filtered by edge type. | Use a node with a known edge and verify direction/type. |
 | `sitegraph_endpoint_detail` | Return endpoint metadata and adjacency counts. | Compare method/path/status/parameters with the fixture. |
 | `sitegraph_shortest_path` | Find a shortest path between two nodes. | Use connected fixture nodes and verify endpoints and edge sequence. |
@@ -252,7 +259,7 @@ Sitegraph is a Rust-owned SQLite metadata store. It stores endpoint and paramete
 | `sitegraph_clusters` | List bounded connected components/clusters. | Confirm known fixture nodes belong to the expected component. |
 | `sitegraph_diff` | Report node/edge changes between Unix timestamps. | Sync a baseline, add a fixture, sync again, then diff the two times. |
 | `sitegraph_trace` | Trace paths from a source node with direction/depth/edge filters. | Use a small known graph and verify paths never exceed requested depth. |
-| `sitegraph_export` | Export a metadata page as JSON or CSV. | Exercise both formats and pagination; confirm no raw bodies or parameter values leak. |
+| `sitegraph_export` | Export a bounded metadata or exact-evidence page as JSON, or metadata as CSV. | Verify metadata export omits raw bodies; request `profile=exact` only when authorized and treat its base64 evidence as sensitive. |
 
 ## v3 release checklist
 
@@ -263,7 +270,7 @@ Sitegraph is a Rust-owned SQLite metadata store. It stores endpoint and paramete
 - Run `gradle --no-daemon clean test jar -Pversion="X.Y.Z"`; verify the JAR manifest, packaged sitegraph rule-pack checksum, and absence of test classes.
 - Run `scripts/run-grpc-interop.sh` and `cargo run -p burp-mcp --locked -- probe --endpoint http://127.0.0.1:9877` against the release extension.
 - Build the release bundle, verify `SHA256SUMS`, and inspect the SBOM before publishing assets.
-- Smoke-test default MCP startup: `sitegraph_*` tools are absent. Then restart with `--enable-sitegraph` and verify the 14 advanced tools are present.
+- Smoke-test default MCP startup: `sitegraph_*` tools are absent. Then restart with `--enable-sitegraph` and verify the 15 advanced tools are present.
 - Record that sitegraph is intentionally manual opt-in for v3; sitemap graph expansion remains follow-up release scope.
 
 ## Offline decoder

@@ -17,7 +17,7 @@ Burp MCP connects MCP-compatible clients to Burp Suite through a native Rust std
 - Import Bambdas and BChecks without executing them automatically.
 - Apply HTTP handlers, proxy rules, and session rules.
 - Read and mutate Proxy listeners, script filters, and request/response interception rules through one operation-based configuration tool.
-- Optionally persist a privacy-preserving SQLite site graph containing endpoint metadata and parameter names, never parameter values or message bodies. This advanced feature is disabled by default for v3.
+- Optionally persist a privacy-preserving SQLite site graph containing endpoint metadata and parameter names, never parameter values or message bodies.
 - Run deterministic, binary-safe utility recipes without network, filesystem, browser, or arbitrary-code capabilities.
 
 Some capabilities require Burp Suite Professional or a Burp feature that is available only in specific editions.
@@ -112,27 +112,41 @@ The optional `burp-skill` is documented in [docs/burp-skill](docs/burp-skill/SKI
 
 ## Configuration
 
+The Rust client reads TOML from `~/.config/burp-mcp/config.toml` when that file exists. Use `--config PATH` or `BURP_MCP_CONFIG` to select another file. CLI flags and environment variables override file values. A complete starting point is [`config.example.toml`](config.example.toml).
+
+```toml
+[burp]
+endpoint = "http://127.0.0.1:9877"
+# tls = true
+# tls_dir = "/absolute/path/to/burp-mcp/tls"
+
+[sitegraph]
+enabled = false
+mode = "off"
+interval_seconds = 30
+```
+
 | Setting | Default | Description |
 | --- | --- | --- |
+| `BURP_MCP_CONFIG` / `--config` | auto-discovered | TOML configuration file. |
 | `BURP_MCP_GRPC_PORT` | `9877` | Rust loopback port when an explicit endpoint is not set. |
 | `BURP_MCP_GRPC_ENDPOINT` | `http://127.0.0.1:9877` | Rust endpoint. Remote endpoints must use HTTPS. |
-| `BURP_MCP_TLS_DIR` | `~/.config/burp-mcp/tls` | Rust mTLS directory for HTTPS endpoints. Equivalent CLI flag: `--tls-dir`. |
-| Burp MCP settings panel | Local plaintext on `127.0.0.1:9877` | Kotlin bind address, port, security mode, certificate identities, rotation, and server restart. |
-| `BURP_MCP_GRAPH_PATH` | Platform data directory | SQLite sitegraph path; used only when sitegraph is enabled. Equivalent CLI flag: `--graph-path`. |
-| `BURP_MCP_SITEGRAPH_MODE` | `off` | Auto-index mode: `off`, `startup`, or `watch`; used only when sitegraph is enabled. |
-| `BURP_MCP_SITEGRAPH_INTERVAL_SECONDS` | `30` | Poll interval for sitegraph `watch` mode. |
+| `BURP_MCP_TLS_DIR` | `~/.config/burp-mcp/tls` | Rust mTLS directory for HTTPS endpoints. |
+| `[burp].tls` | `false` | Switches the resolved endpoint scheme to `https`; mTLS files are then loaded from `tls_dir` or the default directory. |
+| `[sitegraph].enabled` | `false` | Exposes the advanced sitegraph tools and initializes the local graph. |
+| `[sitegraph].project_root` | `~/.local/share/burp-mcp/sitegraph` | Root directory for project-scoped databases. Each Burp project is stored separately as `<graph_id>.sqlite`; temporary projects use `temp-<graph_id>.sqlite`. |
+| `[sitegraph].mode` | `off` | Auto-index mode: `off`, `startup`, or `watch`. |
+| `[sitegraph].interval_seconds` | `30` | Poll interval for sitegraph `watch` mode. |
+| `[sitegraph].daemon` | auto-spawn per project database | Optional endpoint file for one already-running project daemon; normally leave unset. |
+| `[sitegraph].rules_path` | `~/.config/burp-mcp/default-rules.json` | Sitegraph enrichment rules. Burp MCP initializes the embedded defaults when this file is absent and never overwrites an existing customized file. |
 
-Sitegraph is an advanced, manual opt-in feature for the release after v3. To
-enable it now, add `--enable-sitegraph` to the MCP client arguments. Merely
-setting a graph path or indexing mode does not expose or initialize sitegraph.
-For example:
+When TLS is enabled by `burp.tls = true` or by setting `tls_dir`, an `http://` endpoint is normalized to the equivalent `https://` endpoint before the gRPC client is created. This keeps the endpoint displayed/configured by the operator consistent with the transport security actually used.
 
-```json
-{
-  "command": "/absolute/path/to/burp-mcp",
-  "args": ["serve", "--enable-sitegraph", "--sitegraph-mode", "off"]
-}
-```
+Sitegraph remains opt-in: a project root or indexing mode alone does not expose the tools; set `[sitegraph].enabled = true` or pass `--enable-sitegraph`.
+
+Sitegraph is project-scoped. The extension persists a stable random `graph_id` in each Burp project, and Rust stores that project under `project_root/<graph_id>.sqlite`. `project_root` selects only the parent directory; it is not a shared database path. No project identity means no graph is opened, preventing unrelated projects from falling back to one shared file.
+
+`sitegraph_config` is read-only. It reports the active mode and interval; change them in `config.toml` (or with startup overrides) and restart `burp-mcp`.
 
 Plaintext is accepted only on IPv4 loopback. Any non-loopback endpoint must use HTTPS with mutual TLS. Enter every DNS name or IP address clients use in the panel before generating certificates; endpoint hostname verification uses those certificate SANs. Rotating certificates invalidates previously copied client bundles.
 

@@ -2,7 +2,8 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 mod cli;
-use crate::cli::{Cli, Command, ServeArgs};
+mod config;
+use crate::cli::{Cli, Command, ServeConfig};
 use anyhow::{Context, Result, anyhow, bail};
 use burp_protocol::{
     BurpClientConfig, DEFAULT_MAX_MESSAGE_BYTES, PageRequest, ProxyHistoryQuery, spawn_client,
@@ -14,17 +15,49 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    match Cli::parse().command {
-        None => run_server(ServeArgs::default()).await,
-        Some(Command::Serve(config)) => run_server(config).await,
+    let cli = Cli::parse();
+    let file_config = match cli::resolve_config_path(cli.config) {
+        Some(path) => config::load(&path)?,
+        None => config::Config::default(),
+    };
+    match cli.command {
+        None => {
+            run_server(
+                cli::ServeArgs::default()
+                    .resolve(&file_config)
+                    .map_err(|error| anyhow!(error))?,
+            )
+            .await
+        }
+        Some(Command::Serve(config)) => {
+            run_server(
+                config
+                    .resolve(&file_config)
+                    .map_err(|error| anyhow!(error))?,
+            )
+            .await
+        }
         Some(Command::Probe(config)) => {
-            let endpoint = config.resolved_endpoint().map_err(|error| anyhow!(error))?;
-            run_probe(&endpoint, config.resolved_tls_dir().as_deref()).await
+            let config = config
+                .resolve(&file_config)
+                .map_err(|error| anyhow!(error))?;
+            run_probe(&config.endpoint, config.tls_dir.as_deref()).await
+        }
+        Some(Command::SitegraphDaemon(config)) => {
+            let server = sitegraph_daemon::Server::bind(
+                &config.graph_path,
+                &config.graph_id,
+                config.endpoint_file,
+                &config.rules_path,
+            )
+            .await?;
+            tokio::task::LocalSet::new().run_until(server.run()).await?;
+            Ok(())
         }
     }
 }
 
-async fn run_server(config: ServeArgs) -> Result<()> {
+async fn run_server(config: ServeConfig) -> Result<()> {
     if !config.stdio {
         bail!("serve currently requires --stdio");
     }
@@ -34,16 +67,21 @@ async fn run_server(config: ServeArgs) -> Result<()> {
         .with_ansi(false)
         .try_init()
         .ok();
-    let actor = spawn_client(client_config(
-        config.resolved_endpoint().map_err(|error| anyhow!(error))?,
-        config.resolved_tls_dir().as_deref(),
-    )?)?;
-    let graph_path = config
+    let actor = spawn_client(client_config(config.endpoint, config.tls_dir.as_deref())?)?;
+    let project_root = config
         .enable_sitegraph
-        .then(|| config.resolved_graph_path());
-    let tools = BurpTools::new(actor, graph_path.as_deref())
-        .await
-        .map_err(|error| anyhow!(error))?;
+        .then_some(config.sitegraph_project_root);
+    if project_root.is_some() {
+        config::ensure_rules_file(&config.rules_path)?;
+    }
+    let mut tools = BurpTools::new(
+        actor,
+        project_root.as_deref(),
+        config.sitegraph_daemon.as_deref(),
+        &config.rules_path,
+    )
+    .await
+    .map_err(|error| anyhow!(error))?;
     tools
         .start_auto_index(
             &config.sitegraph_mode,

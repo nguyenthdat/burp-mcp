@@ -1,45 +1,73 @@
 # Sitegraph reference
 
-Sitegraph is an advanced, manual opt-in capability in Burp MCP v3. It is a local SQLite metadata graph owned by Rust. It is separate from Burp's built-in **Target > Site map** and separate from a target's `/sitemap.xml` resource.
+It is a local SQLite metadata graph owned by Rust. It is separate from Burp's built-in **Target > Site map** and separate from a target's `/sitemap.xml` resource.
 
 ## Enable explicitly
 
 Sitegraph is disabled by default. Enable it only when the target, retention policy, and local graph location are understood:
 
-```json
-{
-  "command": "/absolute/path/to/burp-mcp",
-  "args": [
-    "serve",
-    "--enable-sitegraph",
-    "--sitegraph-mode",
-    "off"
-  ]
-}
+```toml
+[sitegraph]
+enabled = true
+mode = "off"
+project_root = "/absolute/path/to/burp-mcp/sitegraph"
+rules_path = "/absolute/path/to/default-rules.json"
 ```
 
-Environment equivalent:
+The file is loaded from `~/.config/burp-mcp/config.toml`; use `burp-mcp --config PATH serve` to select another file. The equivalent environment and CLI opt-in remain available:
 
 ```sh
 BURP_MCP_ENABLE_SITEGRAPH=true burp-mcp serve
 ```
 
-Optional configuration:
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| `BURP_MCP_ENABLE_SITEGRAPH` | `false` | Expose the 14 `sitegraph_*` MCP tools and initialize the local graph. |
-| `BURP_MCP_GRAPH_PATH` | platform data directory | Graph root or explicit SQLite path. |
-| `BURP_MCP_SITEGRAPH_MODE` | `off` | `off`, `startup`, or `watch`. |
-| `BURP_MCP_SITEGRAPH_INTERVAL_SECONDS` | `30` | Delay between bounded `watch` sync attempts. |
+`project_root` is a directory, not a database filename. Burp MCP reads the active Burp project's stable `graph_id` and resolves the database as `<project_root>/<graph_id>.sqlite`; unsaved temporary projects use `<project_root>/temp-<graph_id>.sqlite`. Each project therefore has an independent database and daemon endpoint.
+CLI flags and environment variables override TOML values. A project root or indexing mode does not enable sitegraph by itself. Restart the server after changing the enable flag.
 
-A graph path or indexing mode does not enable sitegraph by itself. Restart the server after changing the enable flag.
+On first SiteGraph enablement, Burp MCP initializes `~/.config/burp-mcp/default-rules.json` from its embedded rule pack. Edit that JSON to customize enrichment rules, or select another file with `[sitegraph].rules_path`. Existing rule files are validated and never overwritten. `sitegraph_config` only reports the effective runtime settings; it does not mutate them.
+
+## Endpoint TLS
+
+Set `[burp].tls = true` (or configure `tls_dir`) to make the resolved Burp endpoint use `https://`. If an `http://` endpoint is present in the file, the Rust client changes only its scheme and preserves host and port. The client then requires `ca.crt`, `client.crt`, and `client.key` in `tls_dir` or `~/.config/burp-mcp/tls`.
+
+```toml
+[burp]
+endpoint = "http://burp-vm.test:9877"
+tls = true
+tls_dir = "/absolute/path/to/burp-mcp/tls"
+```
+
+The effective endpoint is `https://burp-vm.test:9877`.
+
+## Shared daemon mode
+
+The Rust-managed `sitegraph-daemon` owns one SQLite connection pool per project graph. MCP
+processes connect through authenticated Cap'n Proto RPC on loopback TCP. A `0600` TOML endpoint
+descriptor contains the listener address and random per-startup token. Requests use the schema's
+typed task union; the full sync batch and Rust result structs use bounded CBOR inside the Cap'n
+Proto message. No dynamic JSON value crosses the daemon boundary; JSON remains only at explicit
+OpenAPI/rule-file and SQLite compatibility boundaries, and when an MCP tool emits its RMCP result.
+
+The first `burp-mcp serve` instance for a project starts the bundled daemon automatically; later
+instances for the same project reuse it. Normally leave `[sitegraph].daemon` unset so the correct
+project daemon is selected automatically. Set `BURP_MCP_SITEGRAPH_DAEMON` or pass
+`--sitegraph-daemon PATH` only for an already-running daemon.
+
+The daemon is project-scoped. Do not expose its endpoint outside the local host or share one graph
+between unrelated projects.
 
 ## Data and privacy boundary
 
-The graph stores normalized endpoint metadata, parameter names, relationships, observations, evidence summaries, and bounded provenance. It does not intentionally store parameter values or raw request/response bodies. Treat the SQLite database as security-sensitive metadata: apply local filesystem permissions, define retention, and remove it when the engagement ends.
+The graph stores normalized endpoint metadata, parameter names, relationships, observations,
+provenance, and project-local exact evidence blobs for indexed HTTP/WebSocket history. Parameter
+values are not copied into normalized node metadata, but raw request/response and WebSocket bytes
+can exist in the evidence store and in `profile=exact` export. Treat the entire SQLite database as
+sensitive engagement data: apply local filesystem permissions, define retention, redact snippets,
+and remove it when the engagement ends.
 
-Project identity determines graph partitioning. Do not point multiple unrelated Burp projects at a shared fallback database. Use a project-specific directory or explicit SQLite file and back it up only under the same authorization and data-handling policy as the Burp project.
+Project identity determines graph partitioning. Do not point unrelated Burp projects at a shared
+database. Back up a project graph only under the same authorization and data-handling policy as
+the Burp project.
 
 ## Operating modes
 
@@ -53,8 +81,9 @@ Use `off` for reproducible investigations and invoke sync deliberately. Use `wat
 
 The runtime schema is authoritative; inspect the exposed MCP tool definitions rather than copying fields from this guide.
 
-- `sitegraph_sync`: import bounded Burp sitemap metadata into the local graph.
+- `sitegraph_sync`: import bounded sitemap, HTTP history, WebSocket history, issue, and technology observations.
 - `sitegraph_search`, `sitegraph_endpoint_detail`: locate normalized endpoints.
+- `sitegraph_history_search`: search sensitive indexed evidence with bounded source filtering and pagination.
 - `sitegraph_projects`, `sitegraph_stats`, `sitegraph_status`: inspect graph and sync state.
 - `sitegraph_neighbors`, `sitegraph_trace`, `sitegraph_shortest_path`: traverse relationships with bounded limits.
 - `sitegraph_clusters`, `sitegraph_impact`: group endpoints and inspect bounded impact.

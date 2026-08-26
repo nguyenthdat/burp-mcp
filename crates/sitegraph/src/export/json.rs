@@ -1,18 +1,55 @@
+use crate::model::NodeMetadata;
 use crate::storage::StorageError;
-use serde::Serialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
 use sqlx::{Acquire, Row, SqlitePool};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportNode {
+    pub id: String,
+    pub kind: String,
+    pub metadata: NodeMetadata,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportEdge {
+    pub id: String,
+    pub from_id: String,
+    pub to_id: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExactEvidence {
+    pub id: String,
+    pub source_entry_id: Option<String>,
+    pub surface: String,
+    pub direction: Option<String>,
+    pub content_type: Option<String>,
+    pub payload_base64: String,
+    pub byte_length: i64,
+    pub observed_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExportEvidence {
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<ExactEvidence>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    pub source: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JsonExport {
-    pub nodes: Vec<Value>,
-    pub edges: Vec<Value>,
+    pub nodes: Vec<ExportNode>,
+    pub edges: Vec<ExportEdge>,
     pub total: u64,
     pub truncated: bool,
     pub next_cursor: Option<u64>,
     pub last_synced_at: Option<i64>,
     pub snapshot_id: Option<String>,
-    pub evidence: Value,
+    pub evidence: ExportEvidence,
     pub profile: String,
 }
 
@@ -40,31 +77,27 @@ pub async fn page(
     let nodes = rows
         .into_iter()
         .map(|row| {
-            Ok(serde_json::json!({
-                "id": row.get::<String, _>("id"),
-                "kind": row.get::<String, _>("kind"),
-                "metadata": serde_json::from_str::<Value>(&row.get::<String, _>("metadata"))?,
-            }))
+            Ok(ExportNode {
+                id: row.get("id"),
+                kind: row.get("kind"),
+                metadata: serde_json::from_str(&row.get::<String, _>("metadata"))?,
+            })
         })
         .collect::<Result<Vec<_>, StorageError>>()?;
-    let node_ids = nodes
-        .iter()
-        .filter_map(|node| node["id"].as_str())
-        .collect::<Vec<_>>();
     let mut edges = Vec::new();
-    for node_id in node_ids {
+    for node in &nodes {
         for row in
             sqlx::query("SELECT id, from_id, to_id, kind FROM edges WHERE from_id=?1 ORDER BY id")
-                .bind(node_id)
+                .bind(&node.id)
                 .fetch_all(&mut *connection)
                 .await?
         {
-            edges.push(serde_json::json!({
-                "id": row.get::<String, _>("id"),
-                "from_id": row.get::<String, _>("from_id"),
-                "to_id": row.get::<String, _>("to_id"),
-                "kind": row.get::<String, _>("kind"),
-            }));
+            edges.push(ExportEdge {
+                id: row.get("id"),
+                from_id: row.get("from_id"),
+                to_id: row.get("to_id"),
+                kind: row.get("kind"),
+            });
         }
     }
     let snapshot_id = sqlx::query("SELECT value FROM graph_metadata WHERE key='last_synced_at'")
@@ -82,7 +115,11 @@ pub async fn page(
         last_synced_at,
         snapshot_id,
         profile: "metadata".to_owned(),
-        evidence: serde_json::json!({"source": "metadata-only SQLite read transaction"}),
+        evidence: ExportEvidence {
+            items: Vec::new(),
+            profile: None,
+            source: "metadata-only SQLite read transaction".to_owned(),
+        },
     })
 }
 
@@ -103,16 +140,22 @@ pub async fn exact_page(
         .bind(cursor as i64)
         .fetch_all(&mut *connection)
         .await?;
-    let evidence = rows.into_iter().map(|row| serde_json::json!({
-        "id": row.get::<String, _>("id"),
-        "source_entry_id": row.get::<Option<String>, _>("source_entry_id"),
-        "surface": row.get::<String, _>("surface"),
-        "direction": row.get::<Option<String>, _>("direction"),
-        "content_type": row.get::<Option<String>, _>("content_type"),
-        "payload_base64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, row.get::<Vec<u8>, _>("payload")),
-        "byte_length": row.get::<i64, _>("byte_length"),
-        "observed_at": row.get::<i64, _>("observed_at"),
-    })).collect::<Vec<_>>();
+    let evidence = rows
+        .into_iter()
+        .map(|row| ExactEvidence {
+            id: row.get("id"),
+            source_entry_id: row.get("source_entry_id"),
+            surface: row.get("surface"),
+            direction: row.get("direction"),
+            content_type: row.get("content_type"),
+            payload_base64: base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                row.get::<Vec<u8>, _>("payload"),
+            ),
+            byte_length: row.get("byte_length"),
+            observed_at: row.get("observed_at"),
+        })
+        .collect::<Vec<_>>();
     transaction.commit().await?;
     let next = cursor + evidence.len() as u64;
     Ok(JsonExport {
@@ -124,6 +167,10 @@ pub async fn exact_page(
         last_synced_at,
         snapshot_id: None,
         profile: "exact".to_owned(),
-        evidence: serde_json::json!({"items": evidence, "profile": "exact", "source": "project evidence_blobs"}),
+        evidence: ExportEvidence {
+            items: evidence,
+            profile: Some("exact".to_owned()),
+            source: "project evidence_blobs".to_owned(),
+        },
     })
 }

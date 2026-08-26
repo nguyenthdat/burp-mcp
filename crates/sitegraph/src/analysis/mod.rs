@@ -1,8 +1,8 @@
+use crate::model::NodeMetadata;
 use crate::storage::StorageError;
 #[cfg(test)]
 mod tests;
-use serde::Serialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -11,27 +11,27 @@ const MAX_ANALYSIS_EDGES: usize = 100_000;
 const MAX_PATH_DEPTH: usize = 16;
 const MAX_RESULT_ITEMS: usize = 500;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathStep {
     pub node_id: String,
     pub edge_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShortestPath {
     pub items: Vec<PathStep>,
     pub depth: usize,
     pub truncated: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cluster {
     pub key: String,
     pub endpoint_ids: Vec<String>,
     pub total: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImpactNode {
     pub node_id: String,
     pub depth: usize,
@@ -115,11 +115,10 @@ pub(crate) async fn clusters(
     let mut clusters: HashMap<String, Vec<String>> = HashMap::new();
     for row in rows {
         let id = row.get::<String, _>("id");
-        let metadata: Value = serde_json::from_str(&row.get::<String, _>("metadata"))?;
-        let origin = metadata["origin"].as_str().unwrap_or_default();
-        let prefix = metadata["path"]
-            .as_str()
-            .unwrap_or("/")
+        let metadata: NodeMetadata = serde_json::from_str(&row.get::<String, _>("metadata"))?;
+        let origin = metadata.origin.as_str();
+        let prefix = metadata
+            .path
             .split('/')
             .find(|segment| !segment.is_empty())
             .unwrap_or("/");

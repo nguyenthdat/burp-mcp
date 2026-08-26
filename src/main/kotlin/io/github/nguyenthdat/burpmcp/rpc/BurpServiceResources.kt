@@ -15,6 +15,8 @@ import io.github.nguyenthdat.burpmcp.PayloadListFacade
 import io.github.nguyenthdat.burpmcp.ProxyFacade
 import io.github.nguyenthdat.burpmcp.ProxyInterceptConfigFacade
 import io.github.nguyenthdat.burpmcp.ProxyRuleFacade
+import io.github.nguyenthdat.burpmcp.ProxyInterceptController
+import io.github.nguyenthdat.burpmcp.ProxyWebSocketInterceptController
 import io.github.nguyenthdat.burpmcp.ProxySettingsFacade
 import io.github.nguyenthdat.burpmcp.ScannerFacade
 import io.github.nguyenthdat.burpmcp.ScanCatalogFacade
@@ -43,6 +45,8 @@ internal class BurpServiceResources(api: MontoyaApi) : AutoCloseable {
     val proxyRules = ProxyRuleFacade(api)
     val proxySettings = ProxySettingsFacade(api)
     val proxyIntercept = ProxyInterceptConfigFacade(api)
+    val interceptController = ProxyInterceptController(api)
+    val webSocketInterceptController = ProxyWebSocketInterceptController(api)
     val macros = MacroFacade(api)
     val sessionRules = SessionRuleFacade(api) { description -> macros.run(description) }
     val payloadLists = PayloadListFacade()
@@ -56,6 +60,8 @@ internal class BurpServiceResources(api: MontoyaApi) : AutoCloseable {
         events.close()
         jobs.close()
         httpHandlers.clear()
+        interceptController.close()
+        webSocketInterceptController.close()
         proxyRules.close()
         sessionRules.removeAll()
         webSockets.close()

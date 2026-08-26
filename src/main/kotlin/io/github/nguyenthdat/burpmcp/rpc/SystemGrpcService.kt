@@ -27,7 +27,7 @@ internal class SystemGrpcService(
         }
         responseObserver.onNext(
             PingResponse.newBuilder()
-                .setServer("burp-mcp-kotlin")
+                .setServer("burp-mcp")
                 .setVersion(extensionVersion())
                 .setUnixMillis(clock.millis())
                 .build(),
@@ -59,7 +59,7 @@ internal class SystemGrpcService(
         val version = api.burpSuite().version()
         val project = ProjectFacade(api).identity()
         val builder = ServerInfoResponse.newBuilder()
-            .setExtension("burp-mcp-kotlin")
+            .setExtension("burp-mcp")
             .setVersion(extensionVersion())
             .addAllCapabilities(
                 listOf(

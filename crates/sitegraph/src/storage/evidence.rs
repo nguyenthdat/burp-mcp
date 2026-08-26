@@ -4,6 +4,13 @@ use crate::storage::StorageError;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, Sqlite, Transaction};
 
+#[derive(serde::Serialize)]
+struct FindingMetadata<'a> {
+    capture_policy: &'static str,
+    surface: &'a str,
+    rule_pack: &'a str,
+}
+
 pub(super) async fn upsert_evidence_blob(
     transaction: &mut Transaction<'_, Sqlite>,
     source_entry_id: &str,
@@ -70,7 +77,7 @@ pub(super) async fn persist_rule_findings(
         sqlx::query(
             "INSERT INTO enrichment_findings(id, node_id, evidence_blob_id, enricher_id, enricher_version, ruleset_id, ruleset_version, input_fingerprint, kind, severity, confidence, byte_start, byte_end, capture, incomplete, limit_reason, metadata, observed_at)
              VALUES(?1, ?2, ?3, 'default_rule_pack', ?4, ?5, ?6, ?7, ?8, ?9, 0.8, ?10, ?11, ?12, 0, NULL, ?13, ?14)
-             ON CONFLICT(id) DO UPDATE SET
+             ON CONFLICT(node_id, enricher_id, ruleset_id, input_fingerprint, byte_start, byte_end) DO UPDATE SET
                evidence_blob_id=excluded.evidence_blob_id,
                enricher_version=excluded.enricher_version,
                ruleset_version=excluded.ruleset_version,
@@ -96,11 +103,11 @@ pub(super) async fn persist_rule_findings(
         .bind(i64::try_from(finding.byte_start).unwrap_or(i64::MAX))
         .bind(i64::try_from(finding.byte_end).unwrap_or(i64::MAX))
         .bind(&finding.capture)
-        .bind(serde_json::json!({
-            "capture_policy": "exact",
-            "surface": surface,
-            "rule_pack": rule_pack.id(),
-        }).to_string())
+        .bind(serde_json::to_string(&FindingMetadata {
+            capture_policy: "exact",
+            surface,
+            rule_pack: rule_pack.id(),
+        })?)
         .bind(observed_at)
         .execute(&mut **transaction)
         .await?;

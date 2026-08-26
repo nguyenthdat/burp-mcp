@@ -10,6 +10,7 @@ main() {
   DOWNLOAD_BASE="${BURP_MCP_DOWNLOAD_BASE:-https://github.com/${REPO}/releases/latest/download}"
   INSTALL_DIR="${BURP_MCP_INSTALL_DIR:-$HOME/.local/bin}"
   SKILL_SOURCE="${BURP_MCP_SKILL_SOURCE:-https://github.com/${REPO}/tree/main/docs/burp-skill}"
+  CONFIG_DIR="${BURP_MCP_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/burp-mcp}"
   WITH_SKILL=false
   SKILL_AGENT=""
 
@@ -50,9 +51,9 @@ main() {
   os="$(uname -s)"
   arch="$(uname -m)"
   case "$os/$arch" in
-    Linux/x86_64|Linux/amd64) asset="burp-mcp-linux-x86_64" ;;
-    Darwin/arm64|Darwin/aarch64) asset="burp-mcp-macos-aarch64" ;;
-    Darwin/x86_64|Darwin/amd64) asset="burp-mcp-macos-x86_64" ;;
+    Linux/x86_64|Linux/amd64) asset="burp-mcp-linux-x86_64"; daemon_asset="sitegraph-daemon-linux-x86_64"; rules_asset="default-rules.json" ;;
+    Darwin/arm64|Darwin/aarch64) asset="burp-mcp-macos-aarch64"; daemon_asset="sitegraph-daemon-macos-aarch64"; rules_asset="default-rules.json" ;;
+    Darwin/x86_64|Darwin/amd64) asset="burp-mcp-macos-x86_64"; daemon_asset="sitegraph-daemon-macos-x86_64"; rules_asset="default-rules.json" ;;
     *) fail "unsupported platform: $os/$arch" ;;
   esac
 
@@ -61,16 +62,26 @@ main() {
 
   echo "Installing burp-mcp from $DOWNLOAD_BASE"
   download "$DOWNLOAD_BASE/$asset" "$tmp_dir/$asset"
+  download "$DOWNLOAD_BASE/$daemon_asset" "$tmp_dir/$daemon_asset"
+  download "$DOWNLOAD_BASE/$rules_asset" "$tmp_dir/$rules_asset"
   download "$DOWNLOAD_BASE/SHA256SUMS" "$tmp_dir/SHA256SUMS"
   verify_checksum "$tmp_dir" "$asset"
+  verify_checksum "$tmp_dir" "$daemon_asset"
+  verify_checksum "$tmp_dir" "$rules_asset"
 
-  chmod 0755 "$tmp_dir/$asset"
+  chmod 0755 "$tmp_dir/$asset" "$tmp_dir/$daemon_asset"
   "$tmp_dir/$asset" --version >/dev/null
-  mkdir -p "$INSTALL_DIR"
+  mkdir -p "$INSTALL_DIR" "$CONFIG_DIR"
   staged="$INSTALL_DIR/.burp-mcp.new.$$"
+  daemon_staged="$INSTALL_DIR/.sitegraph-daemon.new.$$"
   install -m 0755 "$tmp_dir/$asset" "$staged"
+  install -m 0755 "$tmp_dir/$daemon_asset" "$daemon_staged"
   mv -f "$staged" "$INSTALL_DIR/burp-mcp"
-  echo "Installed $INSTALL_DIR/burp-mcp"
+  mv -f "$daemon_staged" "$INSTALL_DIR/sitegraph-daemon"
+  if [ ! -e "$CONFIG_DIR/default-rules.json" ]; then
+    install -m 0644 "$tmp_dir/$rules_asset" "$CONFIG_DIR/default-rules.json"
+  fi
+  echo "Installed $INSTALL_DIR/burp-mcp, managed sitegraph daemon, and $CONFIG_DIR/default-rules.json"
 
   case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
@@ -102,6 +113,7 @@ Options:
 Environment:
   BURP_MCP_INSTALL_DIR   Default install directory
   BURP_MCP_DOWNLOAD_BASE HTTPS release download base (for mirrors/tests)
+  BURP_MCP_CONFIG_DIR    Configuration directory (default: ~/.config/burp-mcp)
   BURP_MCP_SKILL_SOURCE Skill URL passed to `npx skills add`
 EOF
 }
@@ -117,8 +129,9 @@ download() {
 }
 
 verify_checksum() {
-  directory="$1"
-  asset="$2"
+  local directory="$1"
+  local asset="$2"
+  local expected actual
   expected="$(awk -v name="$asset" 'NF >= 2 && ($2 == name || $2 == "*" name) { print $1; exit }' "$directory/SHA256SUMS")"
   case "$expected" in
     ''|*[!0-9a-fA-F]*) fail "SHA256SUMS has no valid entry for $asset" ;;

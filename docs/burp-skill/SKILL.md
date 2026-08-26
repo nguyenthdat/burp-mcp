@@ -87,7 +87,8 @@ Use the smallest useful path:
 2. Traffic: `burp_proxy_history` with URL, method, status, notes, or highlight filters.
 3. Detail: call `burp_proxy_detail` only for selected history indexes.
 4. WebSockets: use `burp_proxy_websocket_history`; decode a payload with
-   `decoder` only when needed.
+   `decoder` only when needed. If the MCP-owned WebSocket intercept controller
+   is active, inspect its separate pending queue before assuming history is complete.
 5. Findings: use `burp_scan_issues`, then `burp_scan_issue_detail` for selected
    indexes.
 6. Triage: use `burp_highlight` or `burp_annotate` only when persistent Burp
@@ -150,11 +151,20 @@ binary sends, and always `burp_websocket_close` in cleanup. Use
 WebSocket history separate from managed outbound connections: history observes
 Burp traffic; managed tools create new traffic.
 
+MCP-controlled WebSocket interception is separate from both Proxy history and
+managed outbound connections. Use `burp_websocket_intercept_controller` only
+around narrowly scoped fixture traffic, page pending items with
+`burp_intercepted_websocket_messages`, then act once with
+`burp_control_intercepted_websocket_message`. Unresolved items auto-forward at
+the configured timeout; still drain the queue and disable the controller during
+cleanup.
+
 ### 6. Change Burp automation state only when required
 
 Persistent/high-impact tools include configuration import, HTTP handlers,
 proxy rules, session rules, macros, cookies, scope, annotations, Bambda/BCheck
-imports, and intercept state.
+imports, master intercept state, and the MCP-owned HTTP/WebSocket intercept
+controllers.
 
 Before a change:
 
@@ -164,6 +174,13 @@ Before a change:
 4. Generate one controlled verification request.
 5. Verify the effect in `burp_proxy_detail` or the corresponding list/read tool.
 6. Remove the temporary change immediately.
+
+For MCP-owned HTTP interception, configure `burp_intercept_controller`, inspect
+only bounded pages from `burp_intercepted_messages`, and use
+`burp_control_intercepted_message` exactly once per selected ID. Optional
+`message_base64` replaces the complete raw HTTP message. Preserve the original
+bytes unless replacement is explicitly required; never leave messages pending.
+The WebSocket controller follows the same lifecycle with `payload_base64`.
 
 Use `burp_export_config` before `burp_import_config`. Imports can affect the
 whole Burp project; never import configuration as a speculative fix. Create or
@@ -219,9 +236,12 @@ map and target `/sitemap.xml`.
 1. `sitegraph_sync` with the narrowest useful URL prefix.
 2. Check `sitegraph_status` or `sitegraph_stats`.
 3. Use `sitegraph_search`, then `sitegraph_endpoint_detail`.
-4. Use `sitegraph_neighbors` or `sitegraph_trace` only from a known endpoint ID.
-5. Use `sitegraph_diff` for changes since a known Unix timestamp.
-6. Use `sitegraph_export` only when the user needs a bounded JSON/CSV handoff.
+4. Use `sitegraph_history_search` only for authorized raw HTTP/WebSocket evidence;
+   constrain `source`, query, limit, and cursor, and redact returned snippets.
+5. Use `sitegraph_neighbors` or `sitegraph_trace` only from a known endpoint ID.
+6. Use `sitegraph_diff` for changes since a known Unix timestamp.
+7. Use `sitegraph_export` for a bounded handoff. The metadata profile omits raw
+   bodies; `profile=exact` contains sensitive base64 evidence and requires explicit need.
 
 Read [`references/tool-catalog.md`](./references/tool-catalog.md) when choosing
 exact tools, fields, limits, decoder operation IDs, or cleanup pairs. Load the

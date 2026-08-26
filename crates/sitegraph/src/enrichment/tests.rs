@@ -3,19 +3,24 @@ use super::*;
 #[test]
 fn embedded_rules_keep_exact_binary_offsets_and_captures() {
     let pack = RulePack::default_exact().unwrap();
-    let input = b"\xff token=exact-value eyJ12345678.abcdefgh.ijklmnop";
+    let input = b"\xff token=exact-value eyJ12345678.abcdefgh.ijklmnop AKIA1234567890ABCDEF";
     let findings = pack.matches("response_body", input);
 
     let secret = findings
         .iter()
-        .find(|finding| finding.rule_id == "secret_like_value")
+        .find(|finding| finding.rule_id == "secret_assignment")
         .unwrap();
     assert_eq!(secret.capture, b"exact-value");
     assert_eq!(&input[secret.byte_start..secret.byte_end], secret.capture);
     assert!(findings.iter().any(|finding| finding.rule_id == "jwt"));
-    assert!(findings.len() <= 128);
-    assert_eq!(pack.id(), "burp-mcp-default-exact");
-    assert_eq!(pack.version(), "2026.08.1");
+    assert!(
+        findings
+            .iter()
+            .any(|finding| finding.rule_id == "cloud_access_key")
+    );
+    assert!(findings.len() <= 256);
+    assert_eq!(pack.id(), "burp-mcp-sitegraph");
+    assert_eq!(pack.version(), "2026.08.25");
 }
 
 #[test]

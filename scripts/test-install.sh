@@ -11,24 +11,30 @@ cleanup() {
 trap cleanup EXIT
 
 case "$(uname -s)/$(uname -m)" in
-  Darwin/arm64|Darwin/aarch64) asset="burp-mcp-macos-aarch64" ;;
-  Darwin/x86_64|Darwin/amd64) asset="burp-mcp-macos-x86_64" ;;
-  Linux/x86_64|Linux/amd64) asset="burp-mcp-linux-x86_64" ;;
+  Darwin/arm64|Darwin/aarch64) asset="burp-mcp-macos-aarch64"; daemon_asset="sitegraph-daemon-macos-aarch64" ;;
+  Darwin/x86_64|Darwin/amd64) asset="burp-mcp-macos-x86_64"; daemon_asset="sitegraph-daemon-macos-x86_64" ;;
+  Linux/x86_64|Linux/amd64) asset="burp-mcp-linux-x86_64"; daemon_asset="sitegraph-daemon-linux-x86_64" ;;
   *) echo "unsupported smoke-test platform" >&2; exit 0 ;;
 esac
 
 cat >"$TMP/$asset" <<'EOF'
 #!/usr/bin/env bash
 [ "${1:-}" = "--version" ] || exit 1
-echo "burp-mcp 3.0.1"
+printf '%s\n' 'burp-mcp 3.0.2'
 EOF
 chmod +x "$TMP/$asset"
+cp "$TMP/$asset" "$TMP/$daemon_asset"
+cp "$ROOT/crates/sitegraph/src/enrichment/rules/default-rules.json" "$TMP/default-rules.json"
 if command -v sha256sum >/dev/null 2>&1; then
   digest="$(sha256sum "$TMP/$asset" | awk '{print $1}')"
+  daemon_digest="$(sha256sum "$TMP/$daemon_asset" | awk '{print $1}')"
+  rules_digest="$(sha256sum "$TMP/default-rules.json" | awk '{print $1}')"
 else
   digest="$(shasum -a 256 "$TMP/$asset" | awk '{print $1}')"
+  daemon_digest="$(shasum -a 256 "$TMP/$daemon_asset" | awk '{print $1}')"
+  rules_digest="$(shasum -a 256 "$TMP/default-rules.json" | awk '{print $1}')"
 fi
-printf '%s  %s\n' "$digest" "$asset" >"$TMP/SHA256SUMS"
+printf '%s  %s\n%s  %s\n%s  %s\n' "$digest" "$asset" "$daemon_digest" "$daemon_asset" "$rules_digest" "default-rules.json" >"$TMP/SHA256SUMS"
 
 python3 -m http.server 18473 --bind 127.0.0.1 --directory "$TMP" >"$TMP/http.log" 2>&1 &
 SERVER_PID="$!"
@@ -45,7 +51,10 @@ sed -e 's#case "$DOWNLOAD_BASE" in#case "$DOWNLOAD_BASE" in\n    http://127.0.0.
     -e "s/--proto '=https' --tlsv1.2/--proto '=http' --proto-redir '=http'/" \
     "$ROOT/install.sh" >"$TEST_INSTALLER"
 BURP_MCP_DOWNLOAD_BASE="http://127.0.0.1:18473" \
+BURP_MCP_CONFIG_DIR="$TMP/config" \
   bash "$TEST_INSTALLER" --dir "$TMP/bin" >"$TMP/install.log"
-"$TMP/bin/burp-mcp" --version | grep -q '3.0.1'
+"$TMP/bin/burp-mcp" --version | grep -q '3.0.2'
+test -x "$TMP/bin/sitegraph-daemon"
+test -f "$TMP/config/default-rules.json"
 
 echo "installer smoke test passed"

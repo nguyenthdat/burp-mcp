@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-pub const DEFAULT_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+pub const DEFAULT_MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
 pub const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(10);
 pub const DEFAULT_QUEUE_CAPACITY: usize = 64;
 

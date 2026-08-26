@@ -63,17 +63,18 @@ internal class ProxyRuleFacade(
         object : ProxyRequestHandler {
             override fun handleRequestReceived(request: InterceptedRequest): ProxyRequestReceivedAction {
                 val rule = matchingRule("request", request.url()) ?: return ProxyRequestReceivedAction.continueWith(request)
-                val updated = editRequest(request, rule)
                 return when (rule.action) {
-                    "intercept" -> ProxyRequestReceivedAction.intercept(updated)
-                    "forward", "edit" -> ProxyRequestReceivedAction.doNotIntercept(updated)
+                    "intercept" -> ProxyRequestReceivedAction.intercept(request)
+                    "forward", "edit" -> ProxyRequestReceivedAction.doNotIntercept(request)
                     "drop" -> ProxyRequestReceivedAction.drop()
-                    else -> ProxyRequestReceivedAction.continueWith(updated)
+                    else -> ProxyRequestReceivedAction.continueWith(request)
                 }
             }
 
-            override fun handleRequestToBeSent(request: InterceptedRequest): ProxyRequestToBeSentAction =
-                ProxyRequestToBeSentAction.continueWith(request)
+            override fun handleRequestToBeSent(request: InterceptedRequest): ProxyRequestToBeSentAction {
+                val rule = matchingRule("request", request.url()) ?: return ProxyRequestToBeSentAction.continueWith(request)
+                return ProxyRequestToBeSentAction.continueWith(editRequest(request, rule))
+            }
         }
 
     private fun responseHandler(): ProxyResponseHandler =

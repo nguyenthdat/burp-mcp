@@ -2,8 +2,7 @@ use regex::bytes::Regex;
 use serde::Deserialize;
 use std::collections::HashSet;
 
-const DEFAULT_RULE_PACK: &[u8] =
-    include_bytes!("../../../../src/main/resources/sitegraph/default-rules.json");
+pub const DEFAULT_RULE_PACK: &[u8] = include_bytes!("rules/default-rules.json");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuleMatch {
@@ -53,6 +52,12 @@ struct RawRule {
 impl RulePack {
     pub fn default_exact() -> Result<Self, String> {
         Self::from_json(DEFAULT_RULE_PACK)
+    }
+
+    pub fn from_path(path: &std::path::Path) -> Result<Self, String> {
+        let document = std::fs::read(path)
+            .map_err(|error| format!("failed to read rule pack {}: {error}", path.display()))?;
+        Self::from_json(&document)
     }
 
     pub fn from_json(document: &[u8]) -> Result<Self, String> {

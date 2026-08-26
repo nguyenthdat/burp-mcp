@@ -1,5 +1,5 @@
 use super::StorageError;
-use crate::model::{Node, NodeKind};
+use crate::model::{Node, NodeKind, NodeMetadata};
 use sqlx::{Sqlite, Transaction};
 
 pub async fn upsert(
@@ -47,12 +47,7 @@ pub struct SearchFields<'a> {
     pub name: &'a str,
 }
 
-pub fn node(
-    kind: NodeKind,
-    stable_hash: String,
-    timestamp: i64,
-    metadata: serde_json::Value,
-) -> Node {
+pub fn node(kind: NodeKind, stable_hash: String, timestamp: i64, metadata: NodeMetadata) -> Node {
     Node {
         id: stable_hash.clone(),
         kind,

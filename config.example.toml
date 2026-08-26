@@ -1,0 +1,14 @@
+# Copy to ~/.config/burp-mcp/config.toml or pass --config /path/to/config.toml.
+[burp]
+endpoint = "http://127.0.0.1:9877"
+# tls = true
+# port = 9877
+# tls_dir = "~/.config/burp-mcp/tls"
+
+[sitegraph]
+enabled = false
+# project_root = "~/.local/share/burp-mcp/sitegraph"
+# rules_path = "~/.config/burp-mcp/default-rules.json"
+# daemon = "/absolute/path/to/a-specific-project.daemon.toml"
+mode = "off"
+interval_seconds = 30
