@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use sitegraph::{
     Cluster, CsvExport, Endpoint, EndpointPage, GraphDiff, GraphStatus, ImpactNode, JsonExport,
     NeighborPage, ShortestPath, SiteGraph, SyncBatch, SyncContext, SyncCoverage, SyncSummary,
-    TracePage,
+    TracePage, enrichment::RulePack,
 };
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
@@ -314,7 +314,11 @@ pub fn endpoint_path(graph_path: &Path) -> PathBuf {
     graph_path.with_extension("daemon.json")
 }
 
-pub async fn connect_or_spawn(graph_path: &Path, graph_id: &str) -> Result<Client> {
+pub async fn connect_or_spawn(
+    graph_path: &Path,
+    graph_id: &str,
+    rules_path: &Path,
+) -> Result<Client> {
     let endpoint_file = endpoint_path(graph_path);
     let client = Client::new(endpoint_file.clone());
     if client_matches(&client, graph_id).await {
@@ -340,6 +344,8 @@ pub async fn connect_or_spawn(graph_path: &Path, graph_id: &str) -> Result<Clien
         .arg(graph_id)
         .arg("--endpoint-file")
         .arg(&endpoint_file)
+        .arg("--rules-path")
+        .arg(rules_path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
@@ -373,7 +379,12 @@ pub struct Server {
 }
 
 impl Server {
-    pub async fn bind(graph_path: &Path, graph_id: &str, endpoint_file: PathBuf) -> Result<Self> {
+    pub async fn bind(
+        graph_path: &Path,
+        graph_id: &str,
+        endpoint_file: PathBuf,
+        rules_path: &Path,
+    ) -> Result<Self> {
         if let Some(parent) = endpoint_file.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
@@ -386,7 +397,8 @@ impl Server {
         lock.try_lock_exclusive()
             .map_err(|_| Error::AlreadyRunning(lock_path))?;
 
-        let graph = Arc::new(SiteGraph::open_with_id(graph_path, graph_id).await?);
+        let rule_pack = RulePack::from_path(rules_path).map_err(Error::Protocol)?;
+        let graph = Arc::new(SiteGraph::open_with_rules(graph_path, graph_id, rule_pack).await?);
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let mut token_bytes = [0_u8; 32];
         getrandom::fill(&mut token_bytes)
@@ -620,7 +632,9 @@ mod tests {
         let temporary = tempfile::tempdir().unwrap();
         let graph_path = temporary.path().join("graph.sqlite");
         let endpoint_file = temporary.path().join("daemon.json");
-        let server = Server::bind(&graph_path, "shared", endpoint_file.clone())
+        let rules_path = temporary.path().join("default-rules.json");
+        std::fs::write(&rules_path, sitegraph::enrichment::DEFAULT_RULE_PACK).unwrap();
+        let server = Server::bind(&graph_path, "shared", endpoint_file.clone(), &rules_path)
             .await
             .unwrap();
         let task = tokio::spawn(server.run());

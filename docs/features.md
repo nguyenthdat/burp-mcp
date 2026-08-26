@@ -239,7 +239,7 @@ Sitegraph is a Rust-owned SQLite metadata store. It stores endpoint and paramete
 
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
-| `sitegraph_config` | Read or change auto-index mode (`off`, `once`, `watch`) and sync interval. | Save the baseline, change one safe setting, read it back, then restore it. |
+| `sitegraph_config` | Read the effective auto-index mode and sync interval. Changes must be made in Burp MCP `config.toml` and applied by restart. | Compare the response with the selected configuration file. |
 | `sitegraph_sync` | Synchronize the current Burp site-map snapshot into the graph. | Generate known entries, sync, and inspect inserted/updated counts. |
 | `sitegraph_status` | Return local sitegraph synchronization and schema status. | Compare index freshness/schema status before and after a fixture sync. |
 | `sitegraph_stats` | Return graph ID, mode, project counts, and node/edge totals. | Compare totals before and after fixture sync. |

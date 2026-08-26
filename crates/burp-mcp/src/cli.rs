@@ -1,10 +1,16 @@
+use crate::config::Config;
 use clap::{Args, Parser, Subcommand};
+use std::path::{Path, PathBuf};
 
 pub const DEFAULT_ENDPOINT: &str = "http://127.0.0.1:9877";
 
 #[derive(Debug, Parser)]
 #[command(name = "burp-mcp", version, about = "Native MCP server for Burp Suite")]
 pub struct Cli {
+    /// TOML configuration file. Defaults to ~/.config/burp-mcp/config.toml when present.
+    #[arg(long, global = true, env = "BURP_MCP_CONFIG")]
+    pub config: Option<PathBuf>,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -22,50 +28,52 @@ pub enum Command {
 #[derive(Debug, Clone, Args)]
 pub struct SitegraphDaemonArgs {
     #[arg(long)]
-    pub graph_path: std::path::PathBuf,
+    pub graph_path: PathBuf,
     #[arg(long)]
     pub graph_id: String,
     #[arg(long)]
-    pub endpoint_file: std::path::PathBuf,
+    pub endpoint_file: PathBuf,
+    #[arg(long)]
+    pub rules_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Args)]
 pub struct ServeArgs {
-    /// Burp RPC endpoint. Plaintext is limited to IPv4 loopback; remote endpoints require HTTPS and mTLS.
     /// Optional endpoint file for an already-running shared sitegraph daemon.
     #[arg(long, env = "BURP_MCP_SITEGRAPH_DAEMON")]
-    pub sitegraph_daemon: Option<std::path::PathBuf>,
-    #[arg(long, env = "BURP_MCP_GRPC_ENDPOINT", value_parser = parse_endpoint)]
+    pub sitegraph_daemon: Option<PathBuf>,
+
+    /// Burp RPC endpoint. Plaintext is limited to IPv4 loopback; remote endpoints require HTTPS and mTLS.
+    #[arg(long, env = "BURP_MCP_GRPC_ENDPOINT")]
     pub endpoint: Option<String>,
 
     /// Burp RPC port, used when --endpoint is not set.
     #[arg(long, env = "BURP_MCP_GRPC_PORT", value_parser = parse_port)]
     pub port: Option<u16>,
 
-    /// Directory containing ca.crt, client.crt, and client.key for remote mTLS.
+    /// Directory containing ca.crt, client.crt, and client.key for mTLS.
     #[arg(long, env = "BURP_MCP_TLS_DIR")]
-    pub tls_dir: Option<String>,
+    pub tls_dir: Option<PathBuf>,
+
     /// SQLite sitegraph path. Defaults to the platform data directory when sitegraph is enabled.
     #[arg(long, env = "BURP_MCP_GRAPH_PATH")]
-    pub graph_path: Option<String>,
+    pub graph_path: Option<PathBuf>,
+
+    /// Sitegraph enrichment rules JSON. Initialized from embedded defaults when absent.
+    #[arg(long, env = "BURP_MCP_SITEGRAPH_RULES")]
+    pub sitegraph_rules_path: Option<PathBuf>,
 
     /// Enable the advanced sitegraph tools and local SQLite graph.
-    ///
-    /// Disabled by default; set this explicitly for a manual opt-in.
-    #[arg(long, env = "BURP_MCP_ENABLE_SITEGRAPH", default_value_t = false)]
-    pub enable_sitegraph: bool,
+    #[arg(long, env = "BURP_MCP_ENABLE_SITEGRAPH", num_args = 0..=1, default_missing_value = "true")]
+    pub enable_sitegraph: Option<bool>,
 
     /// Sitegraph indexing mode. Auto-index is opt-in.
-    #[arg(long, env = "BURP_MCP_SITEGRAPH_MODE", default_value = "off", value_parser = parse_sitegraph_mode)]
-    pub sitegraph_mode: String,
+    #[arg(long, env = "BURP_MCP_SITEGRAPH_MODE", value_parser = parse_sitegraph_mode)]
+    pub sitegraph_mode: Option<String>,
 
     /// Poll interval for watch mode.
-    #[arg(
-        long,
-        env = "BURP_MCP_SITEGRAPH_INTERVAL_SECONDS",
-        default_value_t = 30
-    )]
-    pub sitegraph_interval_seconds: u64,
+    #[arg(long, env = "BURP_MCP_SITEGRAPH_INTERVAL_SECONDS")]
+    pub sitegraph_interval_seconds: Option<u64>,
 
     /// Serve MCP over standard input and output.
     #[arg(long, default_value_t = true)]
@@ -75,101 +83,164 @@ pub struct ServeArgs {
 impl Default for ServeArgs {
     fn default() -> Self {
         Self {
+            sitegraph_daemon: None,
             endpoint: None,
             port: None,
             tls_dir: None,
-            sitegraph_daemon: None,
             graph_path: None,
-            enable_sitegraph: false,
-            sitegraph_mode: "off".to_owned(),
-            sitegraph_interval_seconds: 30,
+            sitegraph_rules_path: None,
+            enable_sitegraph: None,
+            sitegraph_mode: None,
+            sitegraph_interval_seconds: None,
             stdio: true,
         }
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ServeConfig {
+    pub sitegraph_daemon: Option<PathBuf>,
+    pub endpoint: String,
+    pub tls_dir: Option<PathBuf>,
+    pub graph_path: PathBuf,
+    pub enable_sitegraph: bool,
+    pub rules_path: PathBuf,
+    pub sitegraph_mode: String,
+    pub sitegraph_interval_seconds: u64,
+    pub stdio: bool,
+}
+
 impl ServeArgs {
-    pub fn resolved_endpoint(&self) -> Result<String, String> {
-        resolve_endpoint(self.endpoint.as_deref(), self.port)
-    }
-
-    pub fn resolved_tls_dir(&self) -> Option<std::path::PathBuf> {
-        resolve_tls_dir(&self.resolved_endpoint().ok()?, self.tls_dir.as_deref())
-    }
-
-    pub fn resolved_graph_path(&self) -> std::path::PathBuf {
-        self.graph_path
-            .as_deref()
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(default_graph_path)
+    pub fn resolve(self, file: &Config) -> Result<ServeConfig, String> {
+        let tls_dir = self.tls_dir.or_else(|| file.burp.tls_dir.clone());
+        let endpoint = resolve_endpoint(
+            self.endpoint.as_deref().or(file.burp.endpoint.as_deref()),
+            self.port.or(file.burp.port),
+            file.burp.tls || tls_dir.is_some(),
+        )?;
+        let tls_dir = resolve_tls_dir(&endpoint, tls_dir.as_deref());
+        let sitegraph_mode = self
+            .sitegraph_mode
+            .unwrap_or_else(|| file.sitegraph.mode.clone());
+        parse_sitegraph_mode(&sitegraph_mode)?;
+        let sitegraph_interval_seconds = self
+            .sitegraph_interval_seconds
+            .unwrap_or(file.sitegraph.interval_seconds);
+        if sitegraph_interval_seconds == 0 {
+            return Err("sitegraph interval must be positive".to_owned());
+        }
+        Ok(ServeConfig {
+            sitegraph_daemon: self
+                .sitegraph_daemon
+                .or_else(|| file.sitegraph.daemon.clone()),
+            endpoint,
+            tls_dir,
+            graph_path: self
+                .graph_path
+                .or_else(|| file.sitegraph.graph_path.clone())
+                .unwrap_or_else(default_graph_path),
+            enable_sitegraph: self.enable_sitegraph.unwrap_or(file.sitegraph.enabled),
+            sitegraph_mode,
+            rules_path: self
+                .sitegraph_rules_path
+                .or_else(|| file.sitegraph.rules_path.clone())
+                .unwrap_or_else(crate::config::default_rules_path),
+            sitegraph_interval_seconds,
+            stdio: self.stdio,
+        })
     }
 }
 
-#[derive(Debug, Clone, Args)]
+#[derive(Debug, Clone, Args, Default)]
 pub struct ProbeArgs {
     /// Burp RPC endpoint. Plaintext is limited to IPv4 loopback; remote endpoints require HTTPS and mTLS.
-    #[arg(long, env = "BURP_MCP_GRPC_ENDPOINT", value_parser = parse_endpoint)]
+    #[arg(long, env = "BURP_MCP_GRPC_ENDPOINT")]
     pub endpoint: Option<String>,
 
     /// Burp RPC port, used when --endpoint is not set.
     #[arg(long, env = "BURP_MCP_GRPC_PORT", value_parser = parse_port)]
     pub port: Option<u16>,
 
-    /// Directory containing ca.crt, client.crt, and client.key for remote mTLS.
+    /// Directory containing ca.crt, client.crt, and client.key for mTLS.
     #[arg(long, env = "BURP_MCP_TLS_DIR")]
-    pub tls_dir: Option<String>,
+    pub tls_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProbeConfig {
+    pub endpoint: String,
+    pub tls_dir: Option<PathBuf>,
 }
 
 impl ProbeArgs {
-    pub fn resolved_endpoint(&self) -> Result<String, String> {
-        resolve_endpoint(self.endpoint.as_deref(), self.port)
-    }
-
-    pub fn resolved_tls_dir(&self) -> Option<std::path::PathBuf> {
-        resolve_tls_dir(&self.resolved_endpoint().ok()?, self.tls_dir.as_deref())
-    }
-}
-
-fn resolve_endpoint(endpoint: Option<&str>, port: Option<u16>) -> Result<String, String> {
-    if let Some(endpoint) = endpoint {
-        return Ok(endpoint.to_owned());
-    }
-    if let Some(port) = port {
-        return Ok(format!("http://127.0.0.1:{port}"));
-    }
-    Ok(DEFAULT_ENDPOINT.to_owned())
-}
-
-fn default_graph_path() -> std::path::PathBuf {
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/share"))
+    pub fn resolve(self, file: &Config) -> Result<ProbeConfig, String> {
+        let tls_dir = self.tls_dir.or_else(|| file.burp.tls_dir.clone());
+        let endpoint = resolve_endpoint(
+            self.endpoint.as_deref().or(file.burp.endpoint.as_deref()),
+            self.port.or(file.burp.port),
+            file.burp.tls || tls_dir.is_some(),
+        )?;
+        Ok(ProbeConfig {
+            tls_dir: resolve_tls_dir(&endpoint, tls_dir.as_deref()),
+            endpoint,
         })
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    }
+}
+
+pub fn resolve_config_path(explicit: Option<PathBuf>) -> Option<PathBuf> {
+    explicit.or_else(|| {
+        let path = crate::config::default_path();
+        path.is_file().then_some(path)
+    })
+}
+
+fn resolve_endpoint(
+    endpoint: Option<&str>,
+    port: Option<u16>,
+    tls: bool,
+) -> Result<String, String> {
+    let endpoint = if let Some(endpoint) = endpoint {
+        if tls && endpoint.starts_with("http://") {
+            format!("https://{}", &endpoint["http://".len()..])
+        } else {
+            endpoint.to_owned()
+        }
+    } else {
+        match (tls, port) {
+            (true, Some(port)) => format!("https://127.0.0.1:{port}"),
+            (true, None) => DEFAULT_ENDPOINT.replacen("http://", "https://", 1),
+            (false, Some(port)) => format!("http://127.0.0.1:{port}"),
+            (false, None) => DEFAULT_ENDPOINT.to_owned(),
+        }
+    };
+    parse_endpoint(&endpoint)
+}
+
+fn default_graph_path() -> PathBuf {
+    let base = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+        .unwrap_or_else(|| PathBuf::from("."));
     base.join("burp-mcp/graphs/default.sqlite")
 }
 
-fn resolve_tls_dir(endpoint: &str, explicit: Option<&str>) -> Option<std::path::PathBuf> {
+fn resolve_tls_dir(endpoint: &str, explicit: Option<&Path>) -> Option<PathBuf> {
     if !endpoint.starts_with("https://") {
         return None;
     }
     Some(
         explicit
-            .map(std::path::PathBuf::from)
+            .map(Path::to_path_buf)
             .unwrap_or_else(default_tls_dir),
     )
 }
 
-fn default_tls_dir() -> std::path::PathBuf {
+fn default_tls_dir() -> PathBuf {
     std::env::var_os("XDG_CONFIG_HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
-        })
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("burp-mcp")
-        .join("tls")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("burp-mcp/tls")
 }
 
 fn parse_endpoint(endpoint: &str) -> Result<String, String> {
@@ -214,7 +285,9 @@ fn parse_sitegraph_mode(value: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::{Cli, Command, DEFAULT_ENDPOINT};
+    use crate::config::Config;
     use clap::Parser;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn defaults_to_serve_configuration() {
@@ -228,105 +301,119 @@ mod tests {
             Cli::try_parse_from(["burp-mcp", "probe", "--endpoint", "http://127.0.0.1:10077"])
                 .expect("probe CLI must parse");
         let Some(Command::Probe(args)) = cli.command else {
-            panic!("expected probe command");
+            panic!("expected probe command")
         };
-        assert_eq!("http://127.0.0.1:10077", args.resolved_endpoint().unwrap());
+        assert_eq!(
+            "http://127.0.0.1:10077",
+            args.resolve(&Config::default()).unwrap().endpoint
+        );
     }
 
     #[test]
-    fn parses_probe_port() {
-        let cli = Cli::try_parse_from(["burp-mcp", "probe", "--port", "10077"])
-            .expect("probe port must parse");
-        let Some(Command::Probe(args)) = cli.command else {
-            panic!("expected probe command");
+    fn rejects_remote_plaintext_endpoint_during_resolution() {
+        let cli = Cli::try_parse_from(["burp-mcp", "serve", "--endpoint", "http://10.10.0.8:9877"])
+            .expect("raw endpoint must parse before TLS settings are merged");
+        let Some(Command::Serve(args)) = cli.command else {
+            panic!("expected serve command")
         };
-        assert_eq!("http://127.0.0.1:10077", args.resolved_endpoint().unwrap());
+        let error = args.resolve(&Config::default()).unwrap_err();
+        assert!(error.contains("https"));
     }
 
     #[test]
-    fn rejects_remote_plaintext_endpoint() {
-        let error =
-            Cli::try_parse_from(["burp-mcp", "serve", "--endpoint", "http://10.10.0.8:9877"])
-                .expect_err("remote plaintext endpoint must fail");
-        assert!(error.to_string().contains("https"));
-    }
-
-    #[test]
-    fn accepts_remote_https_and_explicit_tls_directory() {
+    fn tls_directory_upgrades_explicit_http_endpoint_to_https() {
         let cli = Cli::try_parse_from([
             "burp-mcp",
             "probe",
             "--endpoint",
-            "https://burp-vm.test:9877",
+            "http://127.0.0.1:9877",
             "--tls-dir",
             "/tmp/burp-mcp-tls",
         ])
-        .expect("remote mTLS CLI must parse");
+        .expect("TLS probe must parse");
+        let Some(Command::Probe(args)) = cli.command else {
+            panic!("expected probe command")
+        };
+        let resolved = args.resolve(&Config::default()).unwrap();
+        assert_eq!("https://127.0.0.1:9877", resolved.endpoint);
+        assert_eq!(Some(PathBuf::from("/tmp/burp-mcp-tls")), resolved.tls_dir);
+    }
+
+    #[test]
+    fn tls_directory_upgrades_port_endpoint_to_https() {
+        let cli = Cli::try_parse_from([
+            "burp-mcp",
+            "probe",
+            "--port",
+            "10077",
+            "--tls-dir",
+            "/tmp/burp-mcp-tls",
+        ])
+        .expect("TLS port must parse");
         let Some(Command::Probe(args)) = cli.command else {
             panic!("expected probe command")
         };
         assert_eq!(
-            "https://burp-vm.test:9877",
-            args.resolved_endpoint().unwrap()
+            "https://127.0.0.1:10077",
+            args.resolve(&Config::default()).unwrap().endpoint
         );
-        assert_eq!(
-            std::path::PathBuf::from("/tmp/burp-mcp-tls"),
-            args.resolved_tls_dir().unwrap()
-        );
+    }
+
+    #[test]
+    fn file_tls_setting_upgrades_endpoint_and_uses_default_bundle() {
+        let mut file = Config::default();
+        file.burp.endpoint = Some("http://burp-vm.test:9877".to_owned());
+        file.burp.tls = true;
+
+        let cli =
+            Cli::try_parse_from(["burp-mcp", "probe"]).expect("probe configuration must parse");
+        let Some(Command::Probe(args)) = cli.command else {
+            panic!("expected probe command")
+        };
+        let resolved = args.resolve(&file).unwrap();
+        assert_eq!("https://burp-vm.test:9877", resolved.endpoint);
+        assert!(resolved.tls_dir.is_some());
+    }
+
+    #[test]
+    fn file_config_enables_sitegraph_and_cli_overrides_mode() {
+        let mut file = Config::default();
+        file.burp.port = Some(10077);
+        file.sitegraph.enabled = true;
+        file.sitegraph.graph_path = Some(PathBuf::from("/tmp/burp-mcp-graph.sqlite"));
+        file.sitegraph.mode = "watch".to_owned();
+        file.sitegraph.interval_seconds = 45;
+        let cli = Cli::try_parse_from(["burp-mcp", "serve", "--sitegraph-mode", "startup"])
+            .expect("serve configuration must parse");
+        let Some(Command::Serve(args)) = cli.command else {
+            panic!("expected serve command")
+        };
+        let resolved = args.resolve(&file).unwrap();
+        assert_eq!("http://127.0.0.1:10077", resolved.endpoint);
+        assert!(resolved.enable_sitegraph);
+        assert_eq!("startup", resolved.sitegraph_mode);
+        assert_eq!(45, resolved.sitegraph_interval_seconds);
+        assert_eq!(Path::new("/tmp/burp-mcp-graph.sqlite"), resolved.graph_path);
+    }
+
+    #[test]
+    fn sitegraph_mode_does_not_implicitly_enable_sitegraph() {
+        let cli = Cli::try_parse_from(["burp-mcp", "serve", "--sitegraph-mode", "watch"])
+            .expect("sitegraph mode must parse");
+        let Some(Command::Serve(args)) = cli.command else {
+            panic!("expected serve command")
+        };
+        let resolved = args.resolve(&Config::default()).unwrap();
+        assert!(!resolved.enable_sitegraph);
+        assert_eq!("watch", resolved.sitegraph_mode);
     }
 
     #[test]
     fn default_endpoint_is_stable() {
         assert_eq!("http://127.0.0.1:9877", DEFAULT_ENDPOINT);
-    }
-
-    #[test]
-    fn sitegraph_is_disabled_by_default_and_requires_explicit_opt_in() {
-        let cli = Cli::try_parse_from(["burp-mcp", "serve"]).expect("serve CLI must parse");
-        let Some(Command::Serve(args)) = cli.command else {
-            panic!("expected serve command");
-        };
-        assert!(!args.enable_sitegraph);
-
-        let cli = Cli::try_parse_from(["burp-mcp", "serve", "--enable-sitegraph"])
-            .expect("sitegraph opt-in must parse");
-        let Some(Command::Serve(args)) = cli.command else {
-            panic!("expected serve command");
-        };
-        assert!(args.enable_sitegraph);
-    }
-
-    #[test]
-    fn sitegraph_mode_without_enable_flag_does_not_enable_sitegraph() {
-        let cli = Cli::try_parse_from(["burp-mcp", "serve", "--sitegraph-mode", "watch"])
-            .expect("sitegraph mode must parse");
-        let Some(Command::Serve(args)) = cli.command else {
-            panic!("expected serve command");
-        };
-        assert!(!args.enable_sitegraph);
-        assert_eq!("watch", args.sitegraph_mode);
-    }
-
-    #[test]
-    fn sitegraph_opt_in_accepts_manual_path_and_mode() {
-        let cli = Cli::try_parse_from([
-            "burp-mcp",
-            "serve",
-            "--enable-sitegraph",
-            "--graph-path",
-            "/tmp/burp-mcp-graph.sqlite",
-            "--sitegraph-mode",
-            "startup",
-        ])
-        .expect("manual sitegraph configuration must parse");
-        let Some(Command::Serve(args)) = cli.command else {
-            panic!("expected serve command");
-        };
-        assert!(args.enable_sitegraph);
-        assert_eq!("startup", args.sitegraph_mode);
         assert_eq!(
-            std::path::Path::new("/tmp/burp-mcp-graph.sqlite"),
-            args.resolved_graph_path()
+            DEFAULT_ENDPOINT,
+            super::resolve_endpoint(None, None, false).unwrap()
         );
     }
 }

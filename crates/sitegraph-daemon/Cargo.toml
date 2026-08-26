@@ -22,4 +22,3 @@ path = "src/main.rs"
 
 [dev-dependencies]
 tempfile.workspace = true
-

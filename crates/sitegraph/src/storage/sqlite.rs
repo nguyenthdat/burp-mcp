@@ -1,4 +1,5 @@
 use crate::analysis;
+use crate::enrichment::RulePack;
 use crate::graph::neighbors::{Neighbor, NeighborPage};
 use crate::graph::traversal::{TracePage, TraceStep};
 use crate::ingest::sitemap::relationships;
@@ -14,11 +15,13 @@ use serde_json::json;
 use sqlx::{ConnectOptions, Row, SqlitePool, sqlite::SqliteConnectOptions};
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::Arc;
 use time::OffsetDateTime;
 
 pub struct SiteGraph {
     pool: SqlitePool,
     graph_id: String,
+    rule_pack: Arc<RulePack>,
 }
 
 async fn upsert_source_node(
@@ -115,6 +118,15 @@ impl SiteGraph {
         path: &Path,
         graph_id: impl Into<String>,
     ) -> Result<Self, StorageError> {
+        let rule_pack = RulePack::default_exact().map_err(StorageError::InvalidInput)?;
+        Self::open_with_rules(path, graph_id, rule_pack).await
+    }
+
+    pub async fn open_with_rules(
+        path: &Path,
+        graph_id: impl Into<String>,
+        rule_pack: RulePack,
+    ) -> Result<Self, StorageError> {
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
@@ -133,7 +145,11 @@ impl SiteGraph {
         .bind(&graph_id)
         .execute(&pool)
         .await?;
-        Ok(Self { pool, graph_id })
+        Ok(Self {
+            pool,
+            graph_id,
+            rule_pack: Arc::new(rule_pack),
+        })
     }
 
     #[cfg(test)]
@@ -168,8 +184,7 @@ impl SiteGraph {
             &[&self.graph_id, &context.source, &context.scope],
         );
         let mut transaction = self.pool.begin().await?;
-        let rule_pack =
-            crate::enrichment::RulePack::default_exact().map_err(StorageError::InvalidInput)?;
+        let rule_pack = Arc::clone(&self.rule_pack);
 
         sqlx::query(
             "INSERT INTO sync_runs(id, graph_id, source, scope, started_at, status, complete, items_seen, pages_seen)
@@ -269,7 +284,7 @@ impl SiteGraph {
                     &blob_id,
                     surface,
                     payload,
-                    &rule_pack,
+                    rule_pack.as_ref(),
                     now,
                 )
                 .await?;
@@ -291,7 +306,7 @@ impl SiteGraph {
                     &blob_id,
                     "response_body",
                     &observation.response_body,
-                    &rule_pack,
+                    rule_pack.as_ref(),
                     now,
                 )
                 .await?;
@@ -775,7 +790,7 @@ impl SiteGraph {
                     &blob_id,
                     surface,
                     payload,
-                    &rule_pack,
+                    rule_pack.as_ref(),
                     now,
                 )
                 .await?;
@@ -1307,8 +1322,8 @@ mod tests {
         MIGRATOR.run(&pool).await.unwrap();
         SiteGraph {
             pool,
-
             graph_id: "test".to_owned(),
+            rule_pack: std::sync::Arc::new(RulePack::default_exact().unwrap()),
         }
     }
 

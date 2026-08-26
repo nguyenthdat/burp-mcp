@@ -782,18 +782,11 @@ pub struct SiteGraphSyncInput {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct SiteGraphConfigInput {
-    pub mode: Option<String>,
-    pub interval_seconds: Option<u64>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SiteGraphSearchInput {
     pub query: String,
     pub limit: Option<u32>,
     pub cursor: Option<u32>,
 }
-
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SiteGraphEndpointInput {
     pub id: String,
@@ -853,6 +846,8 @@ const SITEGRAPH_TOOL_PREFIX: &str = "sitegraph_";
 struct SitegraphRuntime {
     graph: GraphBackend,
     indexer: SitegraphIndexer,
+    mode: Arc<str>,
+    interval_seconds: u64,
     auto_index_shutdown: Arc<tokio::sync::watch::Sender<bool>>,
     auto_index_task: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
@@ -869,6 +864,7 @@ impl BurpTools {
         client: BurpClient,
         graph_path: Option<&Path>,
         daemon_endpoint: Option<&Path>,
+        rules_path: &Path,
     ) -> Result<Self, String> {
         let Some(graph_path) = graph_path else {
             return Ok(Self {
@@ -911,7 +907,7 @@ impl BurpTools {
         };
         let daemon = match daemon_endpoint {
             Some(endpoint) => sitegraph_daemon::Client::new(endpoint),
-            None => connect_or_spawn(&resolved_path, &graph_id)
+            None => connect_or_spawn(&resolved_path, &graph_id, rules_path)
                 .await
                 .map_err(|error| error.to_string())?,
         };
@@ -923,6 +919,8 @@ impl BurpTools {
             sitegraph: Some(SitegraphRuntime {
                 graph,
                 indexer,
+                mode: Arc::from("off"),
+                interval_seconds: 30,
                 auto_index_shutdown: Arc::new(auto_index_shutdown),
                 auto_index_task: Arc::new(tokio::sync::Mutex::new(None)),
             }),
@@ -957,14 +955,16 @@ impl BurpTools {
     }
 
     pub async fn start_auto_index(
-        &self,
+        &mut self,
         mode: &str,
         interval: std::time::Duration,
     ) -> Result<(), String> {
         Self::validate_sitegraph_mode(self.sitegraph.is_some(), mode)?;
-        let Some(sitegraph) = &self.sitegraph else {
+        let Some(sitegraph) = &mut self.sitegraph else {
             return Ok(());
         };
+        sitegraph.mode = Arc::from(mode);
+        sitegraph.interval_seconds = interval.as_secs();
         match mode {
             "off" => Ok(()),
             "startup" => {
@@ -3110,30 +3110,25 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_config",
-        description = "Read or validate sitegraph auto-index configuration; mode is off, startup, or watch",
+        description = "Read the active sitegraph auto-index configuration; edit config.toml and restart to change it",
         annotations(
-            read_only_hint = false,
+            read_only_hint = true,
             destructive_hint = false,
             idempotent_hint = true,
             open_world_hint = false
         )
     )]
-    async fn sitegraph_config(
-        &self,
-        Parameters(input): Parameters<SiteGraphConfigInput>,
-    ) -> String {
-        let mode = input.mode.unwrap_or_else(|| "off".to_owned());
-        if !matches!(mode.as_str(), "off" | "startup" | "watch") {
-            return serde_json::json!({"error": "mode must be off, startup, or watch"}).to_string();
-        }
-        let interval_seconds = input.interval_seconds.unwrap_or(30).max(1);
+    async fn sitegraph_config(&self) -> String {
+        let Some(sitegraph) = &self.sitegraph else {
+            return sitegraph_disabled_json();
+        };
         serde_json::json!({
-            "mode": mode,
-            "interval_seconds": interval_seconds,
+            "mode": sitegraph.mode,
+            "interval_seconds": sitegraph.interval_seconds,
             "page_size": 500,
             "queue_capacity": 32,
             "max_items": null,
-            "note": "configuration changes apply on the next process start"
+            "note": "edit ~/.config/burp-mcp/config.toml or the selected config file and restart burp-mcp"
         })
         .to_string()
     }

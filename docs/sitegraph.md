@@ -6,43 +6,44 @@ Sitegraph is an advanced, manual opt-in capability in Burp MCP v3. It is a local
 
 Sitegraph is disabled by default. Enable it only when the target, retention policy, and local graph location are understood:
 
-```json
-{
-  "command": "/absolute/path/to/burp-mcp",
-  "args": [
-    "serve",
-    "--enable-sitegraph",
-    "--sitegraph-mode",
-    "off"
-  ]
-}
+```toml
+[sitegraph]
+enabled = true
+mode = "off"
+graph_path = "/absolute/path/to/burp-mcp-graph.sqlite"
+rules_path = "/absolute/path/to/default-rules.json"
 ```
 
-Environment equivalent:
+The file is loaded from `~/.config/burp-mcp/config.toml`; use `burp-mcp --config PATH serve` to select another file. The equivalent environment and CLI opt-in remain available:
 
 ```sh
 BURP_MCP_ENABLE_SITEGRAPH=true burp-mcp serve
 ```
 
-Optional configuration:
+CLI flags and environment variables override TOML values. A graph path or indexing mode does not enable sitegraph by itself. Restart the server after changing the enable flag.
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| `BURP_MCP_ENABLE_SITEGRAPH` | `false` | Expose the 14 `sitegraph_*` MCP tools and initialize the local graph. |
-| `BURP_MCP_GRAPH_PATH` | platform data directory | Graph root or explicit SQLite path. |
-| `BURP_MCP_SITEGRAPH_MODE` | `off` | `off`, `startup`, or `watch`. |
-| `BURP_MCP_SITEGRAPH_INTERVAL_SECONDS` | `30` | Delay between bounded `watch` sync attempts. |
-| `BURP_MCP_SITEGRAPH_DAEMON` | auto-discovered per graph | Explicit `0600` daemon endpoint file for clients that must not auto-spawn. |
+On first SiteGraph enablement, Burp MCP initializes `~/.config/burp-mcp/default-rules.json` from its embedded rule pack. Edit that JSON to customize enrichment rules, or select another file with `[sitegraph].rules_path`. Existing rule files are validated and never overwritten. `sitegraph_config` only reports the effective runtime settings; it does not mutate them.
 
-A graph path or indexing mode does not enable sitegraph by itself. Restart the server after changing the enable flag.
+## Endpoint TLS
+
+Set `[burp].tls = true` (or configure `tls_dir`) to make the resolved Burp endpoint use `https://`. If an `http://` endpoint is present in the file, the Rust client changes only its scheme and preserves host and port. The client then requires `ca.crt`, `client.crt`, and `client.key` in `tls_dir` or `~/.config/burp-mcp/tls`.
+
+```toml
+[burp]
+endpoint = "http://burp-vm.test:9877"
+tls = true
+tls_dir = "/absolute/path/to/burp-mcp/tls"
+```
+
+The effective endpoint is `https://burp-vm.test:9877`.
 
 ## Shared daemon mode
 
-The Rust `sitegraph-daemon` owns one SQLite connection pool per project graph. MCP
+The Rust-managed `sitegraph-daemon` owns one SQLite connection pool per project graph. MCP
 processes connect to it through a loopback TCP endpoint described by a `0600`
-endpoint file. The first `burp-mcp serve --enable-sitegraph` instance starts the
-daemon automatically; later instances reuse it. To connect explicitly, set
-`BURP_MCP_SITEGRAPH_DAEMON` or pass `--sitegraph-daemon PATH`.
+endpoint file. The first `burp-mcp serve` instance with SiteGraph enabled starts
+the bundled daemon automatically; later instances reuse it. To connect explicitly,
+set `BURP_MCP_SITEGRAPH_DAEMON` or pass `--sitegraph-daemon PATH`.
 
 The daemon is project-scoped, authenticated with a random per-startup token, and
 uses newline-delimited JSON with bounded 128 MiB frames. Do not expose its

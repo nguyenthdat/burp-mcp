@@ -48,7 +48,7 @@ class BurpRpcServerTest {
         val ping = client.withDeadlineAfter(2, TimeUnit.SECONDS).ping(PingRequest.newBuilder().setClient("test").build())
         val info = client.withDeadlineAfter(2, TimeUnit.SECONDS).serverInfo(ServerInfoRequest.getDefaultInstance())
 
-        assertEquals("burp-mcp-kotlin", ping.server)
+        assertEquals("burp-mcp", ping.server)
         assertEquals(42, ping.unixMillis)
         assertEquals(listOf("proxy.read", "sitemap.read", "scanner.read", "cookies.read", "transport.echo", "lifecycle.restart"), info.capabilitiesList)
         assertEquals(GRPC_MAX_MESSAGE_BYTES, info.maxMessageBytes)
