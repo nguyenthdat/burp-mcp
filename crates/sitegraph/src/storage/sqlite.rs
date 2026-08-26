@@ -1416,8 +1416,13 @@ async fn index_evidence_for_search(
             Err(_) => base64::Engine::encode(&base64::engine::general_purpose::STANDARD, payload),
         };
         let surface = row.get::<String, _>("surface");
+        let blob_id = row.get::<String, _>("id");
+        sqlx::query("DELETE FROM history_search WHERE blob_id=?1")
+            .bind(&blob_id)
+            .execute(&mut **transaction)
+            .await?;
         sqlx::query("INSERT INTO history_search(blob_id, node_id, source, surface, direction, content_type, url, method, payload) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
-            .bind(row.get::<String, _>("id")).bind(node_id)
+            .bind(blob_id).bind(node_id)
             .bind(if surface.starts_with("websocket_") { "websocket" } else { "http" })
             .bind(surface).bind(row.get::<String, _>("direction")).bind(row.get::<String, _>("content_type"))
             .bind(url).bind(method).bind(text).execute(&mut **transaction).await?;
@@ -1542,6 +1547,33 @@ mod tests {
         assert!(!stored.contains("secret"));
         assert!(!stored.contains("private"));
         assert!(!stored.contains("<a"));
+    }
+
+    #[tokio::test]
+    async fn duplicate_findings_across_surfaces_update_existing_record() {
+        let graph = graph().await;
+        let payload = b"token=duplicate-marker";
+        let mut item = observation("duplicate-finding", payload);
+        item.response_bytes = payload.to_vec();
+        graph
+            .sync(&SyncBatch {
+                sitemap: vec![item],
+                ..SyncBatch::default()
+            })
+            .await
+            .unwrap();
+        let node_id = fingerprint::stable_id(
+            "endpoint",
+            &["https://example.test", "GET", "/duplicate-finding"],
+        );
+        let findings = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM enrichment_findings WHERE node_id=?1",
+        )
+        .bind(node_id)
+        .fetch_one(graph.pool())
+        .await
+        .unwrap();
+        assert_eq!(findings, 1);
     }
 
     #[tokio::test]
@@ -2116,21 +2148,29 @@ mod tests {
         let mut http = observation("search", b"");
         http.request_bytes = b"GET /search HTTP/1.1\r\nX-Trace: alpha-needle\r\n\r\n".to_vec();
         http.response_bytes = b"HTTP/1.1 200 OK\r\n\r\nbeta-needle".to_vec();
-        graph
-            .sync(&SyncBatch {
-                sitemap: vec![http],
-                websocket_messages: vec![crate::model::WebSocketObservation {
-                    id: "7".to_owned(),
-                    web_socket_id: "3".to_owned(),
-                    direction: "CLIENT_TO_SERVER".to_owned(),
-                    upgrade_url: "wss://example.test/socket".to_owned(),
-                    payload: b"gamma-needle".to_vec(),
-                    edited_payload: Vec::new(),
-                }],
-                ..SyncBatch::default()
-            })
+        let batch = SyncBatch {
+            sitemap: vec![http],
+            websocket_messages: vec![crate::model::WebSocketObservation {
+                id: "7".to_owned(),
+                web_socket_id: "3".to_owned(),
+                direction: "CLIENT_TO_SERVER".to_owned(),
+                upgrade_url: "wss://example.test/socket".to_owned(),
+                payload: b"gamma-needle".to_vec(),
+                edited_payload: Vec::new(),
+            }],
+            ..SyncBatch::default()
+        };
+        graph.sync(&batch).await.unwrap();
+        let indexed_before = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM history_search")
+            .fetch_one(graph.pool())
             .await
             .unwrap();
+        graph.sync(&batch).await.unwrap();
+        let indexed_after = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM history_search")
+            .fetch_one(graph.pool())
+            .await
+            .unwrap();
+        assert_eq!(indexed_after, indexed_before);
 
         let http_page = graph
             .search_history("alpha-needle", Some("http"), 0, 10)

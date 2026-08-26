@@ -77,7 +77,7 @@ pub(super) async fn persist_rule_findings(
         sqlx::query(
             "INSERT INTO enrichment_findings(id, node_id, evidence_blob_id, enricher_id, enricher_version, ruleset_id, ruleset_version, input_fingerprint, kind, severity, confidence, byte_start, byte_end, capture, incomplete, limit_reason, metadata, observed_at)
              VALUES(?1, ?2, ?3, 'default_rule_pack', ?4, ?5, ?6, ?7, ?8, ?9, 0.8, ?10, ?11, ?12, 0, NULL, ?13, ?14)
-             ON CONFLICT(id) DO UPDATE SET
+             ON CONFLICT(node_id, enricher_id, ruleset_id, input_fingerprint, byte_start, byte_end) DO UPDATE SET
                evidence_blob_id=excluded.evidence_blob_id,
                enricher_version=excluded.enricher_version,
                ruleset_version=excluded.ruleset_version,
