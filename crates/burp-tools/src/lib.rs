@@ -5074,11 +5074,16 @@ mod contract_tests {
             .into_iter()
             .filter(|tool| tool.name.starts_with(SITEGRAPH_TOOL_PREFIX))
             .collect::<Vec<_>>();
-        assert_eq!(14, enabled_sitegraph_tools.len());
+        assert_eq!(15, enabled_sitegraph_tools.len());
         assert!(
             enabled_sitegraph_tools
                 .iter()
                 .any(|tool| tool.name == "sitegraph_search")
+        );
+        assert!(
+            enabled_sitegraph_tools
+                .iter()
+                .any(|tool| tool.name == "sitegraph_history_search")
         );
     }
 

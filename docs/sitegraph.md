@@ -58,9 +58,16 @@ between unrelated projects.
 
 ## Data and privacy boundary
 
-The graph stores normalized endpoint metadata, parameter names, relationships, observations, evidence summaries, and bounded provenance. It does not intentionally store parameter values or raw request/response bodies. Treat the SQLite database as security-sensitive metadata: apply local filesystem permissions, define retention, and remove it when the engagement ends.
+The graph stores normalized endpoint metadata, parameter names, relationships, observations,
+provenance, and project-local exact evidence blobs for indexed HTTP/WebSocket history. Parameter
+values are not copied into normalized node metadata, but raw request/response and WebSocket bytes
+can exist in the evidence store and in `profile=exact` export. Treat the entire SQLite database as
+sensitive engagement data: apply local filesystem permissions, define retention, redact snippets,
+and remove it when the engagement ends.
 
-Project identity determines graph partitioning. Do not point multiple unrelated Burp projects at a shared fallback database. Use a project-specific directory or explicit SQLite file and back it up only under the same authorization and data-handling policy as the Burp project.
+Project identity determines graph partitioning. Do not point unrelated Burp projects at a shared
+database. Back up a project graph only under the same authorization and data-handling policy as
+the Burp project.
 
 ## Operating modes
 
@@ -74,8 +81,9 @@ Use `off` for reproducible investigations and invoke sync deliberately. Use `wat
 
 The runtime schema is authoritative; inspect the exposed MCP tool definitions rather than copying fields from this guide.
 
-- `sitegraph_sync`: import bounded Burp sitemap metadata into the local graph.
+- `sitegraph_sync`: import bounded sitemap, HTTP history, WebSocket history, issue, and technology observations.
 - `sitegraph_search`, `sitegraph_endpoint_detail`: locate normalized endpoints.
+- `sitegraph_history_search`: search sensitive indexed evidence with bounded source filtering and pagination.
 - `sitegraph_projects`, `sitegraph_stats`, `sitegraph_status`: inspect graph and sync state.
 - `sitegraph_neighbors`, `sitegraph_trace`, `sitegraph_shortest_path`: traverse relationships with bounded limits.
 - `sitegraph_clusters`, `sitegraph_impact`: group endpoints and inspect bounded impact.

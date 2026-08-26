@@ -18,7 +18,23 @@ Burp's embedded browser is preconfigured and is the safest default. For an exter
 3. Install Burp's CA certificate only in the intended testing browser profile. Follow the [CA certificate guide](https://portswigger.net/burp/documentation/desktop/external-browser-config/certificate). Never disclose the CA private key; see [certificate management](https://portswigger.net/burp/documentation/desktop/tools/proxy/manage-certificates).
 4. Use **Proxy > Intercept** for deliberate inspection/editing, then turn interception off for normal browsing so requests do not remain blocked. HTTP history continues recording proxied traffic when interception is off. See [intercepting HTTP traffic](https://portswigger.net/burp/documentation/desktop/getting-started/intercepting-http-traffic) and [intercept controls](https://portswigger.net/burp/documentation/desktop/tools/proxy/intercept-messages).
 
-`burp-mcp` cannot forward or drop a request already held in the Burp UI. The skill therefore checks and preserves intercept state instead of enabling interception unattended.
+`burp-mcp` cannot control a request already held by Burp's manual UI. Its HTTP
+and WebSocket intercept controllers pause only messages captured by the
+extension after the controller is enabled.
+
+## MCP-owned interception queues
+
+The MCP queues are separate from master Proxy Intercept state and Proxy history.
+Use them only for a narrow authorized fixture:
+
+1. Read/configure `burp_intercept_controller` or
+   `burp_websocket_intercept_controller` with a bounded timeout.
+2. Generate one scoped message.
+3. Page the matching pending queue; retain one stable ID.
+4. Forward, drop, or send that ID to manual Intercept. Replace complete HTTP
+   messages or WebSocket payload bytes only from reviewed base64.
+5. Confirm `pending` is zero and disable the controller. Messages auto-forward
+   on timeout, but timeout is a failsafe rather than cleanup.
 
 ## Scope and logging
 
