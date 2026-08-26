@@ -176,7 +176,7 @@ impl SiteGraphSynchronizer {
                 .collect::<Vec<_>>();
             if !sitemap.is_empty() {
                 let mut context = SyncContext::snapshot(&graph_id, format!("{scope}:http_history"));
-                context.run_id = format!("{run_id}-http-history-{}", http_cursor);
+                context.run_id = format!("{run_id}-http-history-{http_cursor}");
                 context.source = "burp_http_history".to_owned();
                 context.complete = false;
                 context.items_seen = sitemap.len() as u64;
