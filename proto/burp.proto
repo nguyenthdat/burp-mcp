@@ -15,6 +15,9 @@ service BurpService {
   rpc ProxyDetail(ProxyDetailRequest) returns (ProxyDetailResponse);
   rpc ScanIssues(ScanIssuesRequest) returns (ScanIssuesResponse);
   rpc SitemapSnapshot(SitemapSnapshotRequest) returns (SitemapSnapshotResponse);
+  rpc InterceptedMessages(InterceptedMessagesRequest) returns (InterceptedMessagesResponse);
+  rpc ControlInterceptedMessage(ControlInterceptedMessageRequest) returns (InterceptedMessageResponse);
+  rpc InterceptControllerConfig(InterceptControllerConfigRequest) returns (InterceptControllerConfigResponse);
   rpc EventsSince(EventsSinceRequest) returns (EventsSinceResponse);
   rpc TargetInfo(TargetInfoRequest) returns (TargetInfoResponse);
   rpc ScopeCheck(ScopeCheckRequest) returns (ScopeCheckResponse);
@@ -268,6 +271,43 @@ message ProxyInterceptRule {
   string match_condition = 5;
 }
 message ProxySettingsRequest {}
+message InterceptedMessagesRequest { PageRequest page = 1; }
+message InterceptedMessagesResponse {
+  repeated InterceptedMessage items = 1;
+  PageInfo page = 2;
+}
+message InterceptedMessage {
+  uint64 id = 1;
+  string direction = 2;
+  string url = 3;
+  string method = 4;
+  uint32 status = 5;
+  bool is_in_scope = 6;
+  bytes request = 7;
+  bytes response = 8;
+  string phase = 9;
+}
+enum InterceptAction {
+  INTERCEPT_ACTION_UNSPECIFIED = 0;
+  INTERCEPT_ACTION_FORWARD = 1;
+  INTERCEPT_ACTION_DROP = 2;
+  INTERCEPT_ACTION_INTERCEPT = 3;
+}
+message ControlInterceptedMessageRequest {
+  uint64 id = 1;
+  InterceptAction action = 2;
+  bytes message = 3;
+}
+message InterceptedMessageResponse { InterceptedMessage message = 1; }
+message InterceptControllerConfigRequest {
+  optional bool enabled = 1;
+  optional uint32 timeout_seconds = 2;
+}
+message InterceptControllerConfigResponse {
+  bool enabled = 1;
+  uint32 timeout_seconds = 2;
+  uint32 pending = 3;
+}
 message ProxySettingsResponse {
   repeated ProxyListener listeners = 1;
   repeated ProxyScriptFilter script_filters = 2;

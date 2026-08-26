@@ -6,14 +6,15 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use burp_protocol::BurpClient;
 use burp_protocol::protocol::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
-    CloseWebSocketRequest, ConfigResponse, CookieJarRequest, CreateMacroRequest,
-    CreatePayloadListRequest, CreateWebSocketRequest, DeletePayloadListRequest,
+    CloseWebSocketRequest, ConfigResponse, ControlInterceptedMessageRequest, CookieJarRequest,
+    CreateMacroRequest, CreatePayloadListRequest, CreateWebSocketRequest, DeletePayloadListRequest,
     DeleteScanConfigurationRequest, DeleteScanResourcePoolRequest, DeleteSessionRuleRequest,
     ExportConfigRequest, ExtensionInfoRequest, GenerateCollaboratorPayloadsRequest,
     GenerateScannerReportRequest, GetJobResultRequest, GetJobStatusRequest, GetPayloadListRequest,
     GetScanConfigurationRequest, GetScanResourcePoolRequest, GetSessionRuleRequest,
     HttpHeaderEntry, ImportBCheckRequest, ImportBambdaRequest, ImportConfigRequest,
-    ImportPayloadListRequest, InterceptStateRequest, ListMacrosRequest,
+    ImportPayloadListRequest, InterceptAction, InterceptControllerConfigRequest,
+    InterceptStateRequest, InterceptedMessagesRequest, ListMacrosRequest,
     ListPayloadGeneratorsRequest, ListPayloadListsRequest, ListPayloadProcessorsRequest,
     ListProxyRulesRequest, ListScanConfigurationsRequest, ListScanResourcePoolsRequest,
     ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition, MacroItem, MacroParameter,
@@ -201,6 +202,49 @@ pub struct ScanIssueDetailInput {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SetInterceptStateInput {
     pub enabled: bool,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct InterceptControllerInput {
+    pub enabled: Option<bool>,
+    pub timeout_seconds: Option<u32>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct InterceptedMessagesInput {
+    pub limit: Option<u32>,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum InterceptActionInput {
+    Forward,
+    Drop,
+    Intercept,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ControlInterceptedMessageInput {
+    pub id: u64,
+    pub action: InterceptActionInput,
+    #[schemars(
+        description = "Optional complete replacement HTTP message encoded as standard Base64"
+    )]
+    pub message_base64: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct InterceptedMessageOutput {
+    id: u64,
+    direction: String,
+    phase: String,
+    url: String,
+    method: String,
+    status: u32,
+    is_in_scope: bool,
+    request_base64: String,
+    response_base64: Option<String>,
 }
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -3559,6 +3603,128 @@ impl BurpTools {
                 .await,
         )
     }
+
+    #[tool(
+        name = "burp_intercept_controller",
+        description = "Read or configure MCP-controlled Burp Proxy request/response interception. Disabled by default; pending messages forward when timeout expires.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn intercept_controller(
+        &self,
+        Parameters(input): Parameters<InterceptControllerInput>,
+    ) -> String {
+        match self
+            .client
+            .intercept_controller_config(InterceptControllerConfigRequest {
+                enabled: input.enabled,
+                timeout_seconds: input.timeout_seconds,
+            })
+            .await
+        {
+            Ok(state) => serde_json::json!({
+                "enabled": state.enabled,
+                "timeout_seconds": state.timeout_seconds,
+                "pending": state.pending,
+            })
+            .to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_intercepted_messages",
+        description = "List HTTP requests and responses currently paused by the MCP intercept controller, including lossless Base64 raw messages",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn intercepted_messages(
+        &self,
+        Parameters(input): Parameters<InterceptedMessagesInput>,
+    ) -> String {
+        let limit = input.limit.unwrap_or(100);
+        if limit > MAX_PAGE_SIZE {
+            return serde_json::json!({"error": "limit must be at most 500"}).to_string();
+        }
+        match self
+            .client
+            .intercepted_messages(InterceptedMessagesRequest {
+                page: Some(PageRequest {
+                    limit,
+                    cursor: input.cursor.unwrap_or_default(),
+                }),
+            })
+            .await
+        {
+            Ok(response) => {
+                let page = response.page.unwrap_or_default();
+                serde_json::json!({
+                    "items": response.items.into_iter().map(intercepted_message_output).collect::<Vec<_>>(),
+                    "total": page.total,
+                    "truncated": page.truncated,
+                    "next_cursor": (!page.next_cursor.is_empty()).then_some(page.next_cursor),
+                }).to_string()
+            }
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_control_intercepted_message",
+        description = "Forward, drop, or send an MCP-paused HTTP message to Burp's manual Intercept tab; optionally replace the complete raw request/response from standard Base64 before acting",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn control_intercepted_message(
+        &self,
+        Parameters(input): Parameters<ControlInterceptedMessageInput>,
+    ) -> String {
+        let action = match input.action {
+            InterceptActionInput::Forward => InterceptAction::Forward,
+            InterceptActionInput::Drop => InterceptAction::Drop,
+            InterceptActionInput::Intercept => InterceptAction::Intercept,
+        } as i32;
+        let message = match input.message_base64 {
+            Some(value) => match STANDARD.decode(value) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    return serde_json::json!({"error": format!("invalid message_base64: {error}")})
+                        .to_string();
+                }
+            },
+            None => Vec::new(),
+        };
+        match self
+            .client
+            .control_intercepted_message(ControlInterceptedMessageRequest {
+                id: input.id,
+                action,
+                message,
+            })
+            .await
+        {
+            Ok(response) => response
+                .message
+                .map(intercepted_message_output)
+                .map(|item| serde_json::to_string(&item).expect("intercept output must serialize"))
+                .unwrap_or_else(|| {
+                    serde_json::json!({"error": "empty intercept response"}).to_string()
+                }),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
     #[tool(
         name = "burp_proxy_intercept_config",
         description = "Read Burp Proxy request, response, WebSocket interception filters and response modification settings",
@@ -3876,6 +4042,22 @@ fn session_rule_request(input: SessionRuleUpsertInput) -> UpsertSessionRuleReque
         url_contains: input.url_contains.unwrap_or_default(),
         tools: input.tools.unwrap_or_default(),
         enabled: input.enabled.unwrap_or(true),
+    }
+}
+
+fn intercepted_message_output(
+    item: burp_protocol::protocol::InterceptedMessage,
+) -> InterceptedMessageOutput {
+    InterceptedMessageOutput {
+        id: item.id,
+        direction: item.direction,
+        phase: item.phase,
+        url: item.url,
+        method: item.method,
+        status: item.status,
+        is_in_scope: item.is_in_scope,
+        request_base64: STANDARD.encode(item.request),
+        response_base64: (!item.response.is_empty()).then(|| STANDARD.encode(item.response)),
     }
 }
 

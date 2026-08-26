@@ -59,6 +59,18 @@ enum Command {
         request: proto::SitemapSnapshotRequest,
         response: oneshot::Sender<Result<proto::SitemapSnapshotResponse, ClientError>>,
     },
+    InterceptedMessages {
+        request: proto::InterceptedMessagesRequest,
+        response: oneshot::Sender<Result<proto::InterceptedMessagesResponse, ClientError>>,
+    },
+    ControlInterceptedMessage {
+        request: proto::ControlInterceptedMessageRequest,
+        response: oneshot::Sender<Result<proto::InterceptedMessageResponse, ClientError>>,
+    },
+    InterceptControllerConfig {
+        request: proto::InterceptControllerConfigRequest,
+        response: oneshot::Sender<Result<proto::InterceptControllerConfigResponse, ClientError>>,
+    },
     TargetInfo {
         request: proto::TargetInfoRequest,
         response: oneshot::Sender<Result<proto::TargetInfoResponse, ClientError>>,
@@ -459,6 +471,27 @@ impl BurpClient {
         request: proto::SitemapSnapshotRequest,
     ) -> Result<proto::SitemapSnapshotResponse, ClientError> {
         self.send(|response| Command::SitemapSnapshot { request, response })
+            .await
+    }
+    pub async fn intercepted_messages(
+        &self,
+        request: proto::InterceptedMessagesRequest,
+    ) -> Result<proto::InterceptedMessagesResponse, ClientError> {
+        self.send(|response| Command::InterceptedMessages { request, response })
+            .await
+    }
+    pub async fn control_intercepted_message(
+        &self,
+        request: proto::ControlInterceptedMessageRequest,
+    ) -> Result<proto::InterceptedMessageResponse, ClientError> {
+        self.send(|response| Command::ControlInterceptedMessage { request, response })
+            .await
+    }
+    pub async fn intercept_controller_config(
+        &self,
+        request: proto::InterceptControllerConfigRequest,
+    ) -> Result<proto::InterceptControllerConfigResponse, ClientError> {
+        self.send(|response| Command::InterceptControllerConfig { request, response })
             .await
     }
     pub async fn target_info(
@@ -1217,6 +1250,36 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::InterceptedMessages { request, response } => {
+            let result = client
+                .intercepted_messages(with_deadline(request, config.call_timeout))
+                .await
+                .map(|r| r.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::ControlInterceptedMessage { request, response } => {
+            let result = client
+                .control_intercepted_message(with_deadline(request, config.call_timeout))
+                .await
+                .map(|r| r.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::InterceptControllerConfig { request, response } => {
+            let result = client
+                .intercept_controller_config(with_deadline(request, config.call_timeout))
+                .await
+                .map(|r| r.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
         Command::TargetInfo { request, response } => {
             let result = client
                 .target_info(with_deadline(request, config.call_timeout))
@@ -1914,6 +1977,15 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::SitemapSnapshot { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::InterceptedMessages { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ControlInterceptedMessage { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::InterceptControllerConfig { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::TargetInfo { response, .. } => {

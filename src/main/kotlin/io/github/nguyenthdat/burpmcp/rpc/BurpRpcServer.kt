@@ -17,6 +17,8 @@ import io.github.nguyenthdat.burpmcp.ProxyInterceptConfigFacade
 import io.github.nguyenthdat.burpmcp.ProxyInterceptConfigPatch
 import io.github.nguyenthdat.burpmcp.ProxyInterceptConfig
 import io.github.nguyenthdat.burpmcp.ProxyInterceptRuleConfig
+import io.github.nguyenthdat.burpmcp.ProxyInterceptController
+import io.github.nguyenthdat.burpmcp.InterceptDecision
 import io.github.nguyenthdat.burpmcp.ProxyListenerConfig
 import io.github.nguyenthdat.burpmcp.ProxySettingsFacade
 import io.github.nguyenthdat.burpmcp.ScriptFilterConfig
@@ -66,6 +68,14 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.GenerateScannerReportRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.GenerateScannerReportResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ExtensionInfoResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptStateRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptedMessagesRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptedMessagesResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ControlInterceptedMessageRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptedMessageResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptedMessage
+import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptControllerConfigRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptControllerConfigResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptAction
 import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptStateResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyInterceptConfigRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyInterceptConfigResponse
@@ -381,6 +391,14 @@ private inline fun <T> StreamObserver<T>.respond(block: () -> T) {
                 exception.message ?: "invalid argument",
             ),
         )
+    } catch (exception: NoSuchElementException) {
+        onError(
+            structuredStatus(
+                Status.NOT_FOUND,
+                ErrorCode.ERROR_CODE_NOT_FOUND,
+                exception.message ?: "resource not found",
+            ),
+        )
     } catch (exception: IllegalStateException) {
         onError(
             structuredStatus(
@@ -411,6 +429,7 @@ internal class BurpRpcService(
     private val httpHandlerFacade: HttpHandlerFacade = resources.httpHandlers,
     private val proxyRuleFacade: ProxyRuleFacade = resources.proxyRules,
     private val proxyInterceptConfigFacade: ProxyInterceptConfigFacade = resources.proxyIntercept,
+    private val interceptController: ProxyInterceptController = resources.interceptController,
     private val proxySettingsFacade: ProxySettingsFacade = resources.proxySettings,
     private val macroFacade: io.github.nguyenthdat.burpmcp.MacroFacade = resources.macros,
     private val sessionRuleFacade: SessionRuleFacade = resources.sessionRules,
@@ -779,6 +798,59 @@ internal class BurpRpcService(
         val enabled = proxyFacade.interceptState(if (request.hasEnabled()) request.enabled else null)
         responseObserver.onNext(InterceptStateResponse.newBuilder().setEnabled(enabled).build())
         responseObserver.onCompleted()
+    }
+
+    override fun interceptedMessages(
+        request: InterceptedMessagesRequest,
+        responseObserver: StreamObserver<InterceptedMessagesResponse>,
+    ) = responseObserver.respond {
+        val limit = if (!request.hasPage() || request.page.limit == 0) 100 else request.page.limit.toInt()
+        require(limit <= GRPC_MAX_PAGE_SIZE) { "page limit must be at most $GRPC_MAX_PAGE_SIZE" }
+        val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "intercepted message cursor")
+        val (items, total) = interceptController.list(offset, limit)
+        val end = offset + items.size
+        InterceptedMessagesResponse.newBuilder()
+            .addAllItems(items.map { it.toProto() })
+            .setPage(
+                PageInfo.newBuilder()
+                    .setTotal(total)
+                    .setTruncated(end < total)
+                    .setNextCursor(if (end < total) end.toString() else "")
+                    .build(),
+            )
+            .build()
+    }
+
+    override fun controlInterceptedMessage(
+        request: ControlInterceptedMessageRequest,
+        responseObserver: StreamObserver<InterceptedMessageResponse>,
+    ) = responseObserver.respond {
+        require(request.action != InterceptAction.INTERCEPT_ACTION_UNSPECIFIED) { "action is required" }
+        val decision = when (request.action) {
+            InterceptAction.INTERCEPT_ACTION_FORWARD -> InterceptDecision.FORWARD
+            InterceptAction.INTERCEPT_ACTION_DROP -> InterceptDecision.DROP
+            InterceptAction.INTERCEPT_ACTION_INTERCEPT -> InterceptDecision.INTERCEPT
+            else -> error("unsupported intercept action")
+        }
+        val replacement = request.message.takeIf { !it.isEmpty }?.toByteArray()
+        InterceptedMessageResponse.newBuilder()
+            .setMessage(interceptController.resolve(request.id, decision, replacement).toProto())
+            .build()
+    }
+
+    override fun interceptControllerConfig(
+        request: InterceptControllerConfigRequest,
+        responseObserver: StreamObserver<InterceptControllerConfigResponse>,
+    ) = responseObserver.respond {
+        val state = interceptController.configure(
+            request.enabled.takeIf { request.hasEnabled() },
+            request.timeoutSeconds.toInt().takeIf { request.hasTimeoutSeconds() },
+        )
+        InterceptControllerConfigResponse.newBuilder()
+            .setEnabled(state.enabled)
+            .setTimeoutSeconds(state.timeoutSeconds)
+            .setPending(state.pending)
+            .build()
     }
     override fun proxyInterceptConfig(
         request: ProxyInterceptConfigRequest,
@@ -1910,5 +1982,18 @@ internal class BurpRpcService(
         }
         return builder.build()
     }
+
+    private fun io.github.nguyenthdat.burpmcp.PendingIntercept.toProto(): InterceptedMessage =
+        InterceptedMessage.newBuilder()
+            .setId(id)
+            .setDirection(direction.name.lowercase())
+            .setUrl(url)
+            .setMethod(method)
+            .setStatus(status)
+            .setIsInScope(isInScope)
+            .setRequest(com.google.protobuf.ByteString.copyFrom(request))
+            .setResponse(com.google.protobuf.ByteString.copyFrom(response))
+            .setPhase(phase.name.lowercase())
+            .build()
 
 }

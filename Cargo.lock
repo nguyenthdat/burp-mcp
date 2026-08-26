@@ -1505,7 +1505,6 @@ dependencies = [
  "fixedbitset",
  "hashbrown 0.15.5",
  "indexmap",
- "serde",
 ]
 
 [[package]]
@@ -2247,7 +2246,6 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "http",
- "petgraph",
  "proptest",
  "regex",
  "serde",
