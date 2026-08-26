@@ -4,16 +4,22 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [dependencies]
 base64.workspace = true
+ciborium.workspace = true
+capnp.workspace = true
+capnp-rpc.workspace = true
+futures.workspace = true
 fs2.workspace = true
 getrandom.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 sitegraph = { path = "../sitegraph" }
+tokio-util.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+toml.workspace = true
 tracing.workspace = true
 
 [[bin]]
@@ -22,3 +28,6 @@ path = "src/main.rs"
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[build-dependencies]
+capnpc.workspace = true

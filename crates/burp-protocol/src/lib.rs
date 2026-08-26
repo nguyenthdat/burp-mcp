@@ -71,6 +71,19 @@ enum Command {
         request: proto::InterceptControllerConfigRequest,
         response: oneshot::Sender<Result<proto::InterceptControllerConfigResponse, ClientError>>,
     },
+    InterceptedWebSocketMessages {
+        request: proto::InterceptedWebSocketMessagesRequest,
+        response: oneshot::Sender<Result<proto::InterceptedWebSocketMessagesResponse, ClientError>>,
+    },
+    ControlInterceptedWebSocketMessage {
+        request: proto::ControlInterceptedWebSocketMessageRequest,
+        response: oneshot::Sender<Result<proto::InterceptedWebSocketMessageResponse, ClientError>>,
+    },
+    WebSocketInterceptControllerConfig {
+        request: proto::WebSocketInterceptControllerConfigRequest,
+        response:
+            oneshot::Sender<Result<proto::WebSocketInterceptControllerConfigResponse, ClientError>>,
+    },
     TargetInfo {
         request: proto::TargetInfoRequest,
         response: oneshot::Sender<Result<proto::TargetInfoResponse, ClientError>>,
@@ -492,6 +505,27 @@ impl BurpClient {
         request: proto::InterceptControllerConfigRequest,
     ) -> Result<proto::InterceptControllerConfigResponse, ClientError> {
         self.send(|response| Command::InterceptControllerConfig { request, response })
+            .await
+    }
+    pub async fn intercepted_websocket_messages(
+        &self,
+        request: proto::InterceptedWebSocketMessagesRequest,
+    ) -> Result<proto::InterceptedWebSocketMessagesResponse, ClientError> {
+        self.send(|response| Command::InterceptedWebSocketMessages { request, response })
+            .await
+    }
+    pub async fn control_intercepted_websocket_message(
+        &self,
+        request: proto::ControlInterceptedWebSocketMessageRequest,
+    ) -> Result<proto::InterceptedWebSocketMessageResponse, ClientError> {
+        self.send(|response| Command::ControlInterceptedWebSocketMessage { request, response })
+            .await
+    }
+    pub async fn websocket_intercept_controller_config(
+        &self,
+        request: proto::WebSocketInterceptControllerConfigRequest,
+    ) -> Result<proto::WebSocketInterceptControllerConfigResponse, ClientError> {
+        self.send(|response| Command::WebSocketInterceptControllerConfig { request, response })
             .await
     }
     pub async fn target_info(
@@ -1280,6 +1314,36 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::InterceptedWebSocketMessages { request, response } => {
+            let result = client
+                .intercepted_web_socket_messages(with_deadline(request, config.call_timeout))
+                .await
+                .map(|r| r.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::ControlInterceptedWebSocketMessage { request, response } => {
+            let result = client
+                .control_intercepted_web_socket_message(with_deadline(request, config.call_timeout))
+                .await
+                .map(|r| r.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::WebSocketInterceptControllerConfig { request, response } => {
+            let result = client
+                .web_socket_intercept_controller_config(with_deadline(request, config.call_timeout))
+                .await
+                .map(|r| r.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
         Command::TargetInfo { request, response } => {
             let result = client
                 .target_info(with_deadline(request, config.call_timeout))
@@ -2013,6 +2077,15 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::AddIssue { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::InterceptedWebSocketMessages { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ControlInterceptedWebSocketMessage { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::WebSocketInterceptControllerConfig { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::ScanIssueDetail { response, .. } => {

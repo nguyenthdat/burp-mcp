@@ -1,5 +1,5 @@
 use super::StorageError;
-use crate::model::{Edge, EdgeKind};
+use crate::model::{Edge, EdgeKind, EdgeMetadata};
 use crate::normalize::fingerprint::stable_id;
 use sqlx::{Sqlite, Transaction};
 
@@ -19,7 +19,7 @@ pub async fn upsert(
         kind,
         evidence_id: evidence_id.to_owned(),
         created_at: timestamp,
-        metadata: serde_json::json!({}),
+        metadata: EdgeMetadata::default(),
     };
     sqlx::query(
         "INSERT INTO edges(id, from_id, to_id, kind, evidence_id, created_at, updated_at, metadata)

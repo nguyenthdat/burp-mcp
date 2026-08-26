@@ -16,6 +16,7 @@ import io.github.nguyenthdat.burpmcp.ProxyRule
 import io.github.nguyenthdat.burpmcp.ProxyInterceptConfigFacade
 import io.github.nguyenthdat.burpmcp.ProxyInterceptConfigPatch
 import io.github.nguyenthdat.burpmcp.ProxyInterceptConfig
+import io.github.nguyenthdat.burpmcp.ProxyWebSocketInterceptController
 import io.github.nguyenthdat.burpmcp.ProxyInterceptRuleConfig
 import io.github.nguyenthdat.burpmcp.ProxyInterceptController
 import io.github.nguyenthdat.burpmcp.InterceptDecision
@@ -91,6 +92,13 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.ProxyWebSocketHistoryResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ManagedWebSocketHistoryRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ManagedWebSocketHistoryResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ManagedWebSocketMessageEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptedWebSocketMessagesRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptedWebSocketMessagesResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.ControlInterceptedWebSocketMessageRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptedWebSocketMessageResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.WebSocketInterceptControllerConfigRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.InterceptedWebSocketMessage
+import io.github.nguyenthdat.burpmcp.grpc.v1.WebSocketInterceptControllerConfigResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.InspectConfigResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ListProxyRulesRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ListProxyRulesResponse
@@ -430,6 +438,7 @@ internal class BurpRpcService(
     private val proxyRuleFacade: ProxyRuleFacade = resources.proxyRules,
     private val proxyInterceptConfigFacade: ProxyInterceptConfigFacade = resources.proxyIntercept,
     private val interceptController: ProxyInterceptController = resources.interceptController,
+    private val webSocketInterceptController: ProxyWebSocketInterceptController = resources.webSocketInterceptController,
     private val proxySettingsFacade: ProxySettingsFacade = resources.proxySettings,
     private val macroFacade: io.github.nguyenthdat.burpmcp.MacroFacade = resources.macros,
     private val sessionRuleFacade: SessionRuleFacade = resources.sessionRules,
@@ -474,6 +483,7 @@ internal class BurpRpcService(
                     ProxyHistoryQuery(
                         limit = limit,
                         offset = offset,
+                        afterId = request.afterId.toInt().takeIf { request.hasAfterId() },
                         urlFilter = request.urlFilter.takeIf(String::isNotEmpty),
                         methodFilter = request.methodFilter.takeIf(String::isNotEmpty),
                         statusFilter = if (request.hasStatusFilter()) request.statusFilter.toInt() else null,
@@ -493,6 +503,7 @@ internal class BurpRpcService(
                     ProxyHistoryEntry
                         .newBuilder()
                         .setIndex(item.index)
+                        .setId(item.id)
                         .setMethod(item.method)
                         .setUrl(item.url)
                         .setStatus(item.status ?: 0)
@@ -502,6 +513,8 @@ internal class BurpRpcService(
                         .setHighlight(item.highlight ?: "")
                         .setRequest(com.google.protobuf.ByteString.copyFrom(item.request))
                         .setResponse(com.google.protobuf.ByteString.copyFrom(item.response ?: byteArrayOf()))
+                        .setTime(item.time)
+                        .setContentType(item.contentType)
                         .build()
                 val itemBytes = protoItem.serializedSize
                 if (estimatedBytes + itemBytes > GRPC_MAX_RESPONSE_BYTES - GRPC_RESPONSE_OVERHEAD_BYTES) break
@@ -838,6 +851,52 @@ internal class BurpRpcService(
             .build()
     }
 
+    override fun interceptedWebSocketMessages(
+        request: InterceptedWebSocketMessagesRequest,
+        responseObserver: StreamObserver<InterceptedWebSocketMessagesResponse>,
+    ) = responseObserver.respond {
+        val limit = if (!request.hasPage() || request.page.limit == 0) 100 else request.page.limit.toInt()
+        require(limit <= GRPC_MAX_PAGE_SIZE) { "page limit must be at most $GRPC_MAX_PAGE_SIZE" }
+        val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "intercepted WebSocket cursor")
+        val (items, total) = webSocketInterceptController.list(offset, limit)
+        val end = offset + items.size
+        InterceptedWebSocketMessagesResponse.newBuilder()
+            .addAllItems(items.map { it.toProto() })
+            .setPage(PageInfo.newBuilder().setTotal(total).setTruncated(end < total).setNextCursor(if (end < total) end.toString() else "").build())
+            .build()
+    }
+
+    override fun controlInterceptedWebSocketMessage(
+        request: ControlInterceptedWebSocketMessageRequest,
+        responseObserver: StreamObserver<InterceptedWebSocketMessageResponse>,
+    ) = responseObserver.respond {
+        val decision = when (request.action) {
+            InterceptAction.INTERCEPT_ACTION_FORWARD -> InterceptDecision.FORWARD
+            InterceptAction.INTERCEPT_ACTION_DROP -> InterceptDecision.DROP
+            InterceptAction.INTERCEPT_ACTION_INTERCEPT -> InterceptDecision.INTERCEPT
+            else -> error("action is required")
+        }
+        val payload = request.payload.takeIf { request.replacePayload }?.toByteArray()
+        InterceptedWebSocketMessageResponse.newBuilder()
+            .setMessage(webSocketInterceptController.resolve(request.id, decision, payload).toProto())
+            .build()
+    }
+
+    override fun webSocketInterceptControllerConfig(
+        request: WebSocketInterceptControllerConfigRequest,
+        responseObserver: StreamObserver<WebSocketInterceptControllerConfigResponse>,
+    ) = responseObserver.respond {
+        val state = webSocketInterceptController.configure(
+            request.enabled.takeIf { request.hasEnabled() },
+            request.timeoutSeconds.toInt().takeIf { request.hasTimeoutSeconds() },
+        )
+        WebSocketInterceptControllerConfigResponse.newBuilder()
+            .setEnabled(state.enabled)
+            .setTimeoutSeconds(state.timeoutSeconds)
+            .setPending(state.pending)
+            .build()
+    }
+
     override fun interceptControllerConfig(
         request: InterceptControllerConfigRequest,
         responseObserver: StreamObserver<InterceptControllerConfigResponse>,
@@ -943,7 +1002,7 @@ internal class BurpRpcService(
     ) = responseObserver.respond {
         val limit = if (!request.hasPage() || request.page.limit == 0) 50 else request.page.limit.coerceAtMost(GRPC_MAX_PAGE_SIZE)
         val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "WebSocket cursor")
-        val page = proxyFacade.webSocketHistory(limit, offset)
+        val page = proxyFacade.webSocketHistory(limit, offset, request.afterId.toInt().takeIf { request.hasAfterId() })
         val end = page.offset + page.items.size
         ProxyWebSocketHistoryResponse.newBuilder()
             .addAllItems(page.items.map { item ->
@@ -1994,6 +2053,17 @@ internal class BurpRpcService(
             .setRequest(com.google.protobuf.ByteString.copyFrom(request))
             .setResponse(com.google.protobuf.ByteString.copyFrom(response))
             .setPhase(phase.name.lowercase())
+            .build()
+
+    private fun io.github.nguyenthdat.burpmcp.PendingWebSocketIntercept.toProto(): InterceptedWebSocketMessage =
+        InterceptedWebSocketMessage.newBuilder()
+            .setId(id)
+            .setWebSocketId(webSocketId)
+            .setUpgradeUrl(upgradeUrl)
+            .setDirection(direction)
+            .setMessageType(messageType.name.lowercase())
+            .setPhase(phase.name.lowercase())
+            .setPayload(com.google.protobuf.ByteString.copyFrom(payload))
             .build()
 
 }

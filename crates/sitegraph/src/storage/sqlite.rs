@@ -5,13 +5,12 @@ use crate::graph::traversal::{TracePage, TraceStep};
 use crate::ingest::relationships;
 use crate::limits::{PageLimit, TraversalDepth};
 use crate::model::{
-    Endpoint, EndpointPage, GraphStatus, NodeKind, SyncBatch, SyncContext, SyncCoverage,
-    SyncSummary,
+    Endpoint, EndpointPage, EvidenceSource, GraphStatus, NodeKind, NodeMetadata, SyncBatch,
+    SyncContext, SyncCoverage, SyncSummary,
 };
 use crate::normalize::{fingerprint, headers, url};
 use crate::storage::evidence::{persist_rule_findings, upsert_evidence_blob};
 use crate::storage::{StorageError, edges, migrations::MIGRATOR, nodes, query::validated_limit};
-use serde_json::json;
 use sqlx::{ConnectOptions, Row, SqlitePool, sqlite::SqliteConnectOptions};
 use std::path::Path;
 use std::str::FromStr;
@@ -22,6 +21,26 @@ pub struct SiteGraph {
     pool: SqlitePool,
     graph_id: String,
     rule_pack: Arc<RulePack>,
+}
+
+#[derive(serde::Serialize)]
+struct SyncEvidenceSummary {
+    sitemap_items: usize,
+    issue_items: usize,
+}
+
+fn endpoint_from_metadata(id: String, last_seen_at: i64, metadata: NodeMetadata) -> Endpoint {
+    Endpoint {
+        id,
+        origin: metadata.origin,
+        method: metadata.method,
+        path: metadata.path,
+        status: metadata.status.unwrap_or_default(),
+        content_type: metadata.content_type,
+        response_fingerprint: metadata.response_fingerprint,
+        parameter_names: metadata.parameter_names,
+        last_seen_at,
+    }
 }
 
 async fn upsert_source_node(
@@ -202,7 +221,10 @@ impl SiteGraph {
             .bind(&evidence_id)
             .bind(&context.source)
             .bind(now)
-            .bind(json!({"sitemap_items": batch.sitemap.len(), "issue_items": batch.issues.len()}).to_string())
+            .bind(serde_json::to_string(&SyncEvidenceSummary {
+                sitemap_items: batch.sitemap.len(),
+                issue_items: batch.issues.len(),
+            })?)
             .execute(&mut *transaction)
             .await?;
         let mut upserted_nodes = 0_u64;
@@ -219,23 +241,24 @@ impl SiteGraph {
                 NodeKind::Endpoint,
                 endpoint_hash.clone(),
                 now,
-                json!({
-                    "origin": normalized.origin,
-                    "method": method,
-                    "path": normalized.path,
-                    "status": observation.status,
-                    "content_type": headers::content_type(&observation.content_type),
-                    "response_fingerprint": fingerprint::response(&observation.response_body),
-                    "parameter_names": normalized.parameter_names,
-                }),
+                NodeMetadata {
+                    origin: normalized.origin,
+                    method,
+                    path: normalized.path,
+                    status: Some(observation.status),
+                    content_type: headers::content_type(&observation.content_type),
+                    response_fingerprint: fingerprint::response(&observation.response_body),
+                    parameter_names: normalized.parameter_names,
+                    ..NodeMetadata::default()
+                },
             );
             upsert_source_node(
                 &mut transaction,
                 &endpoint,
                 nodes::SearchFields {
-                    origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
-                    method: endpoint.metadata["method"].as_str().unwrap_or_default(),
-                    path: endpoint.metadata["path"].as_str().unwrap_or_default(),
+                    origin: endpoint.metadata.origin.as_str(),
+                    method: endpoint.metadata.method.as_str(),
+                    path: endpoint.metadata.path.as_str(),
                     name: "",
                 },
                 context,
@@ -246,12 +269,12 @@ impl SiteGraph {
             upserted_nodes += 1;
             let origin = nodes::node(
                 NodeKind::Origin,
-                fingerprint::stable_id(
-                    "origin",
-                    &[endpoint.metadata["origin"].as_str().unwrap_or_default()],
-                ),
+                fingerprint::stable_id("origin", &[endpoint.metadata.origin.as_str()]),
                 now,
-                json!({"origin": endpoint.metadata["origin"]}),
+                NodeMetadata {
+                    origin: endpoint.metadata.origin.clone(),
+                    ..NodeMetadata::default()
+                },
             );
             for (surface, direction, payload) in [
                 (
@@ -311,11 +334,12 @@ impl SiteGraph {
                 )
                 .await?;
             }
+            index_evidence_for_search(&mut transaction, &endpoint.id).await?;
             upsert_source_node(
                 &mut transaction,
                 &origin,
                 nodes::SearchFields {
-                    origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
+                    origin: endpoint.metadata.origin.as_str(),
                     ..nodes::SearchFields::default()
                 },
                 context,
@@ -338,9 +362,10 @@ impl SiteGraph {
             upserted_edges += 1;
             let mut parent_id = origin.id.clone();
             let mut accumulated = String::new();
-            for segment in endpoint.metadata["path"]
+            for segment in endpoint
+                .metadata
+                .path
                 .as_str()
-                .unwrap_or_default()
                 .split('/')
                 .filter(|segment| !segment.is_empty())
             {
@@ -350,20 +375,21 @@ impl SiteGraph {
                     NodeKind::PathSegment,
                     fingerprint::stable_id(
                         "path_segment",
-                        &[
-                            endpoint.metadata["origin"].as_str().unwrap_or_default(),
-                            &accumulated,
-                        ],
+                        &[endpoint.metadata.origin.as_str(), &accumulated],
                     ),
                     now,
-                    json!({"segment": segment, "path": accumulated}),
+                    NodeMetadata {
+                        segment: segment.to_owned(),
+                        path: accumulated.clone(),
+                        ..NodeMetadata::default()
+                    },
                 );
                 upsert_source_node(
                     &mut transaction,
                     &segment_node,
                     nodes::SearchFields {
-                        origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
-                        path: segment_node.metadata["path"].as_str().unwrap_or_default(),
+                        origin: endpoint.metadata.origin.as_str(),
+                        path: segment_node.metadata.path.as_str(),
                         ..nodes::SearchFields::default()
                     },
                     context,
@@ -386,17 +412,16 @@ impl SiteGraph {
                 upserted_nodes += 1;
                 upserted_edges += 1;
             }
-            for parameter_name in endpoint.metadata["parameter_names"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|value| value.as_str())
-            {
+            for parameter_name in &endpoint.metadata.parameter_names {
                 let parameter = nodes::node(
                     NodeKind::Parameter,
                     fingerprint::stable_id("parameter", &[&endpoint.id, "query", parameter_name]),
                     now,
-                    json!({"name": parameter_name, "location": "query"}),
+                    NodeMetadata {
+                        name: parameter_name.clone(),
+                        location: "query".to_owned(),
+                        ..NodeMetadata::default()
+                    },
                 );
                 upsert_source_node(
                     &mut transaction,
@@ -424,12 +449,16 @@ impl SiteGraph {
                 upserted_nodes += 1;
                 upserted_edges += 1;
             }
-            if let Some(response_hash) = endpoint.metadata["response_fingerprint"].as_str() {
+            if let Some(response_hash) = endpoint.metadata.response_fingerprint.as_deref() {
                 let response = nodes::node(
                     NodeKind::ResponseFingerprint,
                     fingerprint::stable_id("response_fingerprint", &[response_hash]),
                     now,
-                    json!({"fingerprint": response_hash, "content_type": endpoint.metadata["content_type"]}),
+                    NodeMetadata {
+                        fingerprint: response_hash.to_owned(),
+                        content_type: endpoint.metadata.content_type.clone(),
+                        ..NodeMetadata::default()
+                    },
                 );
                 upsert_source_node(
                     &mut transaction,
@@ -463,15 +492,20 @@ impl SiteGraph {
                     NodeKind::Endpoint,
                     target_hash.clone(),
                     now,
-                    json!({"origin": target.origin, "method": "GET", "path": target.path}),
+                    NodeMetadata {
+                        origin: target.origin,
+                        method: "GET".to_owned(),
+                        path: target.path,
+                        ..NodeMetadata::default()
+                    },
                 );
                 upsert_source_node(
                     &mut transaction,
                     &target_node,
                     nodes::SearchFields {
-                        origin: target_node.metadata["origin"].as_str().unwrap_or_default(),
+                        origin: target_node.metadata.origin.as_str(),
                         method: "GET",
-                        path: target_node.metadata["path"].as_str().unwrap_or_default(),
+                        path: target_node.metadata.path.as_str(),
                         name: "",
                     },
                     context,
@@ -524,15 +558,20 @@ impl SiteGraph {
                 NodeKind::Endpoint,
                 endpoint_hash,
                 now,
-                json!({"origin": normalized.origin, "method": "GET", "path": normalized.path}),
+                NodeMetadata {
+                    origin: normalized.origin,
+                    method: "GET".to_owned(),
+                    path: normalized.path,
+                    ..NodeMetadata::default()
+                },
             );
             upsert_source_node(
                 &mut transaction,
                 &endpoint,
                 nodes::SearchFields {
-                    origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
+                    origin: endpoint.metadata.origin.as_str(),
                     method: "GET",
-                    path: endpoint.metadata["path"].as_str().unwrap_or_default(),
+                    path: endpoint.metadata.path.as_str(),
                     name: "",
                 },
                 context,
@@ -553,11 +592,12 @@ impl SiteGraph {
                 NodeKind::Issue,
                 issue_hash,
                 now,
-                json!({
-                    "name": issue.name,
-                    "severity": issue.severity,
-                    "confidence": issue.confidence,
-                }),
+                NodeMetadata {
+                    name: issue.name.clone(),
+                    severity: issue.severity.clone(),
+                    confidence: issue.confidence.clone(),
+                    ..NodeMetadata::default()
+                },
             );
             upsert_source_node(
                 &mut transaction,
@@ -597,15 +637,20 @@ impl SiteGraph {
                 NodeKind::Endpoint,
                 endpoint_id,
                 now,
-                json!({"origin": normalized.origin, "method": method, "path": normalized.path}),
+                NodeMetadata {
+                    origin: normalized.origin,
+                    method,
+                    path: normalized.path,
+                    ..NodeMetadata::default()
+                },
             );
             upsert_source_node(
                 &mut transaction,
                 &endpoint,
                 nodes::SearchFields {
-                    origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
-                    method: endpoint.metadata["method"].as_str().unwrap_or_default(),
-                    path: endpoint.metadata["path"].as_str().unwrap_or_default(),
+                    origin: endpoint.metadata.origin.as_str(),
+                    method: endpoint.metadata.method.as_str(),
+                    path: endpoint.metadata.path.as_str(),
                     name: "",
                 },
                 context,
@@ -618,15 +663,16 @@ impl SiteGraph {
                 NodeKind::Technology,
                 fingerprint::stable_id("technology", &[&normalized_name]),
                 now,
-                json!({"name": normalized_name}),
+                NodeMetadata {
+                    name: normalized_name,
+                    ..NodeMetadata::default()
+                },
             );
             upsert_source_node(
                 &mut transaction,
                 &technology_node,
                 nodes::SearchFields {
-                    name: technology_node.metadata["name"]
-                        .as_str()
-                        .unwrap_or_default(),
+                    name: technology_node.metadata.name.as_str(),
                     ..nodes::SearchFields::default()
                 },
                 context,
@@ -657,15 +703,20 @@ impl SiteGraph {
                 NodeKind::Endpoint,
                 endpoint_id,
                 now,
-                json!({"origin": normalized.origin, "method": "GET", "path": normalized.path}),
+                NodeMetadata {
+                    origin: normalized.origin,
+                    method: "GET".to_owned(),
+                    path: normalized.path,
+                    ..NodeMetadata::default()
+                },
             );
             upsert_source_node(
                 &mut transaction,
                 &endpoint,
                 nodes::SearchFields {
-                    origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
+                    origin: endpoint.metadata.origin.as_str(),
                     method: "GET",
-                    path: endpoint.metadata["path"].as_str().unwrap_or_default(),
+                    path: endpoint.metadata.path.as_str(),
                     name: "",
                 },
                 context,
@@ -679,13 +730,18 @@ impl SiteGraph {
                 NodeKind::Artifact,
                 fingerprint::stable_id("artifact", &[&kind, name, &artifact.fingerprint]),
                 now,
-                json!({"kind": kind, "name": name, "fingerprint": artifact.fingerprint}),
+                NodeMetadata {
+                    kind,
+                    name: name.to_owned(),
+                    fingerprint: artifact.fingerprint.clone(),
+                    ..NodeMetadata::default()
+                },
             );
             upsert_source_node(
                 &mut transaction,
                 &artifact_node,
                 nodes::SearchFields {
-                    name: artifact_node.metadata["name"].as_str().unwrap_or_default(),
+                    name: artifact_node.metadata.name.as_str(),
                     ..nodes::SearchFields::default()
                 },
                 context,
@@ -713,11 +769,12 @@ impl SiteGraph {
                 NodeKind::Artifact,
                 channel_id.clone(),
                 now,
-                json!({
-                    "artifact_kind": "websocket_channel",
-                    "web_socket_id": message.web_socket_id,
-                    "upgrade_url": message.upgrade_url,
-                }),
+                NodeMetadata {
+                    artifact_kind: "websocket_channel".to_owned(),
+                    web_socket_id: message.web_socket_id.clone(),
+                    upgrade_url: message.upgrade_url.clone(),
+                    ..NodeMetadata::default()
+                },
             );
             upsert_source_node(
                 &mut transaction,
@@ -737,12 +794,13 @@ impl SiteGraph {
                 NodeKind::Artifact,
                 node_id.clone(),
                 now,
-                json!({
-                    "artifact_kind": "websocket_message",
-                    "web_socket_id": message.web_socket_id,
-                    "direction": message.direction,
-                    "upgrade_url": message.upgrade_url,
-                }),
+                NodeMetadata {
+                    artifact_kind: "websocket_message".to_owned(),
+                    web_socket_id: message.web_socket_id.clone(),
+                    direction: message.direction.clone(),
+                    upgrade_url: message.upgrade_url.clone(),
+                    ..NodeMetadata::default()
+                },
             );
             upsert_source_node(
                 &mut transaction,
@@ -798,6 +856,7 @@ impl SiteGraph {
                 )
                 .await?;
             }
+            index_evidence_for_search(&mut transaction, &node_id).await?;
             upserted_nodes += 2;
             upserted_edges += 1;
         }
@@ -1058,7 +1117,7 @@ impl SiteGraph {
                 truncated: false,
                 next_cursor: None,
                 last_synced_at: self.status().await?.last_synced_at,
-                evidence: json!({}),
+                evidence: EvidenceSource::default(),
             });
         }
         let total = sqlx::query("SELECT count(*) AS count FROM node_search JOIN nodes n ON n.id=node_search.node_id WHERE node_search MATCH ?1 AND n.kind='endpoint'")
@@ -1070,30 +1129,12 @@ impl SiteGraph {
             .bind(&pattern).bind(limit as i64).bind(cursor as i64).fetch_all(&self.pool).await?;
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
-            let metadata: serde_json::Value =
-                serde_json::from_str(&row.get::<String, _>("metadata"))?;
-            items.push(Endpoint {
-                id: row.get("id"),
-                origin: metadata["origin"].as_str().unwrap_or_default().to_owned(),
-                method: metadata["method"].as_str().unwrap_or_default().to_owned(),
-                path: metadata["path"].as_str().unwrap_or_default().to_owned(),
-                status: metadata["status"].as_u64().unwrap_or_default() as u32,
-                content_type: metadata["content_type"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned(),
-                response_fingerprint: metadata["response_fingerprint"].as_str().map(str::to_owned),
-                parameter_names: metadata["parameter_names"]
-                    .as_array()
-                    .map(|values| {
-                        values
-                            .iter()
-                            .filter_map(|value| value.as_str().map(str::to_owned))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-                last_seen_at: row.get("updated_at"),
-            });
+            let metadata: NodeMetadata = serde_json::from_str(&row.get::<String, _>("metadata"))?;
+            items.push(endpoint_from_metadata(
+                row.get("id"),
+                row.get("updated_at"),
+                metadata,
+            ));
         }
         let next = cursor + items.len() as u64;
         Ok(EndpointPage {
@@ -1102,7 +1143,66 @@ impl SiteGraph {
             truncated: next < total,
             next_cursor: (next < total).then_some(next),
             last_synced_at: self.status().await?.last_synced_at,
-            evidence: json!({"source": "SQLite FTS5 node metadata"}),
+            evidence: EvidenceSource {
+                source: Some("SQLite FTS5 node metadata".to_owned()),
+            },
+        })
+    }
+
+    pub async fn search_history(
+        &self,
+        query: &str,
+        source: Option<&str>,
+        cursor: u64,
+        limit: u64,
+    ) -> Result<crate::model::HistorySearchPage, StorageError> {
+        let limit = validated_limit(limit)?;
+        let pattern = literal_prefix_pattern(query);
+        if pattern.is_empty() {
+            return Ok(crate::model::HistorySearchPage {
+                items: Vec::new(),
+                total: 0,
+                truncated: false,
+                next_cursor: None,
+            });
+        }
+        let source = source.filter(|value| !value.is_empty() && *value != "all");
+        if let Some(value) = source {
+            if value != "http" && value != "websocket" {
+                return Err(StorageError::InvalidInput(
+                    "history source must be http, websocket, or all".to_owned(),
+                ));
+            }
+        }
+        let total = sqlx::query("SELECT count(*) AS count FROM history_search WHERE history_search MATCH ?1 AND (?2 IS NULL OR source=?2)")
+            .bind(&pattern).bind(source).fetch_one(&self.pool).await?.get::<i64, _>("count") as u64;
+        let rows = sqlx::query(
+            "SELECT h.blob_id, h.node_id, h.source, h.surface, h.direction, h.content_type, h.url, h.method, snippet(history_search, 8, '[', ']', ' … ', 24) AS snippet, e.byte_length
+             FROM history_search h JOIN evidence_blobs e ON e.id=h.blob_id
+             WHERE history_search MATCH ?1 AND (?2 IS NULL OR h.source=?2)
+             ORDER BY bm25(history_search), h.rowid LIMIT ?3 OFFSET ?4",
+        ).bind(&pattern).bind(source).bind(limit as i64).bind(cursor as i64).fetch_all(&self.pool).await?;
+        let items = rows
+            .into_iter()
+            .map(|row| crate::model::HistorySearchHit {
+                blob_id: row.get("blob_id"),
+                node_id: row.get("node_id"),
+                source: row.get("source"),
+                surface: row.get("surface"),
+                direction: row.get("direction"),
+                content_type: row.get("content_type"),
+                url: row.get("url"),
+                method: row.get("method"),
+                snippet: row.get("snippet"),
+                byte_length: row.get::<i64, _>("byte_length") as u64,
+            })
+            .collect::<Vec<_>>();
+        let end = cursor.saturating_add(items.len() as u64);
+        Ok(crate::model::HistorySearchPage {
+            items,
+            total,
+            truncated: end < total,
+            next_cursor: (end < total).then_some(end),
         })
     }
 
@@ -1116,29 +1216,12 @@ impl SiteGraph {
         else {
             return Ok(None);
         };
-        let metadata: serde_json::Value = serde_json::from_str(&row.get::<String, _>("metadata"))?;
-        Ok(Some(Endpoint {
-            id: row.get("id"),
-            origin: metadata["origin"].as_str().unwrap_or_default().to_owned(),
-            method: metadata["method"].as_str().unwrap_or_default().to_owned(),
-            path: metadata["path"].as_str().unwrap_or_default().to_owned(),
-            status: metadata["status"].as_u64().unwrap_or_default() as u32,
-            content_type: metadata["content_type"]
-                .as_str()
-                .unwrap_or_default()
-                .to_owned(),
-            response_fingerprint: metadata["response_fingerprint"].as_str().map(str::to_owned),
-            parameter_names: metadata["parameter_names"]
-                .as_array()
-                .map(|values| {
-                    values
-                        .iter()
-                        .filter_map(|value| value.as_str().map(str::to_owned))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            last_seen_at: row.get("updated_at"),
-        }))
+        let metadata: NodeMetadata = serde_json::from_str(&row.get::<String, _>("metadata"))?;
+        Ok(Some(endpoint_from_metadata(
+            row.get("id"),
+            row.get("updated_at"),
+            metadata,
+        )))
     }
 
     pub async fn neighbors(
@@ -1157,20 +1240,21 @@ impl SiteGraph {
             .bind(node_id).bind(limit as i64).bind(cursor as i64).fetch_all(&self.pool).await?;
         let items = rows
             .into_iter()
-            .map(|row| Neighbor {
-                edge_id: row.get("edge_id"),
-                kind: row.get("kind"),
-                direction: if row.get::<String, _>("from_id") == node_id {
-                    "outgoing".to_owned()
-                } else {
-                    "incoming".to_owned()
-                },
-                node_id: row.get("node_id"),
-                node_kind: row.get("node_kind"),
-                metadata: serde_json::from_str(&row.get::<String, _>("metadata"))
-                    .unwrap_or_else(|_| json!({})),
+            .map(|row| {
+                Ok(Neighbor {
+                    edge_id: row.get("edge_id"),
+                    kind: row.get("kind"),
+                    direction: if row.get::<String, _>("from_id") == node_id {
+                        "outgoing".to_owned()
+                    } else {
+                        "incoming".to_owned()
+                    },
+                    node_id: row.get("node_id"),
+                    node_kind: row.get("node_kind"),
+                    metadata: serde_json::from_str(&row.get::<String, _>("metadata"))?,
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, StorageError>>()?;
         let next = cursor + items.len() as u64;
         Ok(NeighborPage {
             items,
@@ -1178,7 +1262,9 @@ impl SiteGraph {
             truncated: next < total,
             next_cursor: (next < total).then_some(next),
             last_synced_at: self.status().await?.last_synced_at,
-            evidence: json!({"source": "SQLite adjacency edges"}),
+            evidence: EvidenceSource {
+                source: Some("SQLite adjacency edges".to_owned()),
+            },
         })
     }
 
@@ -1303,6 +1389,40 @@ impl SiteGraph {
     ) -> Result<Vec<crate::ImpactNode>, StorageError> {
         analysis::impact(&self.pool, start_id, max_depth, limit).await
     }
+}
+
+async fn index_evidence_for_search(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    node_id: &str,
+) -> Result<(), StorageError> {
+    let metadata = sqlx::query("SELECT metadata FROM nodes WHERE id=?1")
+        .bind(node_id)
+        .fetch_one(&mut **transaction)
+        .await?
+        .get::<String, _>("metadata");
+    let metadata: NodeMetadata = serde_json::from_str(&metadata)?;
+    let url = if metadata.upgrade_url.is_empty() {
+        metadata.url.as_str()
+    } else {
+        metadata.upgrade_url.as_str()
+    };
+    let method = metadata.method.as_str();
+    let blobs = sqlx::query("SELECT id, surface, direction, content_type, payload FROM evidence_blobs WHERE source_entry_id=?1")
+        .bind(node_id).fetch_all(&mut **transaction).await?;
+    for row in blobs {
+        let payload = row.get::<Vec<u8>, _>("payload");
+        let text = match std::str::from_utf8(&payload) {
+            Ok(value) => value.to_owned(),
+            Err(_) => base64::Engine::encode(&base64::engine::general_purpose::STANDARD, payload),
+        };
+        let surface = row.get::<String, _>("surface");
+        sqlx::query("INSERT INTO history_search(blob_id, node_id, source, surface, direction, content_type, url, method, payload) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
+            .bind(row.get::<String, _>("id")).bind(node_id)
+            .bind(if surface.starts_with("websocket_") { "websocket" } else { "http" })
+            .bind(surface).bind(row.get::<String, _>("direction")).bind(row.get::<String, _>("content_type"))
+            .bind(url).bind(method).bind(text).execute(&mut **transaction).await?;
+    }
+    Ok(())
 }
 
 fn literal_prefix_pattern(query: &str) -> String {
@@ -1989,5 +2109,48 @@ mod tests {
         assert_eq!(route_edges, 1);
         assert_eq!(channel_edges, 1);
         assert_eq!(channel_nodes, 1);
+    }
+    #[tokio::test]
+    async fn history_search_indexes_http_and_websocket_payloads() {
+        let graph = graph().await;
+        let mut http = observation("search", b"");
+        http.request_bytes = b"GET /search HTTP/1.1\r\nX-Trace: alpha-needle\r\n\r\n".to_vec();
+        http.response_bytes = b"HTTP/1.1 200 OK\r\n\r\nbeta-needle".to_vec();
+        graph
+            .sync(&SyncBatch {
+                sitemap: vec![http],
+                websocket_messages: vec![crate::model::WebSocketObservation {
+                    id: "7".to_owned(),
+                    web_socket_id: "3".to_owned(),
+                    direction: "CLIENT_TO_SERVER".to_owned(),
+                    upgrade_url: "wss://example.test/socket".to_owned(),
+                    payload: b"gamma-needle".to_vec(),
+                    edited_payload: Vec::new(),
+                }],
+                ..SyncBatch::default()
+            })
+            .await
+            .unwrap();
+
+        let http_page = graph
+            .search_history("alpha-needle", Some("http"), 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(http_page.total, 1);
+        assert_eq!(http_page.items[0].source, "http");
+        let websocket_page = graph
+            .search_history("gamma-needle", Some("websocket"), 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(websocket_page.total, 1);
+        assert_eq!(websocket_page.items[0].source, "websocket");
+        assert_eq!(
+            graph
+                .search_history("gamma-needle", Some("http"), 0, 10)
+                .await
+                .unwrap()
+                .total,
+            0
+        );
     }
 }

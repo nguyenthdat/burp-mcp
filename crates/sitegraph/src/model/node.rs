@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -29,12 +28,55 @@ impl NodeKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NodeMetadata {
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub origin: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub method: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<u32>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub content_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub parameter_names: Vec<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub segment: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub location: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub fingerprint: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub severity: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub confidence: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub kind: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub artifact_kind: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub web_socket_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub upgrade_url: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub direction: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Node {
     pub id: String,
     pub kind: NodeKind,
     pub stable_hash: String,
     pub created_at: i64,
     pub updated_at: i64,
-    pub metadata: Value,
+    pub metadata: NodeMetadata,
 }

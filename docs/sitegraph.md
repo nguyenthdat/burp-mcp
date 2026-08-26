@@ -40,16 +40,21 @@ tls_dir = "/absolute/path/to/burp-mcp/tls"
 The effective endpoint is `https://burp-vm.test:9877`.
 
 ## Shared daemon mode
-The Rust-managed `sitegraph-daemon` owns one SQLite connection pool per project graph. MCP
-processes connect to it through a loopback TCP endpoint described by a `0600`
-endpoint file. The first `burp-mcp serve` instance for that project starts
-the bundled daemon automatically; later instances for the same project reuse it.
-Normally leave `[sitegraph].daemon` unset so the correct project daemon is selected automatically.
-set `BURP_MCP_SITEGRAPH_DAEMON` or pass `--sitegraph-daemon PATH`.
 
-The daemon is project-scoped, authenticated with a random per-startup token, and
-uses newline-delimited JSON with bounded 128 MiB frames. Do not expose its
-endpoint outside the local host or share one graph between unrelated projects.
+The Rust-managed `sitegraph-daemon` owns one SQLite connection pool per project graph. MCP
+processes connect through authenticated Cap'n Proto RPC on loopback TCP. A `0600` TOML endpoint
+descriptor contains the listener address and random per-startup token. Requests use the schema's
+typed task union; the full sync batch and Rust result structs use bounded CBOR inside the Cap'n
+Proto message. No dynamic JSON value crosses the daemon boundary; JSON remains only at explicit
+OpenAPI/rule-file and SQLite compatibility boundaries, and when an MCP tool emits its RMCP result.
+
+The first `burp-mcp serve` instance for a project starts the bundled daemon automatically; later
+instances for the same project reuse it. Normally leave `[sitegraph].daemon` unset so the correct
+project daemon is selected automatically. Set `BURP_MCP_SITEGRAPH_DAEMON` or pass
+`--sitegraph-daemon PATH` only for an already-running daemon.
+
+The daemon is project-scoped. Do not expose its endpoint outside the local host or share one graph
+between unrelated projects.
 
 ## Data and privacy boundary
 

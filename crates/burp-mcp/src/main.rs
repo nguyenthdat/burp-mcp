@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
                 &config.rules_path,
             )
             .await?;
-            server.run().await?;
+            tokio::task::LocalSet::new().run_until(server.run()).await?;
             Ok(())
         }
     }

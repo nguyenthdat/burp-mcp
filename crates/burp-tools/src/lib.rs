@@ -6,19 +6,20 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use burp_protocol::BurpClient;
 use burp_protocol::protocol::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
-    CloseWebSocketRequest, ConfigResponse, ControlInterceptedMessageRequest, CookieJarRequest,
-    CreateMacroRequest, CreatePayloadListRequest, CreateWebSocketRequest, DeletePayloadListRequest,
+    CloseWebSocketRequest, ConfigResponse, ControlInterceptedMessageRequest,
+    ControlInterceptedWebSocketMessageRequest, CookieJarRequest, CreateMacroRequest,
+    CreatePayloadListRequest, CreateWebSocketRequest, DeletePayloadListRequest,
     DeleteScanConfigurationRequest, DeleteScanResourcePoolRequest, DeleteSessionRuleRequest,
     ExportConfigRequest, ExtensionInfoRequest, GenerateCollaboratorPayloadsRequest,
     GenerateScannerReportRequest, GetJobResultRequest, GetJobStatusRequest, GetPayloadListRequest,
     GetScanConfigurationRequest, GetScanResourcePoolRequest, GetSessionRuleRequest,
     HttpHeaderEntry, ImportBCheckRequest, ImportBambdaRequest, ImportConfigRequest,
     ImportPayloadListRequest, InterceptAction, InterceptControllerConfigRequest,
-    InterceptStateRequest, InterceptedMessagesRequest, ListMacrosRequest,
-    ListPayloadGeneratorsRequest, ListPayloadListsRequest, ListPayloadProcessorsRequest,
-    ListProxyRulesRequest, ListScanConfigurationsRequest, ListScanResourcePoolsRequest,
-    ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition, MacroItem, MacroParameter,
-    ManagedWebSocketHistoryRequest, MutateScopeRequest, PageRequest,
+    InterceptStateRequest, InterceptedMessagesRequest, InterceptedWebSocketMessagesRequest,
+    ListMacrosRequest, ListPayloadGeneratorsRequest, ListPayloadListsRequest,
+    ListPayloadProcessorsRequest, ListProxyRulesRequest, ListScanConfigurationsRequest,
+    ListScanResourcePoolsRequest, ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition,
+    MacroItem, MacroParameter, ManagedWebSocketHistoryRequest, MutateScopeRequest, PageRequest,
     PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
     ProxyInterceptConfigRequest, ProxyInterceptConfigResponse, ProxyInterceptRule,
     ProxyInterceptRuleDelete, ProxyInterceptRuleMutation, ProxyInterceptToggle, ProxyListener,
@@ -32,7 +33,7 @@ use burp_protocol::protocol::{
     SitemapSnapshotRequest, StartAuditRequest, StartBoundedInputMatrixRequest,
     StartConcurrentRequestCheckRequest, StartCrawlRequest, TargetInfoRequest,
     UpdatePayloadListRequest, UpsertScanConfigurationRequest, UpsertScanResourcePoolRequest,
-    UpsertSessionRuleRequest,
+    UpsertSessionRuleRequest, WebSocketInterceptControllerConfigRequest,
 };
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
@@ -363,6 +364,39 @@ impl ProxyInterceptRuleInput {
 pub struct ProxyWebSocketHistoryInput {
     pub limit: Option<u32>,
     pub cursor: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct WebSocketInterceptControllerInput {
+    pub enabled: Option<bool>,
+    pub timeout_seconds: Option<u32>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct InterceptedWebSocketMessagesInput {
+    pub limit: Option<u32>,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ControlInterceptedWebSocketMessageInput {
+    pub id: u64,
+    pub action: InterceptActionInput,
+    #[schemars(
+        description = "Optional replacement payload encoded as standard Base64; empty Base64 replaces with an empty payload"
+    )]
+    pub payload_base64: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct InterceptedWebSocketMessageOutput {
+    id: u64,
+    web_socket_id: u32,
+    upgrade_url: String,
+    direction: String,
+    message_type: String,
+    phase: String,
+    payload_base64: String,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -834,6 +868,15 @@ pub struct SiteGraphSearchInput {
     pub limit: Option<u32>,
     pub cursor: Option<u32>,
 }
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SiteGraphHistorySearchInput {
+    pub query: String,
+    #[schemars(description = "History source: all, http, or websocket")]
+    pub source: Option<String>,
+    pub limit: Option<u32>,
+    pub cursor: Option<u32>,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SiteGraphEndpointInput {
     pub id: String,
@@ -3106,6 +3149,39 @@ impl BurpTools {
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
+    #[tool(
+        name = "sitegraph_history_search",
+        description = "Full-text search indexed raw HTTP requests/responses and WebSocket payload history with source filtering and bounded pagination",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn sitegraph_history_search(
+        &self,
+        Parameters(input): Parameters<SiteGraphHistorySearchInput>,
+    ) -> String {
+        let limit = input.limit.unwrap_or(100);
+        if limit == 0 || limit > 500 {
+            return serde_json::json!({"error": "limit must be between 1 and 500"}).to_string();
+        }
+        match self
+            .sitegraph()
+            .graph
+            .search_history(
+                &input.query,
+                input.source.as_deref(),
+                input.cursor.unwrap_or(0) as u64,
+                limit as u64,
+            )
+            .await
+        {
+            Ok(result) => serde_json::to_string(&result).expect("history search page serializes"),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
 
     #[tool(
         name = "sitegraph_endpoint_detail",
@@ -3726,6 +3802,123 @@ impl BurpTools {
         }
     }
     #[tool(
+        name = "burp_websocket_intercept_controller",
+        description = "Read or configure MCP-controlled Burp Proxy WebSocket interception for text and binary messages",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn websocket_intercept_controller(
+        &self,
+        Parameters(input): Parameters<WebSocketInterceptControllerInput>,
+    ) -> String {
+        match self.client.websocket_intercept_controller_config(WebSocketInterceptControllerConfigRequest {
+            enabled: input.enabled,
+            timeout_seconds: input.timeout_seconds,
+        }).await {
+            Ok(state) => serde_json::json!({"enabled": state.enabled, "timeout_seconds": state.timeout_seconds, "pending": state.pending}).to_string(),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_intercepted_websocket_messages",
+        description = "List text and binary WebSocket messages currently paused by the MCP intercept controller",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn intercepted_websocket_messages(
+        &self,
+        Parameters(input): Parameters<InterceptedWebSocketMessagesInput>,
+    ) -> String {
+        let limit = input.limit.unwrap_or(100);
+        if limit > MAX_PAGE_SIZE {
+            return serde_json::json!({"error": "limit must be at most 500"}).to_string();
+        }
+        match self
+            .client
+            .intercepted_websocket_messages(InterceptedWebSocketMessagesRequest {
+                page: Some(PageRequest {
+                    limit,
+                    cursor: input.cursor.unwrap_or_default(),
+                }),
+            })
+            .await
+        {
+            Ok(response) => {
+                let page = response.page.unwrap_or_default();
+                serde_json::json!({
+                    "items": response.items.into_iter().map(intercepted_websocket_message_output).collect::<Vec<_>>(),
+                    "total": page.total,
+                    "truncated": page.truncated,
+                    "next_cursor": (!page.next_cursor.is_empty()).then_some(page.next_cursor),
+                }).to_string()
+            }
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_control_intercepted_websocket_message",
+        description = "Forward, drop, or send a paused text/binary WebSocket message to Burp's manual Intercept tab; optionally replace its raw payload from standard Base64",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn control_intercepted_websocket_message(
+        &self,
+        Parameters(input): Parameters<ControlInterceptedWebSocketMessageInput>,
+    ) -> String {
+        let action = match input.action {
+            InterceptActionInput::Forward => InterceptAction::Forward,
+            InterceptActionInput::Drop => InterceptAction::Drop,
+            InterceptActionInput::Intercept => InterceptAction::Intercept,
+        } as i32;
+        let replace_payload = input.payload_base64.is_some();
+        let payload = match input.payload_base64 {
+            Some(value) => match STANDARD.decode(value) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    return serde_json::json!({"error": format!("invalid payload_base64: {error}")})
+                        .to_string();
+                }
+            },
+            None => Vec::new(),
+        };
+        match self
+            .client
+            .control_intercepted_websocket_message(ControlInterceptedWebSocketMessageRequest {
+                id: input.id,
+                action,
+                payload,
+                replace_payload,
+            })
+            .await
+        {
+            Ok(response) => response
+                .message
+                .map(intercepted_websocket_message_output)
+                .map(|item| {
+                    serde_json::to_string(&item).expect("WebSocket intercept output must serialize")
+                })
+                .unwrap_or_else(|| {
+                    serde_json::json!({"error": "empty WebSocket intercept response"}).to_string()
+                }),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
         name = "burp_proxy_intercept_config",
         description = "Read Burp Proxy request, response, WebSocket interception filters and response modification settings",
         annotations(
@@ -3850,6 +4043,7 @@ impl BurpTools {
         let limit = input.limit.unwrap_or(50).min(MAX_PAGE_SIZE);
         match self.client.proxy_websocket_history(ProxyWebSocketHistoryRequest {
             page: Some(PageRequest { limit, cursor: input.cursor.unwrap_or_default() }),
+            after_id: None,
         }).await {
             Ok(response) => serde_json::json!({
                 "items": response.items.into_iter().map(|item| serde_json::json!({
@@ -4042,6 +4236,20 @@ fn session_rule_request(input: SessionRuleUpsertInput) -> UpsertSessionRuleReque
         url_contains: input.url_contains.unwrap_or_default(),
         tools: input.tools.unwrap_or_default(),
         enabled: input.enabled.unwrap_or(true),
+    }
+}
+
+fn intercepted_websocket_message_output(
+    item: burp_protocol::protocol::InterceptedWebSocketMessage,
+) -> InterceptedWebSocketMessageOutput {
+    InterceptedWebSocketMessageOutput {
+        id: item.id,
+        web_socket_id: item.web_socket_id,
+        upgrade_url: item.upgrade_url,
+        direction: item.direction,
+        message_type: item.message_type,
+        phase: item.phase,
+        payload_base64: STANDARD.encode(item.payload),
     }
 }
 
@@ -4441,6 +4649,7 @@ fn to_proxy_history_request(input: ProxyHistoryInput, limit: u32) -> ProxyHistor
         status_filter: input.status_filter,
         has_notes: input.has_notes.unwrap_or(false),
         color: input.color.unwrap_or_default(),
+        after_id: None,
     }
 }
 

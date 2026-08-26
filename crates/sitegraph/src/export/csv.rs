@@ -1,3 +1,4 @@
+use crate::model::EvidenceSource;
 use crate::storage::StorageError;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
@@ -9,7 +10,7 @@ pub struct CsvExport {
     pub truncated: bool,
     pub next_cursor: Option<u64>,
     pub last_synced_at: Option<i64>,
-    pub evidence: serde_json::Value,
+    pub evidence: EvidenceSource,
 }
 
 pub async fn page(
@@ -44,7 +45,9 @@ pub async fn page(
         truncated: next < total,
         next_cursor: (next < total).then_some(next),
         last_synced_at,
-        evidence: serde_json::json!({"source": "metadata-only SQLite graph export"}),
+        evidence: EvidenceSource {
+            source: Some("metadata-only SQLite graph export".to_owned()),
+        },
     })
 }
 

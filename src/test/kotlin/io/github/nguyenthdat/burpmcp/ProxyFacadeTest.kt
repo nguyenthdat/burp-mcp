@@ -34,6 +34,11 @@ class ProxyFacadeTest {
     }
 
     @Test
+    fun `WebSocket intercept timeout uses the same safe forward policy`() {
+        assertEquals(InterceptDecision.FORWARD, InterceptDecisionPolicy.fallbackOnTimeout())
+    }
+
+    @Test
     fun `detail handles invalid indices without touching transport types`() {
         val facade = ProxyFacade(api(listOf(entry("https://example.test/", "GET", 200))))
 

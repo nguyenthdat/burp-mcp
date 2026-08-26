@@ -6,6 +6,7 @@ import kotlin.math.min
 internal data class ProxyHistoryQuery(
     val limit: Int = 100,
     val offset: Int = 0,
+    val afterId: Int? = null,
     val urlFilter: String? = null,
     val methodFilter: String? = null,
     val statusFilter: Int? = null,
@@ -14,6 +15,7 @@ internal data class ProxyHistoryQuery(
 )
 
 internal data class ProxyHistoryItem(
+    val id: Int,
     val index: Int,
     val method: String,
     val url: String,
@@ -24,6 +26,8 @@ internal data class ProxyHistoryItem(
     val response: ByteArray?,
     val notes: String?,
     val highlight: String?,
+    val time: String,
+    val contentType: String,
 )
 
 internal data class ProxyHistoryPage(
@@ -65,7 +69,9 @@ internal class ProxyFacade(
     fun history(query: ProxyHistoryQuery): ProxyHistoryPage {
         require(query.limit >= 0) { "limit must be non-negative" }
         require(query.offset >= 0) { "offset must be non-negative" }
-        val history = api.proxy().history()
+        val history = query.afterId?.let { afterId ->
+            api.proxy().history { entry -> runCatching { entry.id() > afterId }.getOrDefault(false) }
+        } ?: api.proxy().history()
         val filteredIndices =
             history.indices.reversed().filter { index ->
                 val entry = history[index]
@@ -83,6 +89,7 @@ internal class ProxyFacade(
                 val request = runCatching { entry.finalRequest().toByteArray().getBytes() }.getOrDefault(byteArrayOf())
                 val response = runCatching { entry.response()?.toByteArray()?.getBytes() }.getOrNull()
                 ProxyHistoryItem(
+                    id = runCatching { entry.id() }.getOrDefault(index),
                     index = index,
                     method = entry.finalRequest().method(),
                     url = entry.finalRequest().url(),
@@ -93,6 +100,8 @@ internal class ProxyFacade(
                     response = response,
                     notes = entry.annotations().notes(),
                     highlight = entry.annotations().highlightColor().name,
+                    time = runCatching { entry.time().toString() }.getOrDefault(""),
+                    contentType = runCatching { entry.response()?.statedMimeType()?.description() }.getOrNull().orEmpty(),
                 )
             }
         return ProxyHistoryPage(items, filteredIndices.size, start)
@@ -121,10 +130,12 @@ internal class ProxyFacade(
         return api.proxy().isInterceptEnabled
     }
 
-    fun webSocketHistory(limit: Int, offset: Int): ProxyWebSocketPage {
+    fun webSocketHistory(limit: Int, offset: Int, afterId: Int? = null): ProxyWebSocketPage {
         require(limit in 0..500) { "limit must be between 0 and 500" }
         require(offset >= 0) { "offset must be non-negative" }
-        val history = api.proxy().webSocketHistory()
+        val history = afterId?.let { id ->
+            api.proxy().webSocketHistory { message -> runCatching { message.id() > id }.getOrDefault(false) }
+        } ?: api.proxy().webSocketHistory()
         val start = offset.coerceAtMost(history.size)
         val end = min(start + limit, history.size)
         val items = history.subList(start, end).mapIndexed { position, message ->

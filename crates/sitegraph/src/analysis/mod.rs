@@ -1,8 +1,8 @@
+use crate::model::NodeMetadata;
 use crate::storage::StorageError;
 #[cfg(test)]
 mod tests;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sqlx::{Row, SqlitePool};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -115,11 +115,10 @@ pub(crate) async fn clusters(
     let mut clusters: HashMap<String, Vec<String>> = HashMap::new();
     for row in rows {
         let id = row.get::<String, _>("id");
-        let metadata: Value = serde_json::from_str(&row.get::<String, _>("metadata"))?;
-        let origin = metadata["origin"].as_str().unwrap_or_default();
-        let prefix = metadata["path"]
-            .as_str()
-            .unwrap_or("/")
+        let metadata: NodeMetadata = serde_json::from_str(&row.get::<String, _>("metadata"))?;
+        let origin = metadata.origin.as_str();
+        let prefix = metadata
+            .path
             .split('/')
             .find(|segment| !segment.is_empty())
             .unwrap_or("/");

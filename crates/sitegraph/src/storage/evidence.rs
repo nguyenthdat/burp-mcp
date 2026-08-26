@@ -4,6 +4,13 @@ use crate::storage::StorageError;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, Sqlite, Transaction};
 
+#[derive(serde::Serialize)]
+struct FindingMetadata<'a> {
+    capture_policy: &'static str,
+    surface: &'a str,
+    rule_pack: &'a str,
+}
+
 pub(super) async fn upsert_evidence_blob(
     transaction: &mut Transaction<'_, Sqlite>,
     source_entry_id: &str,
@@ -96,11 +103,11 @@ pub(super) async fn persist_rule_findings(
         .bind(i64::try_from(finding.byte_start).unwrap_or(i64::MAX))
         .bind(i64::try_from(finding.byte_end).unwrap_or(i64::MAX))
         .bind(&finding.capture)
-        .bind(serde_json::json!({
-            "capture_policy": "exact",
-            "surface": surface,
-            "rule_pack": rule_pack.id(),
-        }).to_string())
+        .bind(serde_json::to_string(&FindingMetadata {
+            capture_policy: "exact",
+            surface,
+            rule_pack: rule_pack.id(),
+        })?)
         .bind(observed_at)
         .execute(&mut **transaction)
         .await?;

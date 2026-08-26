@@ -31,6 +31,28 @@ pub struct WebSocketObservation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistorySearchHit {
+    pub blob_id: String,
+    pub node_id: String,
+    pub source: String,
+    pub surface: String,
+    pub direction: String,
+    pub content_type: String,
+    pub url: String,
+    pub method: String,
+    pub snippet: String,
+    pub byte_length: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistorySearchPage {
+    pub items: Vec<HistorySearchHit>,
+    pub total: u64,
+    pub truncated: bool,
+    pub next_cursor: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IssueObservation {
     pub name: String,
     pub severity: String,
@@ -135,6 +157,12 @@ pub struct Endpoint {
     pub last_seen_at: i64,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EvidenceSource {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EndpointPage {
     pub items: Vec<Endpoint>,
@@ -142,7 +170,7 @@ pub struct EndpointPage {
     pub truncated: bool,
     pub next_cursor: Option<u64>,
     pub last_synced_at: Option<i64>,
-    pub evidence: serde_json::Value,
+    pub evidence: EvidenceSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

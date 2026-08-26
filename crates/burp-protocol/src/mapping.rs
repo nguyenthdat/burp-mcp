@@ -16,5 +16,6 @@ pub(crate) fn proxy_history_request(query: ProxyHistoryQuery) -> proto::ProxyHis
         status_filter: query.status_filter,
         has_notes: query.has_notes,
         color: query.color,
+        after_id: None,
     }
 }

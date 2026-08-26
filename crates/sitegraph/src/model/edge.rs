@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -39,7 +38,10 @@ impl EdgeKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EdgeMetadata {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edge {
     pub id: String,
     pub from_id: String,
@@ -47,5 +49,5 @@ pub struct Edge {
     pub kind: EdgeKind,
     pub evidence_id: String,
     pub created_at: i64,
-    pub metadata: Value,
+    pub metadata: EdgeMetadata,
 }
