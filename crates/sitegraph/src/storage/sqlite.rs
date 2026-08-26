@@ -2,7 +2,7 @@ use crate::analysis;
 use crate::enrichment::RulePack;
 use crate::graph::neighbors::{Neighbor, NeighborPage};
 use crate::graph::traversal::{TracePage, TraceStep};
-use crate::ingest::sitemap::relationships;
+use crate::ingest::relationships;
 use crate::limits::{PageLimit, TraversalDepth};
 use crate::model::{
     Endpoint, EndpointPage, GraphStatus, NodeKind, SyncBatch, SyncContext, SyncCoverage,
@@ -588,20 +588,23 @@ impl SiteGraph {
         for technology in &batch.technologies {
             let normalized =
                 url::normalize(&technology.endpoint_url).map_err(StorageError::InvalidInput)?;
-            let endpoint_id =
-                fingerprint::stable_id("endpoint", &[&normalized.origin, "GET", &normalized.path]);
+            let method = technology.method.to_ascii_uppercase();
+            let endpoint_id = fingerprint::stable_id(
+                "endpoint",
+                &[&normalized.origin, &method, &normalized.path],
+            );
             let endpoint = nodes::node(
                 NodeKind::Endpoint,
                 endpoint_id,
                 now,
-                json!({"origin": normalized.origin, "method": "GET", "path": normalized.path}),
+                json!({"origin": normalized.origin, "method": method, "path": normalized.path}),
             );
             upsert_source_node(
                 &mut transaction,
                 &endpoint,
                 nodes::SearchFields {
                     origin: endpoint.metadata["origin"].as_str().unwrap_or_default(),
-                    method: "GET",
+                    method: endpoint.metadata["method"].as_str().unwrap_or_default(),
                     path: endpoint.metadata["path"].as_str().unwrap_or_default(),
                     name: "",
                 },
@@ -1635,6 +1638,7 @@ mod tests {
                 technologies: vec![crate::model::TechnologyObservation {
                     name: "Synthetic Runtime".to_owned(),
                     endpoint_url: "https://example.test/app?token=private".to_owned(),
+                    method: "GET".to_owned(),
                 }],
                 artifacts: vec![crate::model::ArtifactObservation {
                     kind: "schema".to_owned(),

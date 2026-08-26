@@ -1,6 +1,6 @@
 # Sitegraph reference
 
-Sitegraph is an advanced, manual opt-in capability in Burp MCP v3. It is a local SQLite metadata graph owned by Rust. It is separate from Burp's built-in **Target > Site map** and separate from a target's `/sitemap.xml` resource.
+It is a local SQLite metadata graph owned by Rust. It is separate from Burp's built-in **Target > Site map** and separate from a target's `/sitemap.xml` resource.
 
 ## Enable explicitly
 

@@ -42,6 +42,8 @@ pub struct IssueObservation {
 pub struct TechnologyObservation {
     pub name: String,
     pub endpoint_url: String,
+    #[serde(default = "default_http_method")]
+    pub method: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +52,10 @@ pub struct ArtifactObservation {
     pub name: String,
     pub endpoint_url: String,
     pub fingerprint: String,
+}
+
+fn default_http_method() -> String {
+    "GET".to_owned()
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

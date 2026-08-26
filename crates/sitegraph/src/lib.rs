@@ -2,7 +2,7 @@ mod analysis;
 pub mod enrichment;
 mod export;
 mod graph;
-mod ingest;
+pub mod ingest;
 pub mod limits;
 mod model;
 mod normalize;

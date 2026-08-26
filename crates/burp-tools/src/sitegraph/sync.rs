@@ -1,5 +1,6 @@
 use ::sitegraph::{
-    IssueObservation, SitemapObservation, SyncBatch, SyncContext, SyncSummary, WebSocketObservation,
+    IssueObservation, SitemapObservation, SyncBatch, SyncContext, SyncSummary,
+    TechnologyObservation, WebSocketObservation,
 };
 use burp_protocol::protocol::{
     PageRequest, ProxyWebSocketHistoryRequest, ScanIssuesRequest, SitemapSnapshotRequest,
@@ -90,6 +91,10 @@ impl SiteGraphSynchronizer {
                     script_sources: entry.script_sources,
                 })
                 .collect::<Vec<_>>();
+            let technologies = sitemap
+                .iter()
+                .flat_map(::sitegraph::ingest::detect_technologies)
+                .collect::<Vec<TechnologyObservation>>();
             pages_seen += 1;
             items_seen = items_seen.saturating_add(sitemap.len() as u64);
             let end_of_source = !page.truncated || page.next_cursor.is_empty();
@@ -98,13 +103,12 @@ impl SiteGraphSynchronizer {
             context.cursor = (!end_of_source).then(|| page.next_cursor.clone());
             context.source_total = Some(u64::from(page.total));
             context.pages_seen = pages_seen;
-            context.items_seen = items_seen;
-            context.complete = end_of_source;
             last_summary = Some(
                 self.graph
                     .sync_with_context(
                         &SyncBatch {
                             sitemap,
+                            technologies,
                             ..SyncBatch::default()
                         },
                         &context,
