@@ -34,7 +34,7 @@ class ProxyFacadeTest {
 
         assertNull(facade.detail(-1))
         assertNull(facade.detail(1))
-        assertEquals("https://example.test/", facade.detail(0)?.request)
+        assertEquals("https://example.test/", facade.detail(0)?.request?.decodeToString())
     }
 
     private fun api(history: List<ProxyHttpRequestResponse>): MontoyaApi {
@@ -43,13 +43,17 @@ class ProxyFacadeTest {
     }
 
     private fun entry(url: String, method: String, status: Short): ProxyHttpRequestResponse {
-        val request = fake<HttpRequest>(mapOf("url" to { url }, "method" to { method }, "toString" to { url }))
+        val requestBytes = fake<burp.api.montoya.core.ByteArray>(mapOf("getBytes" to { url.encodeToByteArray() }))
+        val responseText = "HTTP/1.1 $status\r\n\r\nbody"
+        val responseBytes = fake<burp.api.montoya.core.ByteArray>(mapOf("getBytes" to { responseText.encodeToByteArray() }))
+        val request = fake<HttpRequest>(mapOf("url" to { url }, "method" to { method }, "toByteArray" to { requestBytes }, "toString" to { url }))
         val response =
             fake<HttpResponse>(
                 mapOf(
                     "statusCode" to { status },
                     "body" to { null },
-                    "toString" to { "HTTP/1.1 $status\r\n\r\nbody" },
+                    "toByteArray" to { responseBytes },
+                    "toString" to { responseText },
                 ),
             )
         val annotations =

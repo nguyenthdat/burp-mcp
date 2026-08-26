@@ -2,6 +2,7 @@ mod sitegraph;
 mod utility;
 
 use crate::sitegraph::SitegraphIndexer;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use burp_protocol::BurpClient;
 use burp_protocol::protocol::{
     AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
@@ -84,6 +85,8 @@ struct ProxyHistoryItemOutput {
     status: u32,
     length: u64,
     has_response: bool,
+    request_base64: String,
+    response_base64: Option<String>,
     notes: Option<String>,
     highlight: Option<String>,
 }
@@ -103,8 +106,8 @@ pub struct ProxyDetailInput {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 struct ProxyDetailOutput {
     index: u32,
-    request: String,
-    response: Option<String>,
+    request_base64: String,
+    response_base64: Option<String>,
     notes: Option<String>,
     highlight: Option<String>,
 }
@@ -1016,16 +1019,22 @@ impl BurpTools {
             Ok(response) => {
                 let page = response.page.unwrap_or_default();
                 serde_json::to_string(&ProxyHistoryOutput {
-                    items: response.items.into_iter().map(|item| ProxyHistoryItemOutput {
-                        index: item.index,
-                        method: item.method,
-                        url: item.url,
-                        status: item.status,
-                        length: item.length,
-                        has_response: item.has_response,
-                        notes: (!item.notes.is_empty()).then_some(item.notes),
-                        highlight: (!item.highlight.is_empty()).then_some(item.highlight),
-                    }).collect(),
+                    items: response
+                        .items
+                        .into_iter()
+                        .map(|item| ProxyHistoryItemOutput {
+                            index: item.index,
+                            method: item.method,
+                            url: item.url,
+                            status: item.status,
+                            length: item.length,
+                            has_response: item.has_response,
+                            request_base64: STANDARD.encode(item.request),
+                            response_base64: item.has_response.then(|| STANDARD.encode(item.response)),
+                            notes: (!item.notes.is_empty()).then_some(item.notes),
+                            highlight: (!item.highlight.is_empty()).then_some(item.highlight),
+                        })
+                        .collect(),
                     total: page.total,
                     truncated: page.truncated,
                     next_cursor: (!page.next_cursor.is_empty()).then_some(page.next_cursor),
@@ -1053,9 +1062,9 @@ impl BurpTools {
         match self.client.proxy_detail(ProxyDetailRequest { index }).await {
             Ok(detail) => serde_json::to_string(&ProxyDetailOutput {
                 index: detail.index,
-                request: String::from_utf8_lossy(&detail.request).into_owned(),
-                response: (!detail.response.is_empty())
-                    .then(|| String::from_utf8_lossy(&detail.response).into_owned()),
+                request_base64: STANDARD.encode(detail.request),
+                response_base64: (!detail.response.is_empty())
+                    .then(|| STANDARD.encode(detail.response)),
                 notes: (!detail.notes.is_empty()).then_some(detail.notes),
                 highlight: (!detail.highlight.is_empty()).then_some(detail.highlight),
             })

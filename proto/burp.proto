@@ -130,6 +130,8 @@ message ProxyHistoryEntry {
   bool has_response = 6;
   string notes = 7;
   string highlight = 8;
+  bytes request = 9;
+  bytes response = 10;
 }
 message ProxyDetailRequest { uint32 index = 1; }
 message ProxyDetailResponse {

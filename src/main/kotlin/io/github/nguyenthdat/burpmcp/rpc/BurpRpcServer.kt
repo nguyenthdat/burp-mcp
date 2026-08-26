@@ -481,6 +481,8 @@ internal class BurpRpcService(
                         .setHasResponse(item.hasResponse)
                         .setNotes(item.notes ?: "")
                         .setHighlight(item.highlight ?: "")
+                        .setRequest(com.google.protobuf.ByteString.copyFrom(item.request))
+                        .setResponse(com.google.protobuf.ByteString.copyFrom(item.response ?: byteArrayOf()))
                         .build()
                 val itemBytes = protoItem.serializedSize
                 if (estimatedBytes + itemBytes > GRPC_MAX_RESPONSE_BYTES - GRPC_RESPONSE_OVERHEAD_BYTES) break
@@ -517,10 +519,10 @@ internal class BurpRpcService(
             ProxyDetailResponse
                 .newBuilder()
                 .setIndex(detail.index)
-                .setRequest(com.google.protobuf.ByteString.copyFromUtf8(detail.request))
+                .setRequest(com.google.protobuf.ByteString.copyFrom(detail.request))
                 .setNotes(detail.notes ?: "")
                 .setHighlight(detail.highlight ?: "")
-        detail.response?.let { response.setResponse(com.google.protobuf.ByteString.copyFromUtf8(it)) }
+        detail.response?.let { response.setResponse(com.google.protobuf.ByteString.copyFrom(it)) }
         responseObserver.onNext(response.build())
         responseObserver.onCompleted()
     }

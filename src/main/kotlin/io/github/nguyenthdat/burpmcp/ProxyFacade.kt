@@ -20,6 +20,8 @@ internal data class ProxyHistoryItem(
     val status: Int?,
     val length: Int?,
     val hasResponse: Boolean,
+    val request: ByteArray,
+    val response: ByteArray?,
     val notes: String?,
     val highlight: String?,
 )
@@ -32,8 +34,8 @@ internal data class ProxyHistoryPage(
 
 internal data class ProxyDetail(
     val index: Int,
-    val request: String,
-    val response: String?,
+    val request: ByteArray,
+    val response: ByteArray?,
     val notes: String?,
     val highlight: String?,
 )
@@ -78,14 +80,17 @@ internal class ProxyFacade(
         val items =
             filteredIndices.subList(start, end).map { index ->
                 val entry = history[index]
-                val response = entry.response()
+                val request = runCatching { entry.finalRequest().toByteArray().getBytes() }.getOrDefault(byteArrayOf())
+                val response = runCatching { entry.response()?.toByteArray()?.getBytes() }.getOrNull()
                 ProxyHistoryItem(
                     index = index,
                     method = entry.finalRequest().method(),
                     url = entry.finalRequest().url(),
-                    status = response?.statusCode()?.toInt(),
-                    length = response?.body()?.length(),
+                    status = response?.let { runCatching { entry.response()?.statusCode()?.toInt() }.getOrNull() },
+                    length = response?.size,
                     hasResponse = response != null,
+                    request = request,
+                    response = response,
                     notes = entry.annotations().notes(),
                     highlight = entry.annotations().highlightColor().name,
                 )
@@ -100,8 +105,8 @@ internal class ProxyFacade(
         val entry = history[index]
         return ProxyDetail(
             index = index,
-            request = entry.finalRequest().toString(),
-            response = entry.response()?.toString(),
+            request = runCatching { entry.finalRequest().toByteArray().getBytes() }.getOrDefault(byteArrayOf()),
+            response = runCatching { entry.response()?.toByteArray()?.getBytes() }.getOrNull(),
             notes = entry.annotations().notes(),
             highlight = entry.annotations().highlightColor().name,
         )
