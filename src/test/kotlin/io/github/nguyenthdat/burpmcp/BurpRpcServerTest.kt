@@ -8,6 +8,7 @@ import io.github.nguyenthdat.burpmcp.rpc.GRPC_MAX_PAGE_SIZE
 import io.github.nguyenthdat.burpmcp.rpc.GRPC_MAX_RESPONSE_BYTES
 import io.github.nguyenthdat.burpmcp.rpc.GRPC_MAX_RPC_TIMEOUT_SECONDS
 import io.github.nguyenthdat.burpmcp.grpc.v1.CancelJobRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.CloseWebSocketRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.EchoBytesRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.PingRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ServerInfoRequest
@@ -237,6 +238,23 @@ class BurpRpcServerTest {
             }
         assertEquals(io.grpc.Status.Code.INVALID_ARGUMENT, invalidIssue.status.code)
         assertTrue(invalidIssue.status.description.orEmpty().contains("severity"))
+    }
+
+    @Test
+    fun `closing an absent managed websocket returns not found`() {
+        val port = availablePort()
+        server = BurpRpcServer(fake(MontoyaApi::class.java), GrpcSettings(port = port))
+        server?.start()
+        channel = NettyChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
+        val client = BurpServiceGrpc.newBlockingStub(channel).withDeadlineAfter(2, TimeUnit.SECONDS)
+
+        val exception =
+            assertFailsWith<io.grpc.StatusRuntimeException> {
+                client.closeWebSocket(CloseWebSocketRequest.newBuilder().setId("ws-7").build())
+            }
+
+        assertEquals(io.grpc.Status.Code.NOT_FOUND, exception.status.code)
+        assertTrue(exception.status.description.orEmpty().contains("not found or already closed"))
     }
 
     @Test

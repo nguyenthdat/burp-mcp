@@ -1739,10 +1739,9 @@ internal class BurpRpcService(
     override fun closeWebSocket(
         request: CloseWebSocketRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         webSocketFacade.close(request.id)
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("WebSocket closed").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("WebSocket closed").build()
     }
     override fun importBambda(
         request: ImportBambdaRequest,

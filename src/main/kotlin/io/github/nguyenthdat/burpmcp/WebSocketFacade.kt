@@ -91,13 +91,13 @@ internal class WebSocketFacade(
     }
 
     fun close(id: String) {
-        val connection = connections.remove(id) ?: throw NoSuchElementException("WebSocket not found")
+        val connection = connections.remove(id) ?: throw NoSuchElementException("managed WebSocket $id was not found or already closed")
         connection.registration.deregister()
         connection.socket.close()
     }
 
     private fun connection(id: String): ExtensionWebSocket =
-        connections[id]?.socket ?: throw NoSuchElementException("WebSocket not found")
+        connections[id]?.socket ?: throw NoSuchElementException("managed WebSocket $id was not found or already closed")
 
     private fun record(id: String, direction: String, type: String, payload: kotlin.ByteArray) {
         messages.add(ManagedWebSocketMessage(messageIds.getAndIncrement(), id, direction, type, payload))
