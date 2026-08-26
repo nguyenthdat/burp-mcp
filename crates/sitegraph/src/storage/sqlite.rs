@@ -1167,12 +1167,13 @@ impl SiteGraph {
             });
         }
         let source = source.filter(|value| !value.is_empty() && *value != "all");
-        if let Some(value) = source {
-            if value != "http" && value != "websocket" {
-                return Err(StorageError::InvalidInput(
-                    "history source must be http, websocket, or all".to_owned(),
-                ));
-            }
+        if let Some(value) = source
+            && value != "http"
+            && value != "websocket"
+        {
+            return Err(StorageError::InvalidInput(
+                "history source must be http, websocket, or all".to_owned(),
+            ));
         }
         let total = sqlx::query("SELECT count(*) AS count FROM history_search WHERE history_search MATCH ?1 AND (?2 IS NULL OR source=?2)")
             .bind(&pattern).bind(source).fetch_one(&self.pool).await?.get::<i64, _>("count") as u64;

@@ -51,7 +51,9 @@ impl GraphBackend {
             Self::Local(graph) => Ok(graph.sync_with_context(batch, context).await?),
             Self::Remote(client) => {
                 client
-                    .request(Task::SyncWithContext(SyncTask::new(batch, context)))
+                    .request(Task::SyncWithContext(Box::new(SyncTask::new(
+                        batch, context,
+                    ))))
                     .await
             }
         }

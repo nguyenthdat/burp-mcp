@@ -128,6 +128,7 @@ impl Server {
         let lock_path = graph_path.with_extension("daemon.lock");
         let lock = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&lock_path)?;

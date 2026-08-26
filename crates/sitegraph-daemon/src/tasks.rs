@@ -240,7 +240,7 @@ pub(crate) struct ImpactTask {
 pub(crate) enum Task {
     Status,
     Checkpoint(CheckpointTask),
-    SyncWithContext(SyncTask),
+    SyncWithContext(Box<SyncTask>),
     Search(SearchTask),
     SearchHistory(SearchHistoryTask),
     Endpoint(EndpointTask),
@@ -352,9 +352,9 @@ impl Task {
                     scope: text(value.get_scope())?,
                 }))
             }
-            SyncWithContext(value) => {
-                Ok(Self::SyncWithContext(decode(value.map_err(Error::Capnp)?)?))
-            }
+            SyncWithContext(value) => Ok(Self::SyncWithContext(Box::new(decode(
+                value.map_err(Error::Capnp)?,
+            )?))),
             Search(value) => {
                 let value = value.map_err(Error::Capnp)?;
                 Ok(Self::Search(SearchTask {
@@ -509,7 +509,7 @@ pub(crate) async fn dispatch(graph: &SiteGraph, task: Task) -> Result<DispatchRe
             graph.checkpoint(&task.source, &task.scope).await?,
         )),
         Task::SyncWithContext(task) => {
-            let (batch, context) = task.into_parts();
+            let (batch, context) = (*task).into_parts();
             Ok(DispatchResponse::SyncWithContext(
                 graph.sync_with_context(&batch, &context).await?,
             ))

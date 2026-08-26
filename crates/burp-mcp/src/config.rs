@@ -55,10 +55,10 @@ pub fn load(path: &Path) -> Result<Config> {
 }
 
 fn validate(config: &Config, path: &Path) -> Result<()> {
-    if let Some(port) = config.burp.port {
-        if port == 0 {
-            bail!("configuration {} sets burp.port to zero", path.display());
-        }
+    if let Some(port) = config.burp.port
+        && port == 0
+    {
+        bail!("configuration {} sets burp.port to zero", path.display());
     }
     if !matches!(config.sitegraph.mode.as_str(), "off" | "startup" | "watch") {
         bail!(

@@ -49,6 +49,7 @@ async fn kotlin_server_echoes_binary_payloads_and_handles_concurrency() -> Resul
         status_filter: None,
         has_notes: false,
         color: String::new(),
+        after_id: None,
     });
     page_request.set_timeout(Duration::from_secs(2));
     let history = client.proxy_history(page_request).await?.into_inner();
