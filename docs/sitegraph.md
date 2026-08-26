@@ -10,7 +10,7 @@ Sitegraph is disabled by default. Enable it only when the target, retention poli
 [sitegraph]
 enabled = true
 mode = "off"
-graph_path = "/absolute/path/to/burp-mcp-graph.sqlite"
+project_root = "/absolute/path/to/burp-mcp/sitegraph"
 rules_path = "/absolute/path/to/default-rules.json"
 ```
 
@@ -20,7 +20,9 @@ The file is loaded from `~/.config/burp-mcp/config.toml`; use `burp-mcp --config
 BURP_MCP_ENABLE_SITEGRAPH=true burp-mcp serve
 ```
 
-CLI flags and environment variables override TOML values. A graph path or indexing mode does not enable sitegraph by itself. Restart the server after changing the enable flag.
+
+`project_root` is a directory, not a database filename. Burp MCP reads the active Burp project's stable `graph_id` and resolves the database as `<project_root>/<graph_id>.sqlite`; unsaved temporary projects use `<project_root>/temp-<graph_id>.sqlite`. Each project therefore has an independent database and daemon endpoint.
+CLI flags and environment variables override TOML values. A project root or indexing mode does not enable sitegraph by itself. Restart the server after changing the enable flag.
 
 On first SiteGraph enablement, Burp MCP initializes `~/.config/burp-mcp/default-rules.json` from its embedded rule pack. Edit that JSON to customize enrichment rules, or select another file with `[sitegraph].rules_path`. Existing rule files are validated and never overwritten. `sitegraph_config` only reports the effective runtime settings; it does not mutate them.
 
@@ -38,11 +40,11 @@ tls_dir = "/absolute/path/to/burp-mcp/tls"
 The effective endpoint is `https://burp-vm.test:9877`.
 
 ## Shared daemon mode
-
 The Rust-managed `sitegraph-daemon` owns one SQLite connection pool per project graph. MCP
 processes connect to it through a loopback TCP endpoint described by a `0600`
-endpoint file. The first `burp-mcp serve` instance with SiteGraph enabled starts
-the bundled daemon automatically; later instances reuse it. To connect explicitly,
+endpoint file. The first `burp-mcp serve` instance for that project starts
+the bundled daemon automatically; later instances for the same project reuse it.
+Normally leave `[sitegraph].daemon` unset so the correct project daemon is selected automatically.
 set `BURP_MCP_SITEGRAPH_DAEMON` or pass `--sitegraph-daemon PATH`.
 
 The daemon is project-scoped, authenticated with a random per-startup token, and

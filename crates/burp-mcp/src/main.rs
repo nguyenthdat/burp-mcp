@@ -68,13 +68,15 @@ async fn run_server(config: ServeConfig) -> Result<()> {
         .try_init()
         .ok();
     let actor = spawn_client(client_config(config.endpoint, config.tls_dir.as_deref())?)?;
-    let graph_path = config.enable_sitegraph.then_some(config.graph_path);
-    if graph_path.is_some() {
+    let project_root = config
+        .enable_sitegraph
+        .then_some(config.sitegraph_project_root);
+    if project_root.is_some() {
         config::ensure_rules_file(&config.rules_path)?;
     }
     let mut tools = BurpTools::new(
         actor,
-        graph_path.as_deref(),
+        project_root.as_deref(),
         config.sitegraph_daemon.as_deref(),
         &config.rules_path,
     )
@@ -176,7 +178,7 @@ async fn run_probe(endpoint: &str, tls_dir: Option<&Path>) -> Result<()> {
         .await?;
 
     println!("PASS endpoint={endpoint}");
-    println!("burp-mcp version={}", ping.version);
+    println!("server={} version={}", ping.server, ping.version);
     println!("capabilities={}", info.capabilities.join(","));
     println!(
         "limits: message={} response={} page={} concurrency={} timeout={}s",

@@ -55,9 +55,9 @@ pub struct ServeArgs {
     #[arg(long, env = "BURP_MCP_TLS_DIR")]
     pub tls_dir: Option<PathBuf>,
 
-    /// SQLite sitegraph path. Defaults to the platform data directory when sitegraph is enabled.
-    #[arg(long, env = "BURP_MCP_GRAPH_PATH")]
-    pub graph_path: Option<PathBuf>,
+    /// Root directory containing one SQLite sitegraph database per Burp project.
+    #[arg(long, env = "BURP_MCP_SITEGRAPH_PROJECT_ROOT")]
+    pub sitegraph_project_root: Option<PathBuf>,
 
     /// Sitegraph enrichment rules JSON. Initialized from embedded defaults when absent.
     #[arg(long, env = "BURP_MCP_SITEGRAPH_RULES")]
@@ -87,7 +87,7 @@ impl Default for ServeArgs {
             endpoint: None,
             port: None,
             tls_dir: None,
-            graph_path: None,
+            sitegraph_project_root: None,
             sitegraph_rules_path: None,
             enable_sitegraph: None,
             sitegraph_mode: None,
@@ -102,7 +102,7 @@ pub struct ServeConfig {
     pub sitegraph_daemon: Option<PathBuf>,
     pub endpoint: String,
     pub tls_dir: Option<PathBuf>,
-    pub graph_path: PathBuf,
+    pub sitegraph_project_root: PathBuf,
     pub enable_sitegraph: bool,
     pub rules_path: PathBuf,
     pub sitegraph_mode: String,
@@ -135,10 +135,10 @@ impl ServeArgs {
                 .or_else(|| file.sitegraph.daemon.clone()),
             endpoint,
             tls_dir,
-            graph_path: self
-                .graph_path
-                .or_else(|| file.sitegraph.graph_path.clone())
-                .unwrap_or_else(default_graph_path),
+            sitegraph_project_root: self
+                .sitegraph_project_root
+                .or_else(|| file.sitegraph.project_root.clone())
+                .unwrap_or_else(default_sitegraph_project_root),
             enable_sitegraph: self.enable_sitegraph.unwrap_or(file.sitegraph.enabled),
             sitegraph_mode,
             rules_path: self
@@ -216,12 +216,12 @@ fn resolve_endpoint(
     parse_endpoint(&endpoint)
 }
 
-fn default_graph_path() -> PathBuf {
+fn default_sitegraph_project_root() -> PathBuf {
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
         .unwrap_or_else(|| PathBuf::from("."));
-    base.join("burp-mcp/graphs/default.sqlite")
+    base.join("burp-mcp/sitegraph")
 }
 
 fn resolve_tls_dir(endpoint: &str, explicit: Option<&Path>) -> Option<PathBuf> {
@@ -380,7 +380,7 @@ mod tests {
         let mut file = Config::default();
         file.burp.port = Some(10077);
         file.sitegraph.enabled = true;
-        file.sitegraph.graph_path = Some(PathBuf::from("/tmp/burp-mcp-graph.sqlite"));
+        file.sitegraph.project_root = Some(PathBuf::from("/tmp/burp-mcp-sitegraph"));
         file.sitegraph.mode = "watch".to_owned();
         file.sitegraph.interval_seconds = 45;
         let cli = Cli::try_parse_from(["burp-mcp", "serve", "--sitegraph-mode", "startup"])
@@ -393,7 +393,10 @@ mod tests {
         assert!(resolved.enable_sitegraph);
         assert_eq!("startup", resolved.sitegraph_mode);
         assert_eq!(45, resolved.sitegraph_interval_seconds);
-        assert_eq!(Path::new("/tmp/burp-mcp-graph.sqlite"), resolved.graph_path);
+        assert_eq!(
+            Path::new("/tmp/burp-mcp-sitegraph"),
+            resolved.sitegraph_project_root
+        );
     }
 
     #[test]

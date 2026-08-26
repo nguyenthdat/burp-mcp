@@ -862,11 +862,11 @@ pub struct BurpTools {
 impl BurpTools {
     pub async fn new(
         client: BurpClient,
-        graph_path: Option<&Path>,
+        project_root: Option<&Path>,
         daemon_endpoint: Option<&Path>,
         rules_path: &Path,
     ) -> Result<Self, String> {
-        let Some(graph_path) = graph_path else {
+        let Some(project_root) = project_root else {
             return Ok(Self {
                 client,
                 sitegraph: None,
@@ -878,26 +878,13 @@ impl BurpTools {
             .ok();
         let (resolved_path, graph_id) = match identity {
             Some(info) if !info.graph_id.is_empty() => {
-                let root = if graph_path.extension().is_some() {
-                    graph_path.parent().unwrap_or_else(|| Path::new("."))
-                } else {
-                    graph_path
-                };
                 let file_name = if info.project_temporary {
                     format!("temp-{}.sqlite", info.graph_id)
                 } else {
                     format!("{}.sqlite", info.graph_id)
                 };
-                (root.join("projects").join(file_name), info.graph_id)
+                (project_root.join(file_name), info.graph_id)
             }
-            _ if graph_path.extension().is_some() => (
-                graph_path.to_path_buf(),
-                graph_path
-                    .file_stem()
-                    .and_then(|value| value.to_str())
-                    .unwrap_or("offline")
-                    .to_owned(),
-            ),
             _ => {
                 return Err(
                     "project identity unavailable; refusing to open a shared fallback graph"

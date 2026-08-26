@@ -25,7 +25,7 @@ pub struct BurpConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct SitegraphConfig {
     pub enabled: bool,
-    pub graph_path: Option<PathBuf>,
+    pub project_root: Option<PathBuf>,
     pub daemon: Option<PathBuf>,
     pub rules_path: Option<PathBuf>,
     pub mode: String,
@@ -36,7 +36,7 @@ impl Default for SitegraphConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            graph_path: None,
+            project_root: None,
             daemon: None,
             rules_path: None,
             mode: "off".to_owned(),
@@ -124,7 +124,7 @@ tls_dir = "/tmp/burp-mcp-tls"
 
 [sitegraph]
 enabled = true
-graph_path = "/tmp/burp-mcp-graph.sqlite"
+project_root = "/tmp/burp-mcp-sitegraph"
 mode = "watch"
 interval_seconds = 45
 "#,
@@ -141,6 +141,10 @@ interval_seconds = 45
             config.burp.tls_dir.as_deref()
         );
         assert!(config.sitegraph.enabled);
+        assert_eq!(
+            Some(std::path::Path::new("/tmp/burp-mcp-sitegraph")),
+            config.sitegraph.project_root.as_deref()
+        );
         assert_eq!("watch", config.sitegraph.mode);
         assert_eq!(45, config.sitegraph.interval_seconds);
     }

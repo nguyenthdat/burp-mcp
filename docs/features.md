@@ -235,7 +235,7 @@ Import does not mean execution. Import only reviewed source with a unique fixtur
 
 ## Sitegraph (advanced opt-in)
 
-Sitegraph is a Rust-owned SQLite metadata store. It stores endpoint and parameter metadata plus graph evidence, not raw message bodies or parameter values. It is disabled and omitted from the MCP tool inventory by default in v3. Restart `burp-mcp` with `--enable-sitegraph` (or `BURP_MCP_ENABLE_SITEGRAPH=true`) to expose these tools; setting only `--graph-path` or `--sitegraph-mode` does not enable them.
+Sitegraph is a Rust-owned, project-scoped SQLite metadata store. It stores endpoint and parameter metadata plus graph evidence, not raw message bodies or parameter values. It is disabled and omitted from the MCP tool inventory by default in v3. Restart `burp-mcp` with `--enable-sitegraph` (or `BURP_MCP_ENABLE_SITEGRAPH=true`) to expose these tools; setting only `--sitegraph-project-root` or `--sitegraph-mode` does not enable them.
 
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
