@@ -15,7 +15,7 @@ This preliminary catalog is a reference for live testing. It explains what each 
 
 ## Inventory
 
-The default v3 runtime registers **96 tools**. Enabling the advanced sitegraph adds **15 tools**.
+The default v3 runtime registers **100 tools**. Enabling the advanced sitegraph adds **15 tools**.
 
 | Feature group | Tools |
 |---|---:|
@@ -24,6 +24,7 @@ The default v3 runtime registers **96 tools**. Enabling the advanced sitegraph a
 | Proxy evidence | 6 |
 | HTTP sending and preparation | 6 |
 | Handlers and interception | 17 |
+| Active editor UI | 4 |
 | Cookies | 2 |
 | Sessions and macros | 9 |
 | Intruder and bounded payloads | 8 |
@@ -78,6 +79,15 @@ The default v3 runtime registers **96 tools**. Enabling the advanced sitegraph a
 | `burp_race_condition` | Start a bounded concurrent-request comparison job. | Use an idempotent fixture endpoint, poll the job, and verify request/result counts. |
 | `burp_convert_request` | Convert a raw request between methods such as GET and POST. | Convert a request with known parameters; verify method, parameters, body, and headers. |
 | `burp_export_request` | Export a request as raw text, `curl`, or Python `requests` code. | Exercise all three formats and verify method, URL, headers, and body semantics. |
+
+### Active editor UI
+
+| Tool | Purpose | Preliminary live check |
+|---|---|---|
+| `burp_active_editor_get` | Capture the focused text editor and return a short-lived token plus content hash. | Focus an editable HTTP text editor in Burp, call the tool, and compare returned text. |
+| `burp_active_editor_set` | Replace captured HTTP editor text after token/hash validation. | Change the editor locally between get/set to confirm stale writes are rejected; otherwise verify the visible editor text. |
+| `burp_websocket_editor_get` | Capture the focused MCP `ExtensionProvidedWebSocketMessageEditor` tab with lossless Base64 payload. | Open and focus the **MCP** WebSocket tab, select a message, and compare payload/direction metadata. |
+| `burp_websocket_editor_set` | Replace the captured extension-tab payload after token/hash validation and mark it modified for Burp. | Apply a harmless binary fixture, verify the tab payload, then use a normal explicit Burp action to send it. |
 
 ## Handlers and interception
 

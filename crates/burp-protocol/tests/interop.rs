@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use burp_protocol::interop_proto::{
-    CancelJobRequest, EchoBytesRequest, PageRequest, PingRequest, ProxyHistoryRequest,
-    ServerInfoRequest, StartAuditRequest,
+    ActiveEditorGetRequest, CancelJobRequest, EchoBytesRequest, PageRequest, PingRequest,
+    ProxyHistoryRequest, ServerInfoRequest, StartAuditRequest, WebSocketEditorGetRequest,
 };
 use burp_protocol::{BurpClientConfig, DEFAULT_MAX_MESSAGE_BYTES, connect_client, spawn_client};
 use std::env;
@@ -38,6 +38,20 @@ async fn kotlin_server_echoes_binary_payloads_and_handles_concurrency() -> Resul
         usize::try_from(info.max_message_bytes)?
     );
     assert_eq!(32, info.max_concurrent_calls_per_connection);
+    let mut active_editor_request = Request::new(ActiveEditorGetRequest {});
+    active_editor_request.set_timeout(Duration::from_secs(2));
+    let active_editor_error = client
+        .active_editor_get(active_editor_request)
+        .await
+        .expect_err("headless fixture has no focused editor");
+    assert_eq!(Code::NotFound, active_editor_error.code());
+    let mut web_socket_editor_request = Request::new(WebSocketEditorGetRequest {});
+    web_socket_editor_request.set_timeout(Duration::from_secs(2));
+    let web_socket_editor_error = client
+        .web_socket_editor_get(web_socket_editor_request)
+        .await
+        .expect_err("headless fixture has no focused WebSocket editor");
+    assert_eq!(Code::NotFound, web_socket_editor_error.code());
 
     let mut page_request = Request::new(ProxyHistoryRequest {
         page: Some(PageRequest {

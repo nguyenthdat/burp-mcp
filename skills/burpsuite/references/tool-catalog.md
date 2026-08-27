@@ -105,7 +105,23 @@ For a raw request, keep `Host`, path, body framing, target host, port, and `http
 
 ---
 
-## 6. Cookies (2 tools)
+## 6. Active editor UI (4 tools)
+
+| Tool | Input | Purpose |
+|---|---|---|
+| `burp_active_editor_get` | `{}` | Capture the focused editable Burp text editor; returns text, caret/selection, short-lived token, and SHA-256 hash. |
+| `burp_active_editor_set` | `{token, expected_sha256, text}` | Guardedly replace that exact text editor; rejects expired tokens and stale content. |
+| `burp_websocket_editor_get` | `{}` | Capture the focused MCP WebSocket extension tab; returns lossless Base64 payload, metadata, token, and hash. |
+| `burp_websocket_editor_set` | `{token, expected_sha256, payload_base64}` | Stage a guarded binary-safe replacement in that tab; the normal Burp action still sends it. |
+
+The HTTP tools target Burp's focused Swing text editor. The WebSocket tools use
+the registered `ExtensionProvidedWebSocketMessageEditor` tab so Burp consumes
+the edited payload through `getMessage()` / `isModified()` rather than direct
+Swing mutation.
+
+---
+
+## 7. Cookies (2 tools)
 
 | Tool | Input | Purpose |
 |---|---|---|
@@ -114,7 +130,7 @@ For a raw request, keep `Host`, path, body framing, target host, port, and `http
 
 ---
 
-## 7. Sessions and macros (9 tools)
+## 8. Sessions and macros (9 tools)
 
 | Tool | Input | Purpose |
 |---|---|---|
@@ -130,7 +146,7 @@ For a raw request, keep `Host`, path, body framing, target host, port, and `http
 
 ---
 
-## 8. Intruder and bounded payloads (8 tools)
+## 9. Intruder and bounded payloads (8 tools)
 
 | Tool | Input | Purpose |
 |---|---|---|
@@ -145,7 +161,7 @@ For a raw request, keep `Host`, path, body framing, target host, port, and `http
 
 ---
 
-## 9. Payload lists (6 tools)
+## 10. Payload lists (6 tools)
 
 | Tool | Input | Purpose |
 |---|---|---|
@@ -158,7 +174,7 @@ For a raw request, keep `Host`, path, body framing, target host, port, and `http
 
 ---
 
-## 10. Scanner execution and findings (7 tools)
+## 11. Scanner execution and findings (7 tools)
 
 | Tool | Input | Purpose |
 |---|---|---|
@@ -172,7 +188,7 @@ For a raw request, keep `Host`, path, body framing, target host, port, and `http
 
 ---
 
-## 11. Scanner configuration and resource pools (10 tools)
+## 12. Scanner configuration and resource pools (10 tools)
 
 | Tool | Input | Purpose |
 |---|---|---|
@@ -189,7 +205,7 @@ For a raw request, keep `Host`, path, body framing, target host, port, and `http
 
 ---
 
-## 12. Background jobs (3 tools)
+## 13. Background jobs (3 tools)
 
 | Tool | Input | Purpose |
 |---|---|---|
@@ -199,7 +215,7 @@ For a raw request, keep `Host`, path, body framing, target host, port, and `http
 
 ---
 
-## 13. Collaborator and custom findings (3 tools)
+## 14. Collaborator and custom findings (3 tools)
 
 | Tool | Input | Purpose |
 |---|---|---|
@@ -209,7 +225,7 @@ For a raw request, keep `Host`, path, body framing, target host, port, and `http
 
 ---
 
-## 14. Managed WebSockets (6 tools)
+## 15. Managed WebSockets (6 tools)
 
 | Tool | Input | Purpose |
 |---|---|---|
@@ -224,7 +240,7 @@ Cleanup pair: every successful create must end with close unless the user asks t
 
 ---
 
-## 15. Script imports (2 tools)
+## 16. Script imports (2 tools)
 
 | Tool | Input | Purpose |
 |---|---|---|
@@ -235,7 +251,7 @@ Imports persist in Burp. Treat source as executable code: review it and require 
 
 ---
 
-## 16. Persistent sitegraph (15 tools, Advanced Opt-in)
+## 17. Persistent sitegraph (15 tools, Advanced Opt-in)
 
 Sitegraph is disabled by default in v3 (`--enable-sitegraph` to enable).
 
@@ -261,7 +277,7 @@ Sync before querying when freshness matters. Normalized metadata excludes parame
 
 ---
 
-## 17. Offline `decoder` (1 tool)
+## 18. Offline `decoder` (1 tool)
 
 Input is one tagged value:
 

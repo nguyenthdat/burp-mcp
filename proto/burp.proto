@@ -21,6 +21,10 @@ service BurpService {
   rpc InterceptedWebSocketMessages(InterceptedWebSocketMessagesRequest) returns (InterceptedWebSocketMessagesResponse);
   rpc ControlInterceptedWebSocketMessage(ControlInterceptedWebSocketMessageRequest) returns (InterceptedWebSocketMessageResponse);
   rpc WebSocketInterceptControllerConfig(WebSocketInterceptControllerConfigRequest) returns (WebSocketInterceptControllerConfigResponse);
+  rpc ActiveEditorGet(ActiveEditorGetRequest) returns (ActiveEditorSnapshot);
+  rpc ActiveEditorSet(ActiveEditorSetRequest) returns (ActiveEditorSnapshot);
+  rpc WebSocketEditorGet(WebSocketEditorGetRequest) returns (WebSocketEditorSnapshot);
+  rpc WebSocketEditorSet(WebSocketEditorSetRequest) returns (WebSocketEditorSnapshot);
   rpc EventsSince(EventsSinceRequest) returns (EventsSinceResponse);
   rpc TargetInfo(TargetInfoRequest) returns (TargetInfoResponse);
   rpc ScopeCheck(ScopeCheckRequest) returns (ScopeCheckResponse);
@@ -344,6 +348,40 @@ message WebSocketInterceptControllerConfigResponse {
   bool enabled = 1;
   uint32 timeout_seconds = 2;
   uint32 pending = 3;
+}
+message ActiveEditorGetRequest {}
+message ActiveEditorSnapshot {
+  string token = 1;
+  string text = 2;
+  bool editable = 3;
+  string sha256 = 4;
+  int32 caret_position = 5;
+  int32 selection_start = 6;
+  int32 selection_end = 7;
+}
+message ActiveEditorSetRequest {
+  string token = 1;
+  string expected_sha256 = 2;
+  string text = 3;
+}
+message WebSocketEditorGetRequest {}
+message WebSocketEditorSnapshot {
+  string token = 1;
+  bytes payload = 2;
+  bool editable = 3;
+  string sha256 = 4;
+  int32 caret_position = 5;
+  int32 selection_start = 6;
+  int32 selection_end = 7;
+  string direction = 8;
+  string source = 10;
+  bool apply_required = 11;
+  string upgrade_url = 9;
+}
+message WebSocketEditorSetRequest {
+  string token = 1;
+  string expected_sha256 = 2;
+  bytes payload = 3;
 }
 message ProxySettingsResponse {
   repeated ProxyListener listeners = 1;

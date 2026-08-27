@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/nguyenthdat/burp-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/nguyenthdat/burp-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tools](https://img.shields.io/badge/Tools-111%20(96%20Core%20%2B%2015%20SiteGraph)-brightgreen.svg)](docs/features.md)
+[![Tools](https://img.shields.io/badge/Tools-115%20(100%20Core%20%2B%2015%20SiteGraph)-brightgreen.svg)](docs/features.md)
 
 Burp MCP connects MCP-compatible clients to Burp Suite through a native Rust
 stdio server and a Kotlin extension built on the Montoya API. The Kotlin/Rust
@@ -55,9 +55,8 @@ Burp MCP has two runtime tiers:
 ## Features & Capabilities
 
 - **Proxy Traffic Inspection & Triage**: Search, filter (status, method, URL, regex), annotate, highlight, and view full raw HTTP/WebSocket traffic history.
-- **HTTP Request Execution & Repeater**: Send structured requests, execute parallel batches (up to 32 requests), send directly to Repeater tabs, run concurrent race condition checks, convert request methods (GET ↔ POST), and export requests as `curl` commands or Python `requests` code.
+- **Active editor UI integration**: Capture and guardedly replace focused editable HTTP text editors with short-lived token/hash leases; edit WebSocket payloads through an MCP-provided extension tab with lossless Base64.
 - **Interception & HTTP Handlers**: Toggle master proxy interception, register custom request/response modifying handlers, and configure granular proxy rules (`forward`, `intercept`, `drop`, `edit`).
-- **Proxy Settings & Listeners**: Complete programmatic management of proxy listeners, script-mode filters (Bambdas for HTTP/WebSocket history, sitemap, logger), and request/response interception rule chains.
 - **Cookie Jar**: Inspect, filter by domain, and set cookies within Burp's active cookie jar.
 - **Session Handling & Macros**: Create, list, execute, update, and remove scoped session handling rules and multi-request macros with parameter extraction.
 - **Intruder & Declarative Fuzzing**: Open raw requests with insertion points in Intruder UI, run bounded single-marker fuzzer jobs, and register custom payload processors and generators.
@@ -76,9 +75,9 @@ by the connected extension. The runtime tool schema and
 
 ---
 
-## Tools Inventory (111 Tools)
+## Tools Inventory (115 Tools)
 
-Burp MCP provides **96 tools by default**, plus **15 advanced tools** when SiteGraph is enabled.
+Burp MCP provides **100 tools by default**, plus **15 advanced tools** when SiteGraph is enabled.
 
 ### 1. Connection & Project Configuration (5 tools)
 
@@ -144,14 +143,23 @@ Burp MCP provides **96 tools by default**, plus **15 advanced tools** when SiteG
 | `burp_proxy_settings` | `{}` | Read Proxy listeners, script filters, and interception settings together. | Yes |
 | `burp_update_proxy_settings` | `{operation, port?, running?, listen_mode?, ...}` | Granular mutation of Proxy listeners, script filters, or interception rules. | No |
 
-### 6. Cookies (2 tools)
+### 6. Active Editor UI (4 tools)
+
+| Tool | Parameters | Description | Read-Only |
+|---|---|---|:---:|
+| `burp_active_editor_get` | `{}` | Capture the focused editable Burp text editor with a short-lived token and SHA-256 hash. | Yes |
+| `burp_active_editor_set` | `{token, expected_sha256, text}` | Guardedly replace that exact text editor; stale or expired writes fail. | No |
+| `burp_websocket_editor_get` | `{}` | Capture the focused MCP WebSocket extension tab with lossless Base64 payload. | Yes |
+| `burp_websocket_editor_set` | `{token, expected_sha256, payload_base64}` | Stage a guarded binary-safe payload replacement in that tab. | No |
+
+### 7. Cookies (2 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
 | `burp_cookie_jar` | `{limit?, domain?}` | List cookies in Burp's cookie jar with domain, path, value, and expiration. | Yes |
 | `burp_cookie_jar_set` | `{name, value, domain, path?, expiration?}` | Set or update a cookie in Burp's cookie jar. | No |
 
-### 7. Sessions & Macros (9 tools)
+### 8. Sessions & Macros (9 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
@@ -165,7 +173,7 @@ Burp MCP provides **96 tools by default**, plus **15 advanced tools** when SiteG
 | `burp_macro_run` | `{description}` | Execute requests in a named session macro and inspect results. | No |
 | `burp_macro_remove` | `{description}` | Remove a session macro by description. | No |
 
-### 8. Intruder & Declarative Fuzzing (8 tools)
+### 9. Intruder & Declarative Fuzzing (8 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
@@ -178,7 +186,7 @@ Burp MCP provides **96 tools by default**, plus **15 advanced tools** when SiteG
 | `burp_intruder_payload_generator_list` | `{}` | List registered Intruder payload generators. | Yes |
 | `burp_intruder_payload_generator_remove` | `{id}` | Deregister an Intruder payload generator by ID. | No |
 
-### 9. Payload Lists (6 tools)
+### 10. Payload Lists (6 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
@@ -189,7 +197,7 @@ Burp MCP provides **96 tools by default**, plus **15 advanced tools** when SiteG
 | `burp_payload_list_update` | `{id, operation, payloads?, index?, indexes?, display_name?}` | Append, prepend, insert, replace, remove, or clear entries in a payload list. | No |
 | `burp_payload_list_delete` | `{id}` | Delete a payload list by ID. | No |
 
-### 10. Scanner Execution, Crawl & Findings (7 tools)
+### 11. Scanner Execution, Crawl & Findings (7 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
@@ -201,7 +209,7 @@ Burp MCP provides **96 tools by default**, plus **15 advanced tools** when SiteG
 | `burp_scan_issue_detail` | `{index}` | Get complete details and HTTP evidence for a Scanner issue index. | Yes |
 | `burp_scanner_generate_report` | `{format, path, issue_indexes?}` | Generate an HTML or XML Burp Scanner report for selected issues. | No |
 
-### 11. Scanner Configuration & Resource Pools (10 tools)
+### 12. Scanner Configuration & Resource Pools (10 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
@@ -216,7 +224,7 @@ Burp MCP provides **96 tools by default**, plus **15 advanced tools** when SiteG
 | `burp_scan_pool_update` | `{id?, name, kind, existing_pool_name?, concurrent_request_limit?, throttle_millis?, max_retries?}` | Update a scanner resource pool definition by ID. | No |
 | `burp_scan_pool_delete` | `{id}` | Delete a scanner resource pool definition by ID. | No |
 
-### 12. Background Jobs (3 tools)
+### 13. Background Jobs (3 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
@@ -224,7 +232,7 @@ Burp MCP provides **96 tools by default**, plus **15 advanced tools** when SiteG
 | `burp_job_result` | `{job_id, limit?, cursor?}` | Read paginated result items from a completed background job. | Yes |
 | `burp_job_cancel` | `{job_id}` | Cancel an in-progress background job. | No |
 
-### 13. Collaborator & Custom Findings (3 tools)
+### 14. Collaborator & Custom Findings (3 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
@@ -232,7 +240,7 @@ Burp MCP provides **96 tools by default**, plus **15 advanced tools** when SiteG
 | `burp_collaborator_poll` | `{limit?, cursor?}` | Page DNS, HTTP, HTTPS, or SMTP interactions observed by the extension's active Collaborator context. | Yes |
 | `burp_add_issue` | `{name, url, detail?, remediation?, severity?, confidence?}` | Add a custom typed security issue to the Burp site map. | No |
 
-### 14. Managed WebSockets (6 tools)
+### 15. Managed WebSockets (6 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
@@ -243,14 +251,14 @@ Burp MCP provides **96 tools by default**, plus **15 advanced tools** when SiteG
 | `burp_websocket_close` | `{id}` | Close a managed WebSocket connection. | No |
 | `burp_websocket_list` | `{}` | List all active managed WebSocket connection IDs. | Yes |
 
-### 15. Bambda & BCheck Script Imports (2 tools)
+### 16. Bambda & BCheck Script Imports (2 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
 | `burp_bambda_import` | `{script}` | Validate and import a complete Bambda YAML script without executing it. | No |
 | `burp_bcheck_import` | `{script, enabled?}` | Validate and import a complete BCheck script definition into Burp. | No |
 
-### 16. Persistent Sitegraph (15 tools, Opt-in)
+### 17. Persistent Sitegraph (15 tools, Opt-in)
 
 *Requires starting the server with `--enable-sitegraph` or `BURP_MCP_ENABLE_SITEGRAPH=true`.*
 
@@ -272,7 +280,7 @@ Burp MCP provides **96 tools by default**, plus **15 advanced tools** when SiteG
 | `sitegraph_diff` | `{since, limit?, cursor?}` | Query nodes changed since a specific Unix timestamp. | Yes |
 | `sitegraph_export` | `{profile?, format?, snapshot_id?, cursor?, limit?}` | Export bounded metadata or exact-evidence pages; exact evidence is sensitive. | Yes |
 
-### 17. Offline Decoder Engine (1 tool)
+### 18. Offline Decoder Engine (1 tool)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
@@ -469,6 +477,7 @@ cargo test --workspace --locked
 
 # Run gRPC interop suite
 scripts/run-grpc-interop.sh
+```
 
 The extension JAR is written to `build/libs/burp-mcp.jar`. The live Burp/Pro
 interop scenario is local-only; see [the installation guide](docs/install.md)

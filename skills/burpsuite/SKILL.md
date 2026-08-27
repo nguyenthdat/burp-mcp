@@ -29,7 +29,7 @@ Load supporting reference files only when the task enters a specific domain:
 | Domain / Task | Reference to Load | Purpose |
 |---|---|---|
 | **AppSec Testing Methodologies & OAST** | [`references/appsec-testing-guide.md`](references/appsec-testing-guide.md) | OWASP WSTG testing techniques for Auth, IDOR, SQLi, XSS, OAST (Collaborator blind SSRF/RCE/XXE/SQLi), Race conditions, and WebSockets. |
-| **Complete Tool Schema & Inputs** | [`references/tool-catalog.md`](references/tool-catalog.md) | Parameter lists, constraints, and schemas for the current 111-tool runtime. |
+| **Complete Tool Schema & Inputs** | [`references/tool-catalog.md`](references/tool-catalog.md) | Parameter lists, constraints, and schemas for the current 115-tool runtime. |
 | **PortSwigger Desktop Workflows** | [`references/burp-workflows.md`](references/burp-workflows.md) | Standard desktop workflows for Proxy, Scope, Repeater, Intruder, and Scanner. |
 | **Graph-Based Attack Surface** | [`references/sitegraph.md`](references/sitegraph.md) | SQLite sitegraph partitioning, modes, clustering, shortest path, and impact analysis. |
 | **Scanner Custom Checks** | [`references/bcheck-authoring.md`](references/bcheck-authoring.md) | Writing, reviewing, validating, and importing declarative BCheck scripts. |

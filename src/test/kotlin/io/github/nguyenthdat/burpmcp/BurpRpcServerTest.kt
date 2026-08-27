@@ -51,7 +51,21 @@ class BurpRpcServerTest {
 
         assertEquals("burp-mcp", ping.server)
         assertEquals(42, ping.unixMillis)
-        assertEquals(listOf("proxy.read", "sitemap.read", "scanner.read", "cookies.read", "transport.echo", "lifecycle.restart"), info.capabilitiesList)
+        assertEquals(
+            listOf(
+                "proxy.read",
+                "sitemap.read",
+                "scanner.read",
+                "cookies.read",
+                "transport.echo",
+                "lifecycle.restart",
+                "editor.active.read",
+                "editor.active.write_guarded",
+                "editor.websocket.read",
+                "editor.websocket.write_guarded",
+            ),
+            info.capabilitiesList,
+        )
         assertEquals(GRPC_MAX_MESSAGE_BYTES, info.maxMessageBytes)
         assertEquals(GRPC_MAX_PAGE_SIZE, info.maxPageSize)
         assertEquals(GRPC_MAX_CONCURRENT_CALLS_PER_CONNECTION, info.maxConcurrentCallsPerConnection)

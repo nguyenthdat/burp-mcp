@@ -5,10 +5,10 @@ use crate::sitegraph::SitegraphIndexer;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use burp_protocol::BurpClient;
 use burp_protocol::protocol::{
-    AddIssueRequest, CancelJobRequest, ClearHttpHandlerRequest, ClearProxyRulesRequest,
-    CloseWebSocketRequest, ConfigResponse, ControlInterceptedMessageRequest,
-    ControlInterceptedWebSocketMessageRequest, CookieJarRequest, CreateMacroRequest,
-    CreatePayloadListRequest, CreateWebSocketRequest, DeletePayloadListRequest,
+    ActiveEditorGetRequest, ActiveEditorSetRequest, AddIssueRequest, CancelJobRequest,
+    ClearHttpHandlerRequest, ClearProxyRulesRequest, CloseWebSocketRequest, ConfigResponse,
+    ControlInterceptedMessageRequest, ControlInterceptedWebSocketMessageRequest, CookieJarRequest,
+    CreateMacroRequest, CreatePayloadListRequest, CreateWebSocketRequest, DeletePayloadListRequest,
     DeleteScanConfigurationRequest, DeleteScanResourcePoolRequest, DeleteSessionRuleRequest,
     ExportConfigRequest, ExtensionInfoRequest, GenerateCollaboratorPayloadsRequest,
     GenerateScannerReportRequest, GetJobResultRequest, GetJobStatusRequest, GetPayloadListRequest,
@@ -33,7 +33,8 @@ use burp_protocol::protocol::{
     SitemapSnapshotRequest, StartAuditRequest, StartBoundedInputMatrixRequest,
     StartConcurrentRequestCheckRequest, StartCrawlRequest, TargetInfoRequest,
     UpdatePayloadListRequest, UpsertScanConfigurationRequest, UpsertScanResourcePoolRequest,
-    UpsertSessionRuleRequest, WebSocketInterceptControllerConfigRequest,
+    UpsertSessionRuleRequest, WebSocketEditorGetRequest, WebSocketEditorSetRequest,
+    WebSocketInterceptControllerConfigRequest,
 };
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
@@ -246,6 +247,50 @@ struct InterceptedMessageOutput {
     is_in_scope: bool,
     request_base64: String,
     response_base64: Option<String>,
+}
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ActiveEditorSetInput {
+    /// Token returned by burp_active_editor_get.
+    pub token: String,
+    /// SHA-256 digest returned by burp_active_editor_get.
+    pub expected_sha256: String,
+    /// Complete replacement text for the focused editor.
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct ActiveEditorOutput {
+    token: String,
+    text: String,
+    editable: bool,
+    sha256: String,
+    caret_position: i32,
+    selection_start: i32,
+    selection_end: i32,
+}
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct WebSocketEditorSetInput {
+    /// Token returned by burp_websocket_editor_get.
+    pub token: String,
+    /// SHA-256 digest returned by burp_websocket_editor_get.
+    pub expected_sha256: String,
+    /// Complete replacement WebSocket payload encoded as standard Base64.
+    pub payload_base64: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct WebSocketEditorOutput {
+    token: String,
+    payload_base64: String,
+    editable: bool,
+    sha256: String,
+    caret_position: i32,
+    selection_start: i32,
+    selection_end: i32,
+    direction: String,
+    upgrade_url: String,
+    source: String,
+    apply_required: bool,
 }
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -3614,7 +3659,128 @@ impl BurpTools {
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
+    #[tool(
+        name = "burp_active_editor_get",
+        description = "Capture the focused editable Burp text editor; returns a short-lived token and content hash for a guarded subsequent write",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn active_editor_get(&self) -> String {
+        match self
+            .client
+            .active_editor_get(ActiveEditorGetRequest {})
+            .await
+        {
+            Ok(snapshot) => serde_json::to_string(&ActiveEditorOutput {
+                token: snapshot.token,
+                text: snapshot.text,
+                editable: snapshot.editable,
+                sha256: snapshot.sha256,
+                caret_position: snapshot.caret_position,
+                selection_start: snapshot.selection_start,
+                selection_end: snapshot.selection_end,
+            })
+            .expect("active editor output must serialize"),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
 
+    #[tool(
+        name = "burp_active_editor_set",
+        description = "Replace the captured Burp text editor contents after verifying its token and unchanged SHA-256 content hash",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn active_editor_set(
+        &self,
+        Parameters(input): Parameters<ActiveEditorSetInput>,
+    ) -> String {
+        match self
+            .client
+            .active_editor_set(ActiveEditorSetRequest {
+                token: input.token,
+                expected_sha256: input.expected_sha256,
+                text: input.text,
+            })
+            .await
+        {
+            Ok(snapshot) => serde_json::to_string(&ActiveEditorOutput {
+                token: snapshot.token,
+                text: snapshot.text,
+                editable: snapshot.editable,
+                sha256: snapshot.sha256,
+                caret_position: snapshot.caret_position,
+                selection_start: snapshot.selection_start,
+                selection_end: snapshot.selection_end,
+            })
+            .expect("active editor output must serialize"),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_websocket_editor_get",
+        description = "Capture the focused MCP WebSocket editor tab; returns lossless Base64 payload, short-lived token, and content hash",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn web_socket_editor_get(&self) -> String {
+        match self
+            .client
+            .web_socket_editor_get(WebSocketEditorGetRequest {})
+            .await
+        {
+            Ok(snapshot) => web_socket_editor_json(snapshot),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_websocket_editor_set",
+        description = "Replace the captured MCP WebSocket editor payload after verifying its token and unchanged SHA-256 hash; payload is standard Base64",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn web_socket_editor_set(
+        &self,
+        Parameters(input): Parameters<WebSocketEditorSetInput>,
+    ) -> String {
+        let payload = match STANDARD.decode(input.payload_base64) {
+            Ok(payload) => payload,
+            Err(error) => {
+                return serde_json::json!({"error": format!("invalid payload_base64: {error}")})
+                    .to_string();
+            }
+        };
+        match self
+            .client
+            .web_socket_editor_set(WebSocketEditorSetRequest {
+                token: input.token,
+                expected_sha256: input.expected_sha256,
+                payload,
+            })
+            .await
+        {
+            Ok(snapshot) => web_socket_editor_json(snapshot),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
     #[tool(
         name = "burp_cookie_jar_set",
         description = "Set one cookie in Burp's cookie jar; Montoya API does not expose cookie deletion",
@@ -4108,6 +4274,22 @@ impl BurpTools {
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
+}
+fn web_socket_editor_json(snapshot: burp_protocol::protocol::WebSocketEditorSnapshot) -> String {
+    serde_json::to_string(&WebSocketEditorOutput {
+        token: snapshot.token,
+        payload_base64: STANDARD.encode(snapshot.payload),
+        editable: snapshot.editable,
+        sha256: snapshot.sha256,
+        caret_position: snapshot.caret_position,
+        selection_start: snapshot.selection_start,
+        selection_end: snapshot.selection_end,
+        direction: snapshot.direction,
+        upgrade_url: snapshot.upgrade_url,
+        source: snapshot.source,
+        apply_required: snapshot.apply_required,
+    })
+    .expect("WebSocket editor output must serialize")
 }
 
 fn macro_json(macro_definition: MacroDefinition) -> serde_json::Value {
@@ -4661,10 +4843,10 @@ fn job_status_json(
             "job_id": status.id,
             "operation": status.operation,
             "state": status.state,
-            "error": (!status.error.is_empty()).then_some(status.error),
-            "scan_type": (!status.scan_type.is_empty()).then_some(status.scan_type),
+            "error": status.error,
+            "scan_type": status.scan_type,
             "stateless": status.stateless,
-            "status_message": (!status.status_message.is_empty()).then_some(status.status_message),
+            "status_message": status.status_message,
             "request_count": status.request_count,
             "error_count": status.error_count,
             "issue_count": status.issue_count,
@@ -4805,6 +4987,7 @@ mod contract_tests {
         export_request_text, normalize_decoder_operation, proxy_settings_operation,
         to_proxy_history_request,
     };
+    use burp_protocol::protocol::proxy_settings_update_request::Operation;
     use serde_json::Value;
     use std::collections::BTreeSet;
 
@@ -5030,9 +5213,29 @@ mod contract_tests {
     }
 
     #[test]
-    fn proxy_settings_operations_build_typed_interception_mutations() {
-        use burp_protocol::protocol::proxy_settings_update_request::Operation;
+    fn editor_tools_are_mounted_with_guarded_annotations() {
+        let router = BurpTools::burp_router();
+        for name in [
+            "burp_active_editor_get",
+            "burp_active_editor_set",
+            "burp_websocket_editor_get",
+            "burp_websocket_editor_set",
+        ] {
+            let route = router
+                .map
+                .get(name)
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let annotations = route
+                .attr
+                .annotations
+                .as_ref()
+                .expect("editor annotations required");
+            assert_eq!(Some(false), annotations.open_world_hint);
+        }
+    }
 
+    #[test]
+    fn proxy_settings_operations_build_typed_interception_mutations() {
         let upsert = proxy_settings_operation(ProxySettingsUpdateInput {
             operation: "intercept_rule_upsert".to_owned(),
             kind: Some("request".to_owned()),
@@ -5056,6 +5259,40 @@ mod contract_tests {
         })
         .expect("toggle must build");
         assert!(matches!(toggle, Operation::InterceptToggle(_)));
+    }
+    #[test]
+    fn editor_tool_schemas_expose_token_hash_and_payload_contracts() {
+        let router = BurpTools::burp_router();
+        let http_schema = router
+            .map
+            .get("burp_active_editor_set")
+            .expect("HTTP editor tool missing")
+            .attr
+            .input_schema
+            .clone();
+        let ws_schema = router
+            .map
+            .get("burp_websocket_editor_set")
+            .expect("WebSocket editor tool missing")
+            .attr
+            .input_schema
+            .clone();
+        let http_text =
+            serde_json::to_string(&http_schema).expect("HTTP editor schema must serialize");
+        let ws_text =
+            serde_json::to_string(&ws_schema).expect("WebSocket editor schema must serialize");
+        for field in ["token", "expected_sha256", "text"] {
+            assert!(
+                http_text.contains(field),
+                "HTTP editor schema missing {field}"
+            );
+        }
+        for field in ["token", "expected_sha256", "payload_base64"] {
+            assert!(
+                ws_text.contains(field),
+                "WebSocket editor schema missing {field}"
+            );
+        }
     }
 
     fn empty_proxy_settings_input() -> ProxySettingsUpdateInput {

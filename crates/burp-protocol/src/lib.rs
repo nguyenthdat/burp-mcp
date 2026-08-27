@@ -88,6 +88,22 @@ enum Command {
         response:
             oneshot::Sender<Result<proto::WebSocketInterceptControllerConfigResponse, ClientError>>,
     },
+    ActiveEditorGet {
+        request: proto::ActiveEditorGetRequest,
+        response: oneshot::Sender<Result<proto::ActiveEditorSnapshot, ClientError>>,
+    },
+    ActiveEditorSet {
+        request: proto::ActiveEditorSetRequest,
+        response: oneshot::Sender<Result<proto::ActiveEditorSnapshot, ClientError>>,
+    },
+    WebSocketEditorGet {
+        request: proto::WebSocketEditorGetRequest,
+        response: oneshot::Sender<Result<proto::WebSocketEditorSnapshot, ClientError>>,
+    },
+    WebSocketEditorSet {
+        request: proto::WebSocketEditorSetRequest,
+        response: oneshot::Sender<Result<proto::WebSocketEditorSnapshot, ClientError>>,
+    },
     TargetInfo {
         request: proto::TargetInfoRequest,
         response: oneshot::Sender<Result<proto::TargetInfoResponse, ClientError>>,
@@ -530,6 +546,36 @@ impl BurpClient {
         request: proto::WebSocketInterceptControllerConfigRequest,
     ) -> Result<proto::WebSocketInterceptControllerConfigResponse, ClientError> {
         self.send(|response| Command::WebSocketInterceptControllerConfig { request, response })
+            .await
+    }
+    pub async fn active_editor_get(
+        &self,
+        request: proto::ActiveEditorGetRequest,
+    ) -> Result<proto::ActiveEditorSnapshot, ClientError> {
+        self.send(|response| Command::ActiveEditorGet { request, response })
+            .await
+    }
+    pub async fn web_socket_editor_get(
+        &self,
+        request: proto::WebSocketEditorGetRequest,
+    ) -> Result<proto::WebSocketEditorSnapshot, ClientError> {
+        self.send(|response| Command::WebSocketEditorGet { request, response })
+            .await
+    }
+
+    pub async fn web_socket_editor_set(
+        &self,
+        request: proto::WebSocketEditorSetRequest,
+    ) -> Result<proto::WebSocketEditorSnapshot, ClientError> {
+        self.send(|response| Command::WebSocketEditorSet { request, response })
+            .await
+    }
+
+    pub async fn active_editor_set(
+        &self,
+        request: proto::ActiveEditorSetRequest,
+    ) -> Result<proto::ActiveEditorSnapshot, ClientError> {
+        self.send(|response| Command::ActiveEditorSet { request, response })
             .await
     }
     pub async fn target_info(
@@ -1379,6 +1425,12 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::WebSocketEditorGet { request, response } => {
+            rpc_command!(client, web_socket_editor_get, request, response, config)
+        }
+        Command::WebSocketEditorSet { request, response } => {
+            rpc_command!(client, web_socket_editor_set, request, response, config)
+        }
         Command::WebSocketInterceptControllerConfig { request, response } => {
             let result = client
                 .web_socket_intercept_controller_config(with_deadline(request, config.call_timeout))
@@ -1388,6 +1440,12 @@ async fn execute(
             let reconnect = result.as_ref().is_err_and(is_transport_failure);
             let _ = response.send(result);
             reconnect
+        }
+        Command::ActiveEditorGet { request, response } => {
+            rpc_command!(client, active_editor_get, request, response, config)
+        }
+        Command::ActiveEditorSet { request, response } => {
+            rpc_command!(client, active_editor_set, request, response, config)
         }
         Command::TargetInfo { request, response } => {
             let result = client
@@ -2131,6 +2189,18 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::WebSocketInterceptControllerConfig { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ActiveEditorGet { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ActiveEditorSet { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::WebSocketEditorGet { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::WebSocketEditorSet { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::ScanIssueDetail { response, .. } => {

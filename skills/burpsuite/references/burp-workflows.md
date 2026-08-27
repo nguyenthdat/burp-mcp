@@ -18,9 +18,19 @@ Burp's embedded browser is preconfigured and is the safest default. For an exter
 3. Install Burp's CA certificate only in the intended testing browser profile. Follow the [CA certificate guide](https://portswigger.net/burp/documentation/desktop/external-browser-config/certificate). Never disclose the CA private key; see [certificate management](https://portswigger.net/burp/documentation/desktop/tools/proxy/manage-certificates).
 4. Use **Proxy > Intercept** for deliberate inspection/editing, then turn interception off for normal browsing so requests do not remain blocked. HTTP history continues recording proxied traffic when interception is off. See [intercepting HTTP traffic](https://portswigger.net/burp/documentation/desktop/getting-started/intercepting-http-traffic) and [intercept controls](https://portswigger.net/burp/documentation/desktop/tools/proxy/intercept-messages).
 
-`burp-mcp` cannot control a request already held by Burp's manual UI. Its HTTP
-and WebSocket intercept controllers pause only messages captured by the
-extension after the controller is enabled.
+`burp-mcp` can now capture and guardedly replace the focused editable text editor
+through `burp_active_editor_get` followed by `burp_active_editor_set`. The get
+call returns a short-lived token and SHA-256 content hash; set must supply both,
+so edits fail closed if the user changes tabs or contents in between. This path
+does not forward, drop, or otherwise take ownership of a manually held request.
+
+For WebSocket UI editing, use `burp_websocket_editor_get` and
+`burp_websocket_editor_set`. These operate through the registered
+`ExtensionProvidedWebSocketMessageEditor` tab named **MCP**, return lossless
+Base64 payloads, and mark the tab modified so Burp obtains the staged bytes via
+`getMessage()`. Focus that MCP tab before `get`; a read-only creation context is
+rejected. The result still requires the normal Burp action to send it and is not
+the same as controlling an MCP-owned Proxy interception queue.
 
 ## MCP-owned interception queues
 

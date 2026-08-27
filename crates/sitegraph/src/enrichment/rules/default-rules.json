@@ -4,7 +4,7 @@
   "max_matches": 256,
   "rules": [
     {
-      "id": "shiro_remember_me",
+      "id": "remember_me",
       "pattern": "(?:^|[?&])rememberMe=[^&\\s]+",
       "capture_group": 0,
       "severity": "high",
