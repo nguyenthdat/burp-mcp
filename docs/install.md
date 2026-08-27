@@ -5,7 +5,7 @@ Burp MCP has two runtime parts:
 1. `burp-mcp.jar`, loaded into Burp Suite.
 2. The native `burp-mcp` MCP stdio server, launched by your MCP client.
 
-The optional `burp-skill` teaches compatible coding agents how to operate the exposed Burp tools safely. It is not required by the server.
+The optional `burpsuite` skill teaches compatible coding agents how to operate the exposed Burp tools safely. It is not required by the server.
 
 ## Requirements
 
@@ -78,11 +78,11 @@ Keep sitegraph disabled for the normal v3 setup. See [Sitegraph](sitegraph.md) f
 
 ## Install or update only the agent skill
 
-The skill package lives at [`docs/burp-skill`](burp-skill/SKILL.md). Install it globally with:
+The skill package lives at [`skills/burpsuite`](../skills/burpsuite/SKILL.md). Install it globally with:
 
 ```sh
 npx --yes skills add \
-  https://github.com/nguyenthdat/burp-mcp/tree/main/docs/burp-skill \
+  https://github.com/nguyenthdat/burp-mcp/tree/main/skills/burpsuite \
   --global --yes
 ```
 
@@ -90,7 +90,7 @@ Target one supported agent when needed:
 
 ```sh
 npx --yes skills add \
-  https://github.com/nguyenthdat/burp-mcp/tree/main/docs/burp-skill \
+  https://github.com/nguyenthdat/burp-mcp/tree/main/skills/burpsuite \
   --global --yes --agent codex
 ```
 

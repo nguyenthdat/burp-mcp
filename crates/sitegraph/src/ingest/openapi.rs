@@ -46,7 +46,7 @@ pub fn observations(
             if !path_item.contains_key(*method) {
                 continue;
             }
-            let Some(url) = metadata_url(path, &effective_base) else {
+            let Some(url) = endpoint_url(path, &effective_base) else {
                 continue;
             };
             output.push(SitemapObservation {
@@ -112,6 +112,20 @@ fn resolve_base_url(root: &Map<String, Value>, supplied: &str) -> Result<String,
     metadata_url(supplied, supplied).ok_or_else(|| "invalid OpenAPI base URL".to_owned())
 }
 
+fn endpoint_url(path: &str, base: &str) -> Option<String> {
+    let mut base = url::Url::parse(base).ok()?;
+    if !matches!(base.scheme(), "http" | "https") {
+        return None;
+    }
+    base.set_query(None);
+    base.set_fragment(None);
+    let endpoint_segments = path.trim_start_matches('/').split('/');
+    let mut segments = base.path_segments_mut().ok()?;
+    segments.pop_if_empty().extend(endpoint_segments);
+    drop(segments);
+    Some(base.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::observations;
@@ -134,28 +148,56 @@ mod tests {
         assert_eq!(
             values,
             vec![
-                ("GET".to_owned(), "https://example.test/users".to_owned()),
-                ("POST".to_owned(), "https://example.test/users".to_owned()),
+                (
+                    "GET".to_owned(),
+                    "https://example.test/api/v1/users".to_owned()
+                ),
+                (
+                    "POST".to_owned(),
+                    "https://example.test/api/v1/users".to_owned()
+                ),
                 (
                     "DELETE".to_owned(),
-                    "https://example.test/users/%7Bid%7D".to_owned()
+                    "https://example.test/api/v1/users/%7Bid%7D".to_owned()
                 ),
             ]
         );
     }
 
     #[test]
-    fn ingests_swagger_two_and_honors_limit() {
+    fn preserves_absolute_server_path_prefix() {
+        let document = br#"{
+          "openapi":"3.0.3",
+          "servers":[{"url":"https://example.test/api/v1/"}],
+          "paths":{"/users/{id}":{"get":{}}}
+        }"#;
+        let found = observations(document, "https://fallback.test/openapi.json", 10).unwrap();
+        assert_eq!(found[0].url, "https://example.test/api/v1/users/%7Bid%7D");
+    }
+
+    #[test]
+    fn ingests_swagger_two_against_base_path_and_honors_limit() {
         let document = br#"{
           "swagger":"2.0","schemes":["https"],"host":"api.example.test","basePath":"/v2",
           "paths":{"/pets":{"get":{},"post":{}},"/owners":{"get":{}}}
         }"#;
         let found = observations(document, "https://fallback.test/swagger.json", 2).unwrap();
-        assert_eq!(2, found.len());
-        assert!(
-            found
-                .iter()
-                .all(|item| item.url.starts_with("https://api.example.test/"))
+        let values = found
+            .into_iter()
+            .map(|item| (item.method, item.url))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            values,
+            vec![
+                (
+                    "GET".to_owned(),
+                    "https://api.example.test/v2/owners".to_owned()
+                ),
+                (
+                    "GET".to_owned(),
+                    "https://api.example.test/v2/pets".to_owned()
+                ),
+            ]
         );
     }
 

@@ -692,6 +692,7 @@ fn byte_search_term(args: &Value) -> UtilityResult<Vec<u8>> {
 
 fn byte_index_of(data: &[u8], args: &Value) -> UtilityResult<DataValue> {
     let term = byte_search_term(args)?;
+    require_nonempty_bytes(&term)?;
     let index = data
         .windows(term.len())
         .position(|window| window == term)
@@ -761,27 +762,12 @@ fn decode_base64_url(input: &str) -> UtilityResult<DataValue> {
 }
 
 fn hex_encode(input: &[u8]) -> String {
-    use std::fmt::Write;
-    let mut output = String::with_capacity(input.len().saturating_mul(2));
-    for byte in input {
-        write!(output, "{byte:02x}").expect("writing to String cannot fail");
-    }
-    output
+    hex::encode(input)
 }
 
 fn hex_decode(input: &str) -> UtilityResult<Vec<u8>> {
-    if !input.len().is_multiple_of(2) {
-        return Err(UtilityError::message(
-            "hex input must contain an even number of digits",
-        ));
-    }
-    (0..input.len())
-        .step_by(2)
-        .map(|index| {
-            u8::from_str_radix(&input[index..index + 2], 16)
-                .map_err(|error| UtilityError::message(error.to_string()))
-        })
-        .collect()
+    hex::decode(input)
+        .map_err(|error| UtilityError::with_source("invalid hexadecimal input", error))
 }
 
 fn unicode_escape(input: &str) -> String {
@@ -800,62 +786,8 @@ fn unicode_escape(input: &str) -> String {
 }
 
 fn unicode_unescape(input: &str) -> UtilityResult<String> {
-    let mut output = String::with_capacity(input.len());
-    let mut chars = input.chars();
-    while let Some(character) = chars.next() {
-        if character != '\\' {
-            output.push(character);
-            continue;
-        }
-        match chars
-            .next()
-            .ok_or_else(|| UtilityError::message("trailing Unicode escape delimiter"))?
-        {
-            '\\' => output.push('\\'),
-            'n' => output.push('\n'),
-            'r' => output.push('\r'),
-            't' => output.push('\t'),
-            '"' => output.push('"'),
-            '0' => output.push('\0'),
-            'u' => {
-                let mut digits = String::new();
-                if chars.clone().next() == Some('{') {
-                    chars.next();
-                    for digit in chars.by_ref() {
-                        if digit == '}' {
-                            break;
-                        }
-                        digits.push(digit);
-                        if digits.len() > 6 {
-                            return Err(UtilityError::message(
-                                "Unicode escape has too many digits",
-                            ));
-                        }
-                    }
-                } else {
-                    for _ in 0..4 {
-                        digits.push(
-                            chars.next().ok_or_else(|| {
-                                UtilityError::message("incomplete Unicode escape")
-                            })?,
-                        );
-                    }
-                }
-                let scalar = u32::from_str_radix(&digits, 16)
-                    .map_err(|error| UtilityError::message(error.to_string()))?;
-                output.push(
-                    char::from_u32(scalar)
-                        .ok_or_else(|| UtilityError::message("invalid Unicode scalar value"))?,
-                );
-            }
-            escaped => {
-                return Err(UtilityError::message(format!(
-                    "unsupported escape sequence: \\{escaped}"
-                )));
-            }
-        }
-    }
-    Ok(output)
+    unescaper::unescape(input)
+        .map_err(|error| UtilityError::with_source("invalid Unicode escape", error))
 }
 #[derive(Clone, Copy, Debug, serde::Serialize)]
 pub struct MagicSuggestion {
@@ -1134,11 +1066,10 @@ fn brotli_compress(input: &[u8]) -> UtilityResult<DataValue> {
 }
 
 fn brotli_decompress(input: &[u8]) -> UtilityResult<DataValue> {
-    let mut output = Vec::new();
-    brotli::BrotliDecompress(&mut Cursor::new(input), &mut output)
-        .map_err(|error| UtilityError::message(error.to_string()))?;
-    validate_decompressed_size(input.len(), output.len())?;
-    Ok(DataValue::Bytes(output))
+    decompress_reader(
+        brotli::Decompressor::new(Cursor::new(input), 4096),
+        input.len(),
+    )
 }
 
 fn jwt_segments(token: &str) -> UtilityResult<[&str; MAX_JWT_SEGMENTS]> {
@@ -1414,6 +1345,22 @@ mod tests {
             )["index"],
             1
         );
+        assert!(
+            run(
+                "bytes.index_of",
+                DataValue::Text("abc".to_owned()),
+                &serde_json::json!({"term": ""}),
+            )
+            .is_err()
+        );
+        assert!(
+            run(
+                "hex.decode",
+                DataValue::Text("aéb".to_owned()),
+                &Value::Null,
+            )
+            .is_err()
+        );
         assert_eq!(
             json_value("bytes.count", "abcabc", serde_json::json!({"term": "bc"}))["count"],
             2
@@ -1443,6 +1390,14 @@ mod tests {
         assert_eq!(
             run_text("unicode.unescape", "\\u{1f680}", Value::Null),
             DataValue::Text("🚀".to_owned())
+        );
+        assert!(
+            run(
+                "unicode.unescape",
+                DataValue::Text("\\u{123".to_owned()),
+                &Value::Null,
+            )
+            .is_err()
         );
         assert_eq!(
             run_text(
@@ -1507,14 +1462,19 @@ mod tests {
     }
     #[test]
     fn decompression_ratio_is_bounded() {
-        let compressed = run(
-            "gzip.compress",
-            DataValue::Bytes(vec![b'A'; 2 * 1024 * 1024]),
-            &Value::Null,
-        )
-        .unwrap();
-        let error = run("gzip.decompress", compressed, &Value::Null).unwrap_err();
-        assert_eq!(error.to_string(), "decompression ratio exceeds 1000:1");
+        for (compress, decompress) in [
+            ("gzip.compress", "gzip.decompress"),
+            ("brotli.compress", "brotli.decompress"),
+        ] {
+            let compressed = run(
+                compress,
+                DataValue::Bytes(vec![b'A'; 2 * 1024 * 1024]),
+                &Value::Null,
+            )
+            .unwrap();
+            let error = run(decompress, compressed, &Value::Null).unwrap_err();
+            assert_eq!(error.to_string(), "decompression ratio exceeds 1000:1");
+        }
     }
 
     #[test]

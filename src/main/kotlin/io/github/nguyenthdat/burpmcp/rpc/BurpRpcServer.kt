@@ -365,7 +365,7 @@ private object RpcDeadlineInterceptor : ServerInterceptor {
         return Contexts.interceptCall(Context.current(), call, headers, next)
     }
 }
-private fun structuredStatus(
+internal fun structuredStatus(
     status: Status,
     code: ErrorCode,
     message: String,
@@ -387,10 +387,12 @@ private fun structuredStatus(
             .build()
     return StatusProto.toStatusRuntimeException(rpcStatus)
 }
-private inline fun <T> StreamObserver<T>.respond(block: () -> T) {
+internal fun <T> StreamObserver<T>.respond(block: () -> T) {
     try {
         onNext(block())
         onCompleted()
+    } catch (exception: io.grpc.StatusException) {
+        onError(exception)
     } catch (exception: IllegalArgumentException) {
         onError(
             structuredStatus(
@@ -415,6 +417,14 @@ private inline fun <T> StreamObserver<T>.respond(block: () -> T) {
                 exception.message ?: "operation cannot be completed in the current state",
             ),
         )
+    } catch (exception: Throwable) {
+        val status =
+            structuredStatus(
+                Status.INTERNAL,
+                ErrorCode.ERROR_CODE_INTERNAL,
+                "internal server error",
+            )
+        onError(status.status.withCause(exception).asRuntimeException(status.trailers))
     }
 }
 
@@ -451,102 +461,84 @@ internal class BurpRpcService(
     private val systemGrpcService = SystemGrpcService(api, clock)
 
     override fun ping(request: PingRequest, responseObserver: StreamObserver<PingResponse>) =
-        systemGrpcService.ping(request, responseObserver)
+        responseObserver.respond { systemGrpcService.pingValue(request) }
 
     override fun echoBytes(request: EchoBytesRequest, responseObserver: StreamObserver<EchoBytesResponse>) =
-        systemGrpcService.echoBytes(request, responseObserver)
+        responseObserver.respond { systemGrpcService.echoBytesValue(request) }
 
     override fun serverInfo(request: ServerInfoRequest, responseObserver: StreamObserver<ServerInfoResponse>) =
-        systemGrpcService.serverInfo(request, responseObserver)
+        responseObserver.respond { systemGrpcService.serverInfoValue(request) }
 
     override fun proxyHistory(
         request: ProxyHistoryRequest,
         responseObserver: StreamObserver<ProxyHistoryResponse>,
-    ) {
-        try {
-            val limit =
-                when {
-                    !request.hasPage() || request.page.limit == 0 -> 100
-                    request.page.limit > GRPC_MAX_PAGE_SIZE -> {
-                        responseObserver.onError(
-                            Status.INVALID_ARGUMENT
-                                .withDescription("page limit must be at most $GRPC_MAX_PAGE_SIZE")
-                                .asRuntimeException(),
-                        )
-                        return
-                    }
-                    else -> request.page.limit.toInt()
-                }
-            val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "proxy history cursor")
-            val page =
-                proxyFacade.history(
-                    ProxyHistoryQuery(
-                        limit = limit,
-                        offset = offset,
-                        afterId = request.afterId.toInt().takeIf { request.hasAfterId() },
-                        urlFilter = request.urlFilter.takeIf(String::isNotEmpty),
-                        methodFilter = request.methodFilter.takeIf(String::isNotEmpty),
-                        statusFilter = if (request.hasStatusFilter()) request.statusFilter.toInt() else null,
-                        hasNotes = request.hasNotes,
-                        colorFilter = request.color.takeIf(String::isNotEmpty),
-                    ),
-                )
-            val builder = ProxyHistoryResponse.newBuilder()
-            var estimatedBytes = 0
-            var boundedEnd = page.offset
-            for (item in page.items) {
-                if (Context.current().isCancelled) {
-                    responseObserver.onError(Status.CANCELLED.asRuntimeException())
-                    return
-                }
-                val protoItem =
-                    ProxyHistoryEntry
-                        .newBuilder()
-                        .setIndex(item.index)
-                        .setId(item.id)
-                        .setMethod(item.method)
-                        .setUrl(item.url)
-                        .setStatus(item.status ?: 0)
-                        .setLength(item.length?.toLong() ?: 0)
-                        .setHasResponse(item.hasResponse)
-                        .setNotes(item.notes ?: "")
-                        .setHighlight(item.highlight ?: "")
-                        .setRequest(com.google.protobuf.ByteString.copyFrom(item.request))
-                        .setResponse(com.google.protobuf.ByteString.copyFrom(item.response ?: byteArrayOf()))
-                        .setTime(item.time)
-                        .setContentType(item.contentType)
-                        .build()
-                val itemBytes = protoItem.serializedSize
-                if (estimatedBytes + itemBytes > GRPC_MAX_RESPONSE_BYTES - GRPC_RESPONSE_OVERHEAD_BYTES) break
-                builder.addItems(protoItem)
-                estimatedBytes += itemBytes
-                boundedEnd++
+    ) = responseObserver.respond {
+        val limit =
+            when {
+                !request.hasPage() || request.page.limit == 0 -> 100
+                request.page.limit > GRPC_MAX_PAGE_SIZE ->
+                    throw IllegalArgumentException("page limit must be at most $GRPC_MAX_PAGE_SIZE")
+                else -> request.page.limit.toInt()
             }
-            builder.page =
-                PageInfo
+        val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "proxy history cursor")
+        val page =
+            proxyFacade.history(
+                ProxyHistoryQuery(
+                    limit = limit,
+                    offset = offset,
+                    afterId = request.afterId.toInt().takeIf { request.hasAfterId() },
+                    urlFilter = request.urlFilter.takeIf(String::isNotEmpty),
+                    methodFilter = request.methodFilter.takeIf(String::isNotEmpty),
+                    statusFilter = if (request.hasStatusFilter()) request.statusFilter.toInt() else null,
+                    hasNotes = request.hasNotes,
+                    colorFilter = request.color.takeIf(String::isNotEmpty),
+                ),
+            )
+        val builder = ProxyHistoryResponse.newBuilder()
+        var estimatedBytes = 0
+        var boundedEnd = page.offset
+        for (item in page.items) {
+            if (Context.current().isCancelled) throw Status.CANCELLED.asException()
+            val protoItem =
+                ProxyHistoryEntry
                     .newBuilder()
-                    .setTotal(page.total)
-                    .setTruncated(boundedEnd < page.total)
-                    .setNextCursor(if (boundedEnd < page.total) boundedEnd.toString() else "")
+                    .setIndex(item.index)
+                    .setId(item.id)
+                    .setMethod(item.method)
+                    .setUrl(item.url)
+                    .setStatus(item.status ?: 0)
+                    .setLength(item.length?.toLong() ?: 0)
+                    .setHasResponse(item.hasResponse)
+                    .setNotes(item.notes ?: "")
+                    .setHighlight(item.highlight ?: "")
+                    .setRequest(com.google.protobuf.ByteString.copyFrom(item.request))
+                    .setResponse(com.google.protobuf.ByteString.copyFrom(item.response ?: byteArrayOf()))
+                    .setTime(item.time)
+                    .setContentType(item.contentType)
                     .build()
-            responseObserver.onNext(builder.build())
-            responseObserver.onCompleted()
-        } catch (exception: Exception) {
-            responseObserver.onError(Status.INTERNAL.withDescription("unable to read proxy history").withCause(exception).asRuntimeException())
+            val itemBytes = protoItem.serializedSize
+            if (estimatedBytes + itemBytes > GRPC_MAX_RESPONSE_BYTES - GRPC_RESPONSE_OVERHEAD_BYTES) break
+            builder.addItems(protoItem)
+            estimatedBytes += itemBytes
+            boundedEnd++
         }
+        builder.page =
+            PageInfo
+                .newBuilder()
+                .setTotal(page.total)
+                .setTruncated(boundedEnd < page.total)
+                .setNextCursor(if (boundedEnd < page.total) boundedEnd.toString() else "")
+                .build()
+        builder.build()
     }
 
     override fun proxyDetail(
         request: ProxyDetailRequest,
         responseObserver: StreamObserver<ProxyDetailResponse>,
-    ) {
-        val detail = proxyFacade.detail(request.index)
-        if (detail == null) {
-            responseObserver.onError(
-                structuredStatus(Status.NOT_FOUND, ErrorCode.ERROR_CODE_NOT_FOUND, "proxy history index ${request.index} was not found"),
-            )
-            return
-        }
+    ) = responseObserver.respond {
+        val detail =
+            proxyFacade.detail(request.index)
+                ?: throw NoSuchElementException("proxy history index ${request.index} was not found")
         val response =
             ProxyDetailResponse
                 .newBuilder()
@@ -555,23 +547,17 @@ internal class BurpRpcService(
                 .setNotes(detail.notes ?: "")
                 .setHighlight(detail.highlight ?: "")
         detail.response?.let { response.setResponse(com.google.protobuf.ByteString.copyFrom(it)) }
-        responseObserver.onNext(response.build())
-        responseObserver.onCompleted()
+        response.build()
     }
 
     override fun sitemapSnapshot(
         request: SitemapSnapshotRequest,
         responseObserver: StreamObserver<SitemapSnapshotResponse>,
-    ) {
+    ) = responseObserver.respond {
         val limit =
             when {
                 !request.hasPage() || request.page.limit == 0 -> 200
-                request.page.limit > GRPC_MAX_PAGE_SIZE -> {
-                    responseObserver.onError(
-                        structuredStatus(Status.INVALID_ARGUMENT, ErrorCode.ERROR_CODE_INVALID_ARGUMENT, "page limit must be at most $GRPC_MAX_PAGE_SIZE"),
-                    )
-                    return
-                }
+                request.page.limit > GRPC_MAX_PAGE_SIZE -> throw IllegalArgumentException("page limit must be at most $GRPC_MAX_PAGE_SIZE")
                 else -> request.page.limit.toInt()
             }
         val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "sitemap cursor")
@@ -607,8 +593,7 @@ internal class BurpRpcService(
                 .setTruncated(boundedEnd < page.total)
                 .setNextCursor(if (boundedEnd < page.total) boundedEnd.toString() else "")
                 .build()
-        responseObserver.onNext(response.build())
-        responseObserver.onCompleted()
+        response.build()
     }
 
     override fun eventsSince(
@@ -637,33 +622,27 @@ internal class BurpRpcService(
     override fun targetInfo(
         request: TargetInfoRequest,
         responseObserver: StreamObserver<TargetInfoResponse>,
-    ) {
+    ) = responseObserver.respond {
         val limit = if (request.limit == 0) 500 else request.limit.toInt().coerceAtMost(500)
         val info = targetFacade.info(request.urlPrefix, limit)
-        responseObserver.onNext(
-            TargetInfoResponse
-                .newBuilder()
-                .addAllHosts(info.hosts)
-                .addAllTechnologies(info.technologies)
-                .setRequestsSampled(info.requestsSampled)
-                .build(),
-        )
-        responseObserver.onCompleted()
+        TargetInfoResponse
+            .newBuilder()
+            .addAllHosts(info.hosts)
+            .addAllTechnologies(info.technologies)
+            .setRequestsSampled(info.requestsSampled)
+            .build()
     }
 
     override fun scopeCheck(
         request: ScopeCheckRequest,
         responseObserver: StreamObserver<ScopeCheckResponse>,
-    ) {
+    ) = responseObserver.respond {
         val scope = targetFacade.scope(request.url)
-        responseObserver.onNext(
-            ScopeCheckResponse
-                .newBuilder()
-                .setUrl(scope.url)
-                .setInScope(scope.inScope)
-                .build(),
-        )
-        responseObserver.onCompleted()
+        ScopeCheckResponse
+            .newBuilder()
+            .setUrl(scope.url)
+            .setInScope(scope.inScope)
+            .build()
     }
 
     override fun scanIssues(
@@ -703,19 +682,16 @@ internal class BurpRpcService(
     override fun scanIssueDetail(
         request: ScanIssueDetailRequest,
         responseObserver: StreamObserver<ScanIssueEntry>,
-    ) {
+    ) = responseObserver.respond {
         val item = scannerFacade.issueDetail(request.index.toInt())
-        responseObserver.onNext(
-            ScanIssueEntry.newBuilder()
-                .setIndex(item.index)
-                .setName(item.name)
-                .setSeverity(item.severity)
-                .setConfidence(item.confidence)
-                .setUrl(item.url)
-                .setDetail(item.detail)
-                .build(),
-        )
-        responseObserver.onCompleted()
+        ScanIssueEntry.newBuilder()
+            .setIndex(item.index)
+            .setName(item.name)
+            .setSeverity(item.severity)
+            .setConfidence(item.confidence)
+            .setUrl(item.url)
+            .setDetail(item.detail)
+            .build()
     }
 
     override fun addIssue(
@@ -736,63 +712,48 @@ internal class BurpRpcService(
     override fun generateScannerReport(
         request: GenerateScannerReportRequest,
         responseObserver: StreamObserver<GenerateScannerReportResponse>,
-    ) {
+    ) = responseObserver.respond {
         val report =
             scannerFacade.generateReport(
                 format = request.format,
                 path = request.path,
                 issueIndexes = request.issueIndexesList.map { it.toInt() },
             )
-        responseObserver.onNext(
-            GenerateScannerReportResponse.newBuilder()
-                .setPath(report.path)
-                .setFormat(report.format)
-                .setIssueCount(report.issueCount)
-                .setSizeBytes(report.sizeBytes)
-                .build(),
-        )
-        responseObserver.onCompleted()
+        GenerateScannerReportResponse.newBuilder()
+            .setPath(report.path)
+            .setFormat(report.format)
+            .setIssueCount(report.issueCount)
+            .setSizeBytes(report.sizeBytes)
+            .build()
     }
 
     override fun cookieJar(
         request: CookieJarRequest,
         responseObserver: StreamObserver<CookieJarResponse>,
-    ) {
+    ) = responseObserver.respond {
         val limit = if (request.limit == 0) 100 else request.limit.toInt()
-        if (limit > GRPC_MAX_PAGE_SIZE) {
-            responseObserver.onError(
-                structuredStatus(
-                    Status.INVALID_ARGUMENT,
-                    ErrorCode.ERROR_CODE_INVALID_ARGUMENT,
-                    "cookie limit must be at most $GRPC_MAX_PAGE_SIZE",
-                ),
-            )
-            return
-        }
+        require(limit <= GRPC_MAX_PAGE_SIZE) { "cookie limit must be at most $GRPC_MAX_PAGE_SIZE" }
         val cookies = cookieFacade.cookies(CookieQuery(request.domain.takeIf(String::isNotEmpty), limit))
-        responseObserver.onNext(
-            CookieJarResponse
-                .newBuilder()
-                .addAllItems(
-                    cookies.map { cookie ->
-                        CookieEntry
-                            .newBuilder()
-                            .setName(cookie.name)
-                            .setValue(cookie.value)
-                            .setDomain(cookie.domain ?: "")
-                            .setPath(cookie.path ?: "")
-                            .setExpiration(cookie.expiration ?: "")
-                            .build()
-                    },
-                ).build(),
-        )
-        responseObserver.onCompleted()
+        CookieJarResponse
+            .newBuilder()
+            .addAllItems(
+                cookies.map { cookie ->
+                    CookieEntry
+                        .newBuilder()
+                        .setName(cookie.name)
+                        .setValue(cookie.value)
+                        .setDomain(cookie.domain ?: "")
+                        .setPath(cookie.path ?: "")
+                        .setExpiration(cookie.expiration ?: "")
+                        .build()
+                },
+            ).build()
     }
 
     override fun setCookie(
         request: SetCookieRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         cookieFacade.setCookie(
             request.name,
             request.value,
@@ -800,17 +761,15 @@ internal class BurpRpcService(
             request.path.ifBlank { "/" },
             request.expiration.ifBlank { null },
         )
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("cookie updated").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("cookie updated").build()
     }
 
     override fun interceptState(
         request: InterceptStateRequest,
         responseObserver: StreamObserver<InterceptStateResponse>,
-    ) {
+    ) = responseObserver.respond {
         val enabled = proxyFacade.interceptState(if (request.hasEnabled()) request.enabled else null)
-        responseObserver.onNext(InterceptStateResponse.newBuilder().setEnabled(enabled).build())
-        responseObserver.onCompleted()
+        InterceptStateResponse.newBuilder().setEnabled(enabled).build()
     }
 
     override fun interceptedMessages(
@@ -1031,7 +990,7 @@ internal class BurpRpcService(
     override fun sendToIntruder(
         request: SendToIntruderRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         capabilityFacade.sendToIntruder(
             request.request.toByteArray(),
             request.host,
@@ -1039,8 +998,7 @@ internal class BurpRpcService(
             request.https,
             request.tabName.ifBlank { null },
         )
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("request opened in Intruder").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("request opened in Intruder").build()
     }
     override fun registerPayloadProcessor(
         request: RegisterPayloadProcessorRequest,
@@ -1062,20 +1020,17 @@ internal class BurpRpcService(
     override fun listPayloadProcessors(
         @Suppress("UNUSED_PARAMETER") request: ListPayloadProcessorsRequest,
         responseObserver: StreamObserver<ListPayloadProcessorsResponse>,
-    ) {
-        responseObserver.onNext(
-            ListPayloadProcessorsResponse.newBuilder().addAllItems(
-                intruderPayloadFacade.listProcessors().map { item ->
-                    PayloadProcessorEntry.newBuilder()
-                        .setId(item.id)
-                        .setDisplayName(item.displayName)
-                        .setOperation(item.operation)
-                        .setRegistered(item.registered)
-                        .build()
-                },
-            ).build(),
-        )
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        ListPayloadProcessorsResponse.newBuilder().addAllItems(
+            intruderPayloadFacade.listProcessors().map { item ->
+                PayloadProcessorEntry.newBuilder()
+                    .setId(item.id)
+                    .setDisplayName(item.displayName)
+                    .setOperation(item.operation)
+                    .setRegistered(item.registered)
+                    .build()
+            },
+        ).build()
     }
 
     override fun removePayloadProcessor(
@@ -1110,21 +1065,18 @@ internal class BurpRpcService(
     override fun listPayloadGenerators(
         @Suppress("UNUSED_PARAMETER") request: ListPayloadGeneratorsRequest,
         responseObserver: StreamObserver<ListPayloadGeneratorsResponse>,
-    ) {
-        responseObserver.onNext(
-            ListPayloadGeneratorsResponse.newBuilder().addAllItems(
-                intruderPayloadFacade.listGenerators().map { item ->
-                    PayloadGeneratorEntry.newBuilder()
-                        .setId(item.id)
-                        .setDisplayName(item.displayName)
-                        .setPayloadCount(item.payloadCount)
-                        .setMaxOutputCount(item.maxOutputCount)
-                        .setRegistered(item.registered)
-                        .build()
-                },
-            ).build(),
-        )
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        ListPayloadGeneratorsResponse.newBuilder().addAllItems(
+            intruderPayloadFacade.listGenerators().map { item ->
+                PayloadGeneratorEntry.newBuilder()
+                    .setId(item.id)
+                    .setDisplayName(item.displayName)
+                    .setPayloadCount(item.payloadCount)
+                    .setMaxOutputCount(item.maxOutputCount)
+                    .setRegistered(item.registered)
+                    .build()
+            },
+        ).build()
     }
 
     override fun removePayloadGenerator(
@@ -1139,16 +1091,13 @@ internal class BurpRpcService(
     override fun extensionInfo(
         @Suppress("UNUSED_PARAMETER") request: ExtensionInfoRequest,
         responseObserver: StreamObserver<ExtensionInfoResponse>,
-    ) {
+    ) = responseObserver.respond {
         val info = capabilityFacade.extensionInfo()
-        responseObserver.onNext(
-            ExtensionInfoResponse.newBuilder()
-                .setFilename(info.filename)
-                .setIsBapp(info.isBapp)
-                .addAllCommandLineArguments(info.commandLineArguments)
-                .build(),
-        )
-        responseObserver.onCompleted()
+        ExtensionInfoResponse.newBuilder()
+            .setFilename(info.filename)
+            .setIsBapp(info.isBapp)
+            .addAllCommandLineArguments(info.commandLineArguments)
+            .build()
     }
 
     override fun createPayloadList(request: CreatePayloadListRequest, responseObserver: StreamObserver<PayloadListEntry>) = responseObserver.respond {
@@ -1159,9 +1108,11 @@ internal class BurpRpcService(
         payloadListFacade.import(request.id, request.displayName, request.content, request.format, request.keepEmpty).toProto()
     }
 
-    override fun listPayloadLists(request: ListPayloadListsRequest, responseObserver: StreamObserver<ListPayloadListsResponse>) {
-        responseObserver.onNext(ListPayloadListsResponse.newBuilder().addAllItems(payloadListFacade.list().map { it.toProto() }).build())
-        responseObserver.onCompleted()
+    override fun listPayloadLists(
+        @Suppress("UNUSED_PARAMETER") request: ListPayloadListsRequest,
+        responseObserver: StreamObserver<ListPayloadListsResponse>,
+    ) = responseObserver.respond {
+        ListPayloadListsResponse.newBuilder().addAllItems(payloadListFacade.list().map { it.toProto() }).build()
     }
 
     override fun getPayloadList(request: GetPayloadListRequest, responseObserver: StreamObserver<GetPayloadListResponse>) = responseObserver.respond {
@@ -1183,35 +1134,25 @@ internal class BurpRpcService(
     override fun sendRequest(
         request: SendRequestRequest,
         responseObserver: StreamObserver<SendRequestResponse>,
-    ) {
-        val exchange = httpFacade.send(request.toSpec())
-        responseObserver.onNext(exchange.toProto())
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        httpFacade.send(request.toSpec()).toProto()
     }
 
     override fun sendRequests(
         request: SendRequestsRequest,
         responseObserver: StreamObserver<SendRequestsResponse>,
-    ) {
-        if (request.requestsCount > 32) {
-            responseObserver.onError(
-                structuredStatus(Status.INVALID_ARGUMENT, ErrorCode.ERROR_CODE_INVALID_ARGUMENT, "at most 32 requests may be sent in one batch"),
-            )
-            return
-        }
-        responseObserver.onNext(
-            SendRequestsResponse
-                .newBuilder()
-                .addAllResponses(httpFacade.sendParallel(request.requestsList.map { it.toSpec() }).map { it.toProto() })
-                .build(),
-        )
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        require(request.requestsCount <= 32) { "at most 32 requests may be sent in one batch" }
+        SendRequestsResponse
+            .newBuilder()
+            .addAllResponses(httpFacade.sendParallel(request.requestsList.map { it.toSpec() }).map { it.toProto() })
+            .build()
     }
 
     override fun sendToRepeater(
         request: SendToRepeaterRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         val port = if (request.port == 0) if (request.https) 443 else 80 else request.port.toInt()
         httpFacade.sendToRepeater(
             request.request.toStringUtf8(),
@@ -1220,73 +1161,64 @@ internal class BurpRpcService(
             request.https,
             request.tabName.takeIf(String::isNotEmpty),
         )
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("request opened in Repeater").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("request opened in Repeater").build()
     }
 
     override fun setHighlight(
         request: SetHighlightRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         val color = annotationFacade.highlight(request.index, request.color.takeIf(String::isNotEmpty))
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage(color).build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage(color).build()
     }
 
     override fun setNote(
         request: SetNoteRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         annotationFacade.annotate(request.index, request.note)
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("note updated").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("note updated").build()
     }
 
     override fun inspectConfig(
         request: ExportConfigRequest,
         responseObserver: StreamObserver<InspectConfigResponse>,
-    ) {
+    ) = responseObserver.respond {
         val inspection = configFacade.inspect(request.pathsList)
-        responseObserver.onNext(
-            InspectConfigResponse.newBuilder()
-                .setConfig(inspection.config)
-                .addAllPaths(inspection.paths)
-                .setSizeBytes(inspection.sizeBytes)
-                .build(),
-        )
-        responseObserver.onCompleted()
+        InspectConfigResponse.newBuilder()
+            .setConfig(inspection.config)
+            .addAllPaths(inspection.paths)
+            .setSizeBytes(inspection.sizeBytes)
+            .build()
     }
 
     override fun mutateScope(
         request: MutateScopeRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         if (request.include) targetFacade.include(request.url) else targetFacade.exclude(request.url)
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage(if (request.include) "included" else "excluded").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage(if (request.include) "included" else "excluded").build()
     }
 
     override fun exportConfig(
         request: ExportConfigRequest,
         responseObserver: StreamObserver<ConfigResponse>,
-    ) {
-        responseObserver.onNext(ConfigResponse.newBuilder().setConfig(configFacade.export(request.pathsList)).build())
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        ConfigResponse.newBuilder().setConfig(configFacade.export(request.pathsList)).build()
     }
 
     override fun importConfig(
         request: ImportConfigRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         configFacade.import(request.config)
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("configuration imported").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("configuration imported").build()
     }
 
     override fun registerHttpHandler(
         request: RegisterHttpHandlerRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         httpHandlerFacade.register(
             HttpHandlerRule(
                 request.headerName.takeIf(String::isNotEmpty),
@@ -1295,23 +1227,21 @@ internal class BurpRpcService(
                 request.replacement.takeIf(String::isNotEmpty),
             ),
         )
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("HTTP handler registered").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("HTTP handler registered").build()
     }
 
     override fun clearHttpHandler(
         @Suppress("UNUSED_PARAMETER") request: ClearHttpHandlerRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         httpHandlerFacade.clear()
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("HTTP handlers cleared").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("HTTP handlers cleared").build()
     }
 
     override fun registerProxyRule(
         request: RegisterProxyRuleRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         proxyRuleFacade.register(
             ProxyRule(
                 id = request.id.ifBlank { "default" },
@@ -1325,42 +1255,37 @@ internal class BurpRpcService(
                 enabled = request.enabled,
             ),
         )
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("proxy rule registered").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("proxy rule registered").build()
     }
 
     override fun listProxyRules(
         @Suppress("UNUSED_PARAMETER") request: ListProxyRulesRequest,
         responseObserver: StreamObserver<ListProxyRulesResponse>,
-    ) {
-        responseObserver.onNext(
-            ListProxyRulesResponse.newBuilder()
-                .addAllItems(
-                    proxyRuleFacade.list().map { rule ->
-                        ProxyRuleEntry.newBuilder()
-                            .setId(rule.id)
-                            .setUrlContains(rule.urlContains)
-                            .setPhase(rule.phase)
-                            .setAction(rule.action)
-                            .setMatch(rule.match)
-                            .setReplacement(rule.replacement)
-                            .setHeaderName(rule.headerName)
-                            .setHeaderValue(rule.headerValue)
-                            .setEnabled(rule.enabled)
-                            .build()
-                    },
-                ).build(),
-        )
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        ListProxyRulesResponse.newBuilder()
+            .addAllItems(
+                proxyRuleFacade.list().map { rule ->
+                    ProxyRuleEntry.newBuilder()
+                        .setId(rule.id)
+                        .setUrlContains(rule.urlContains)
+                        .setPhase(rule.phase)
+                        .setAction(rule.action)
+                        .setMatch(rule.match)
+                        .setReplacement(rule.replacement)
+                        .setHeaderName(rule.headerName)
+                        .setHeaderValue(rule.headerValue)
+                        .setEnabled(rule.enabled)
+                        .build()
+                },
+            ).build()
     }
 
     override fun clearProxyRules(
         request: ClearProxyRulesRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         proxyRuleFacade.clear(request.id.takeIf(String::isNotEmpty))
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("proxy rules cleared").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("proxy rules cleared").build()
     }
 
     override fun createSessionRule(
@@ -1401,69 +1326,54 @@ internal class BurpRpcService(
     override fun createMacro(
         request: CreateMacroRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         val macro = macroFacade.create(request.macro.toDomain())
-        responseObserver.onNext(
-            ActionResponse.newBuilder().setSuccess(true).setMessage(macro.serialNumber.toString()).build(),
-        )
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage(macro.serialNumber.toString()).build()
     }
 
     override fun listMacros(
         @Suppress("UNUSED_PARAMETER") request: ListMacrosRequest,
         responseObserver: StreamObserver<ListMacrosResponse>,
-    ) {
-        responseObserver.onNext(
-            ListMacrosResponse.newBuilder().addAllMacros(macroFacade.list().map { it.toProto() }).build(),
-        )
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        ListMacrosResponse.newBuilder().addAllMacros(macroFacade.list().map { it.toProto() }).build()
     }
 
     override fun runMacro(
         request: RunMacroRequest,
         responseObserver: StreamObserver<RunMacroResponse>,
-    ) {
-        responseObserver.onNext(
-            RunMacroResponse.newBuilder().addAllItems(
-                macroFacade.run(request.description).map { exchange ->
-                    RunMacroItem.newBuilder()
-                        .setRequest(exchange.request.toString(Charsets.ISO_8859_1))
-                        .setResponse(exchange.response?.toString(Charsets.ISO_8859_1).orEmpty())
-                        .setStatusCode(exchange.status ?: 0)
-                        .setHasResponse(exchange.response != null)
-                        .build()
-                },
-            ).build(),
-        )
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        RunMacroResponse.newBuilder().addAllItems(
+            macroFacade.run(request.description).map { exchange ->
+                RunMacroItem.newBuilder()
+                    .setRequest(exchange.request.toString(Charsets.ISO_8859_1))
+                    .setResponse(exchange.response?.toString(Charsets.ISO_8859_1).orEmpty())
+                    .setStatusCode(exchange.status ?: 0)
+                    .setHasResponse(exchange.response != null)
+                    .build()
+            },
+        ).build()
     }
 
     override fun removeMacro(
         request: RemoveMacroRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         val removed = macroFacade.remove(request.description)
-        responseObserver.onNext(
-            ActionResponse.newBuilder().setSuccess(removed).setMessage(if (removed) "macro removed" else "macro not found").build(),
-        )
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(removed).setMessage(if (removed) "macro removed" else "macro not found").build()
     }
 
     override fun startConcurrentRequestCheck(
         request: StartConcurrentRequestCheckRequest,
         responseObserver: StreamObserver<JobStatusResponse>,
-    ) {
+    ) = responseObserver.respond {
         val port = request.port.toInt().takeIf { it > 0 } ?: if (request.https) 443 else 80
-        val snapshot =
-            longOperationFacade.startRace(
-                request.request.toStringUtf8(),
-                request.host,
-                port,
-                request.https,
-                request.count.toInt().takeIf { it > 0 } ?: 10,
-            )
-        responseObserver.onNext(snapshot.toStatusProto())
-        responseObserver.onCompleted()
+        longOperationFacade.startRace(
+            request.request.toStringUtf8(),
+            request.host,
+            port,
+            request.https,
+            request.count.toInt().takeIf { it > 0 } ?: 10,
+        ).toStatusProto()
     }
 
     override fun startBoundedInputMatrix(
@@ -1599,51 +1509,33 @@ internal class BurpRpcService(
     override fun getJobStatus(
         request: GetJobStatusRequest,
         responseObserver: StreamObserver<JobStatusResponse>,
-    ) {
-        val snapshot = jobFacade.status(request.id)
-        if (snapshot == null) {
-            responseObserver.onError(Status.NOT_FOUND.withDescription("job not found").asRuntimeException())
-            return
-        }
-        responseObserver.onNext(snapshot.toStatusProto())
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        (jobFacade.status(request.id) ?: throw NoSuchElementException("job not found")).toStatusProto()
     }
 
     override fun cancelJob(
         request: CancelJobRequest,
         responseObserver: StreamObserver<JobStatusResponse>,
-    ) {
-        val snapshot = jobFacade.cancel(request.id)
-        if (snapshot == null) {
-            responseObserver.onError(Status.NOT_FOUND.withDescription("job not found").asRuntimeException())
-            return
-        }
-        responseObserver.onNext(snapshot.toStatusProto())
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        (jobFacade.cancel(request.id) ?: throw NoSuchElementException("job not found")).toStatusProto()
     }
 
     override fun getJobResult(
         request: GetJobResultRequest,
         responseObserver: StreamObserver<JobResultResponse>,
-    ) {
-        val snapshot = jobFacade.result(request.id)
-        if (snapshot == null) {
-            responseObserver.onError(Status.NOT_FOUND.withDescription("job not found").asRuntimeException())
-            return
-        }
+    ) = responseObserver.respond {
+        val snapshot = jobFacade.result(request.id) ?: throw NoSuchElementException("job not found")
         val limit = request.page.limit.toInt().takeIf { it > 0 }?.coerceAtMost(GRPC_MAX_PAGE_SIZE) ?: GRPC_DEFAULT_PAGE_SIZE
         val offset = parseCursor(request.page.cursor, "job result cursor")
-        responseObserver.onNext(snapshot.toResultProto(offset, limit))
-        responseObserver.onCompleted()
+        snapshot.toResultProto(offset, limit)
     }
 
     override fun generateCollaboratorPayloads(
         request: GenerateCollaboratorPayloadsRequest,
         responseObserver: StreamObserver<GenerateCollaboratorPayloadsResponse>,
-    ) {
+    ) = responseObserver.respond {
         val payloads = collaboratorFacade.generate(request.count.toInt().takeIf { it > 0 } ?: 1)
-        responseObserver.onNext(GenerateCollaboratorPayloadsResponse.newBuilder().addAllPayloads(payloads).build())
-        responseObserver.onCompleted()
+        GenerateCollaboratorPayloadsResponse.newBuilder().addAllPayloads(payloads).build()
     }
 
     override fun pollCollaboratorInteractions(
@@ -1680,60 +1572,54 @@ internal class BurpRpcService(
     override fun createWebSocket(
         request: CreateWebSocketRequest,
         responseObserver: StreamObserver<CreateWebSocketResponse>,
-    ) {
+    ) = responseObserver.respond {
         val port = request.port.toInt().takeIf { it > 0 } ?: if (request.https) 443 else 80
         val creation = webSocketFacade.create(request.host, port, request.https, request.path.ifEmpty { "/" })
-        responseObserver.onNext(CreateWebSocketResponse.newBuilder().setId(creation.id.orEmpty()).setStatus(creation.status).build())
-        responseObserver.onCompleted()
+        CreateWebSocketResponse.newBuilder().setId(creation.id.orEmpty()).setStatus(creation.status).build()
     }
 
     override fun sendWebSocketText(
         request: SendWebSocketTextRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         webSocketFacade.sendText(request.id, request.text)
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("message sent").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("message sent").build()
     }
 
     override fun managedWebSocketHistory(
         request: ManagedWebSocketHistoryRequest,
         responseObserver: StreamObserver<ManagedWebSocketHistoryResponse>,
-    ) {
+    ) = responseObserver.respond {
         val limit = request.page.limit.toInt().takeIf { it > 0 }?.coerceAtMost(GRPC_MAX_PAGE_SIZE) ?: GRPC_DEFAULT_PAGE_SIZE
         val offset = parseCursor(request.page.cursor, "managed WebSocket cursor")
         val page = webSocketFacade.history(request.id.takeIf(String::isNotEmpty), offset, limit)
         val end = page.offset + page.items.size
-        responseObserver.onNext(
-            ManagedWebSocketHistoryResponse.newBuilder()
-                .addAllItems(
-                    page.items.map { item ->
-                        ManagedWebSocketMessageEntry.newBuilder()
-                            .setIndex(item.index)
-                            .setWebsocketId(item.webSocketId)
-                            .setDirection(item.direction)
-                            .setType(item.type)
-                            .setPayload(com.google.protobuf.ByteString.copyFrom(item.payload))
-                            .build()
-                    },
-                ).setPage(
-                    PageInfo.newBuilder()
-                        .setTotal(page.total)
-                        .setTruncated(end < page.total)
-                        .setNextCursor(if (end < page.total) end.toString() else "")
-                        .build(),
-                ).build(),
-        )
-        responseObserver.onCompleted()
+        ManagedWebSocketHistoryResponse.newBuilder()
+            .addAllItems(
+                page.items.map { item ->
+                    ManagedWebSocketMessageEntry.newBuilder()
+                        .setIndex(item.index)
+                        .setWebsocketId(item.webSocketId)
+                        .setDirection(item.direction)
+                        .setType(item.type)
+                        .setPayload(com.google.protobuf.ByteString.copyFrom(item.payload))
+                        .build()
+                },
+            ).setPage(
+                PageInfo.newBuilder()
+                    .setTotal(page.total)
+                    .setTruncated(end < page.total)
+                    .setNextCursor(if (end < page.total) end.toString() else "")
+                    .build(),
+            ).build()
     }
 
     override fun sendWebSocketBinary(
         request: SendWebSocketBinaryRequest,
         responseObserver: StreamObserver<ActionResponse>,
-    ) {
+    ) = responseObserver.respond {
         webSocketFacade.sendBinary(request.id, request.data.toByteArray())
-        responseObserver.onNext(ActionResponse.newBuilder().setSuccess(true).setMessage("message sent").build())
-        responseObserver.onCompleted()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("message sent").build()
     }
 
     override fun closeWebSocket(
@@ -1746,10 +1632,9 @@ internal class BurpRpcService(
     override fun importBambda(
         request: ImportBambdaRequest,
         responseObserver: StreamObserver<ScriptImportResponse>,
-    ) {
+    ) = responseObserver.respond {
         val result = scriptImportFacade.importBambda(request.script)
-        responseObserver.onNext(ScriptImportResponse.newBuilder().setSuccess(result.success).setStatus(result.status).addAllErrors(result.errors).build())
-        responseObserver.onCompleted()
+        ScriptImportResponse.newBuilder().setSuccess(result.success).setStatus(result.status).addAllErrors(result.errors).build()
     }
     private fun PayloadListDefinition.toProto(): PayloadListEntry = PayloadListEntry.newBuilder()
         .setId(id).setDisplayName(displayName).setPayloadCount(payloads.size).setSizeBytes(sizeBytes).setFingerprint(fingerprint).build()
@@ -1758,19 +1643,17 @@ internal class BurpRpcService(
     override fun importBCheck(
         request: ImportBCheckRequest,
         responseObserver: StreamObserver<ScriptImportResponse>,
-    ) {
+    ) = responseObserver.respond {
         val result = scriptImportFacade.importBCheck(request.script, request.enabled)
-        responseObserver.onNext(ScriptImportResponse.newBuilder().setSuccess(result.success).setStatus(result.status).addAllErrors(result.errors).build())
-        responseObserver.onCompleted()
+        ScriptImportResponse.newBuilder().setSuccess(result.success).setStatus(result.status).addAllErrors(result.errors).build()
     }
 
 
     override fun listWebSockets(
         @Suppress("UNUSED_PARAMETER") request: ListWebSocketsRequest,
         responseObserver: StreamObserver<ListWebSocketsResponse>,
-    ) {
-        responseObserver.onNext(ListWebSocketsResponse.newBuilder().addAllIds(webSocketFacade.list()).build())
-        responseObserver.onCompleted()
+    ) = responseObserver.respond {
+        ListWebSocketsResponse.newBuilder().addAllIds(webSocketFacade.list()).build()
     }
 
 

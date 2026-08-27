@@ -80,7 +80,7 @@ See [getting started with Intruder](https://portswigger.net/burp/documentation/d
 
 [Burp Scanner](https://portswigger.net/burp/documentation/scanner) is available in Professional/DAST editions. Crawling discovers content and builds a map; auditing sends requests and analyzes behavior. The desktop [scan workflow](https://portswigger.net/burp/documentation/desktop/running-scans) supports crawl, full crawl-and-audit, and auditing selected items.
 
-Burp MCP's `burp_scan` interface is intentionally passive-only. Other bounded crawl/audit tools depend on the connected edition and advertised capabilities. Never assume an active scan is safe because it is automated.
+Burp MCP's `burp_scan_start` interface supports passive and active audits. Other bounded crawl/audit tools depend on the connected edition and advertised capabilities. Never assume an active scan is safe because it is automated.
 
 For permitted scans:
 
@@ -91,6 +91,21 @@ For permitted scans:
 - manually verify findings in Repeater before reporting them.
 
 PortSwigger's [first scan guide](https://portswigger.net/burp/documentation/desktop/getting-started/running-your-first-scan) recommends learning on non-production targets and never scanning third-party systems without owner authorization.
+
+## Burp Collaborator (OAST)
+
+[Burp Collaborator](https://portswigger.net/burp/documentation/desktop/tools/collaborator) is Burp's out-of-band application security testing (OAST) infrastructure. It detects blind vulnerabilities where a target system interacts with an external server over DNS, HTTP/HTTPS, or SMTP.
+
+Safe OAST operating pattern:
+
+1. Generate distinct payloads with `burp_collaborator_generate` and assign one
+   unique payload to each injection parameter or header.
+2. Inject payloads into suspected parameters (`url`, `redirect`, `dest`,
+   `webhook`, `callback`), headers (`Host`, `X-Forwarded-For`, `Referer`), or
+   XML/template/database contexts.
+3. Poll at a paced interval with `burp_collaborator_poll({limit, cursor?})`.
+4. Distinguish `DNS` interactions from `HTTP`/`HTTPS` interactions.
+5. Detailed OAST vulnerability patterns (Blind SSRF, Blind SQLi, Blind XXE, Blind RCE, Log4Shell, and Deserialization) are documented in [`appsec-testing-guide.md`](./appsec-testing-guide.md).
 
 ## Extensions
 
@@ -106,4 +121,4 @@ Do not conflate these three concepts:
 
 1. Burp **Target > Site map** is Burp's internal hierarchical view, populated by proxy browsing, Scanner, content discovery, and inferred content. Gray items may be inferred and never requested. See [Target site map](https://portswigger.net/burp/documentation/desktop/tools/target/site-map).
 2. A target's `/sitemap.xml` is a server resource. Scanner crawl settings can optionally request it and extract links. See [crawl settings](https://portswigger.net/burp/documentation/scanner/scan-configurations/crawl-settings).
-3. Burp MCP **sitegraph** is a separate optional Rust/SQLite metadata graph. It neither means nor automatically requests `/sitemap.xml`. Read [the dedicated sitegraph reference](../../sitegraph.md) before enabling it.
+3. Burp MCP **sitegraph** is a separate optional Rust/SQLite metadata graph. It neither means nor automatically requests `/sitemap.xml`. Read [the dedicated sitegraph reference](./sitegraph.md) before enabling it.

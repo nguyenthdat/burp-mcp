@@ -97,7 +97,7 @@ The runtime schema is authoritative; inspect the exposed MCP tool definitions ra
 3. Start with `--sitegraph-mode off`.
 4. Review Burp HTTP history and Target > Site map first.
 5. Run one bounded `sitegraph_sync` with a narrow URL prefix.
-6. Inspect status and stats; verify the graph does not contain raw bodies or parameter values.
+6. Treat raw HTTP/WebSocket evidence and extracted finding captures as sensitive project data.
 7. Use search and traversal tools with explicit pagination/depth limits.
 8. Export only the metadata required for the report.
 9. Delete or archive the SQLite graph according to the engagement retention policy.

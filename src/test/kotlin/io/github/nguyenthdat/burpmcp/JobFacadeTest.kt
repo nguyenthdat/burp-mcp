@@ -31,6 +31,19 @@ class JobFacadeTest {
         }
     }
 
+    @Test
+    fun `completed jobs are evicted when retention reaches capacity`() {
+        JobFacade().use { jobs ->
+            val first = jobs.completed("first", TaskJobOutput(1, 0))
+            repeat(255) { index -> jobs.completed("completed-$index", TaskJobOutput(1, 0)) }
+
+            val newest = jobs.completed("newest", TaskJobOutput(1, 0))
+
+            assertEquals(null, jobs.status(first.id))
+            assertEquals(JobState.COMPLETED, jobs.status(newest.id)?.state)
+        }
+    }
+
 
     @Test
     fun `cancels a running job and ignores late completion`() {

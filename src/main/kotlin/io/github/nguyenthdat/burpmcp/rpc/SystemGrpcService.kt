@@ -20,42 +20,38 @@ internal class SystemGrpcService(
     private val api: MontoyaApi,
     private val clock: Clock,
 ) : BurpServiceGrpc.BurpServiceImplBase() {
-    override fun ping(request: PingRequest, responseObserver: StreamObserver<PingResponse>) {
-        if (Context.current().isCancelled) {
-            responseObserver.onError(Status.CANCELLED.asRuntimeException())
-            return
-        }
-        responseObserver.onNext(
-            PingResponse.newBuilder()
-                .setServer("burp-mcp")
-                .setVersion(extensionVersion())
-                .setUnixMillis(clock.millis())
-                .build(),
-        )
-        responseObserver.onCompleted()
+    override fun ping(request: PingRequest, responseObserver: StreamObserver<PingResponse>) =
+        responseObserver.respond { pingValue(request) }
+
+    internal fun pingValue(@Suppress("UNUSED_PARAMETER") request: PingRequest): PingResponse {
+        if (Context.current().isCancelled) throw Status.CANCELLED.asException()
+        return PingResponse.newBuilder()
+            .setServer("burp-mcp")
+            .setVersion(extensionVersion())
+            .setUnixMillis(clock.millis())
+            .build()
     }
 
-    override fun echoBytes(request: EchoBytesRequest, responseObserver: StreamObserver<EchoBytesResponse>) {
+    override fun echoBytes(request: EchoBytesRequest, responseObserver: StreamObserver<EchoBytesResponse>) =
+        responseObserver.respond { echoBytesValue(request) }
+
+    internal fun echoBytesValue(request: EchoBytesRequest): EchoBytesResponse {
         val delayMillis = request.delayMillis.toLong().coerceAtMost(5_000)
         if (delayMillis > 0) {
             val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(delayMillis)
             while (System.nanoTime() < deadline) {
-                if (Context.current().isCancelled) {
-                    responseObserver.onError(Status.CANCELLED.asRuntimeException())
-                    return
-                }
+                if (Context.current().isCancelled) throw Status.CANCELLED.asException()
                 Thread.sleep(min(10, delayMillis))
             }
         }
-        if (Context.current().isCancelled) {
-            responseObserver.onError(Status.CANCELLED.asRuntimeException())
-            return
-        }
-        responseObserver.onNext(EchoBytesResponse.newBuilder().setPayload(request.payload).build())
-        responseObserver.onCompleted()
+        if (Context.current().isCancelled) throw Status.CANCELLED.asException()
+        return EchoBytesResponse.newBuilder().setPayload(request.payload).build()
     }
 
-    override fun serverInfo(request: ServerInfoRequest, responseObserver: StreamObserver<ServerInfoResponse>) {
+    override fun serverInfo(request: ServerInfoRequest, responseObserver: StreamObserver<ServerInfoResponse>) =
+        responseObserver.respond { serverInfoValue(request) }
+
+    internal fun serverInfoValue(@Suppress("UNUSED_PARAMETER") request: ServerInfoRequest): ServerInfoResponse {
         val version = api.burpSuite().version()
         val project = ProjectFacade(api).identity()
         val builder = ServerInfoResponse.newBuilder()
@@ -83,8 +79,7 @@ internal class SystemGrpcService(
         version?.name()?.let(builder::setBurpName)
         version?.edition()?.name?.let(builder::setBurpEdition)
         version?.buildNumber()?.let(builder::setBurpBuildNumber)
-        responseObserver.onNext(builder.build())
-        responseObserver.onCompleted()
+        return builder.build()
     }
 
     private fun extensionVersion(): String =

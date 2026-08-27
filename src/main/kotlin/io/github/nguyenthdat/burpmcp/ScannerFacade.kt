@@ -143,7 +143,7 @@ internal class ScannerFacade(
             }
         require(selected.isNotEmpty()) { "no scanner issues selected" }
         api.scanner().generateReport(selected, reportFormat, reportPath)
-        require(Files.isRegularFile(reportPath)) { "Burp did not create the scanner report" }
+        waitForReport(reportPath)
         return ScannerReportResult(
             path = reportPath.toString(),
             format = reportFormat.name.lowercase(),
@@ -152,8 +152,24 @@ internal class ScannerFacade(
         )
     }
 
+    private fun waitForReport(reportPath: Path) {
+        val deadline = System.nanoTime() + REPORT_TIMEOUT_NANOS
+        var previousSize = -1L
+        while (System.nanoTime() < deadline) {
+            if (Files.isRegularFile(reportPath)) {
+                val size = Files.size(reportPath)
+                if (size > 0 && size == previousSize) return
+                previousSize = size
+            }
+            Thread.sleep(REPORT_POLL_MILLIS)
+        }
+        throw IllegalStateException("Burp did not finish writing the scanner report")
+    }
+
     private companion object {
         const val MAX_REPORT_ISSUES = 10_000
+        const val REPORT_POLL_MILLIS = 50L
+        const val REPORT_TIMEOUT_NANOS = 30_000_000_000L
         val SEVERITIES = setOf("HIGH", "MEDIUM", "LOW", "INFORMATION", "FALSE_POSITIVE")
         val CONFIDENCES = setOf("CERTAIN", "FIRM", "TENTATIVE")
     }

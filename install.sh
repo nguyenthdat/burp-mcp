@@ -9,7 +9,7 @@ main() {
   REPO="${BURP_MCP_REPO:-nguyenthdat/burp-mcp}"
   DOWNLOAD_BASE="${BURP_MCP_DOWNLOAD_BASE:-https://github.com/${REPO}/releases/latest/download}"
   INSTALL_DIR="${BURP_MCP_INSTALL_DIR:-$HOME/.local/bin}"
-  SKILL_SOURCE="${BURP_MCP_SKILL_SOURCE:-https://github.com/${REPO}/tree/main/docs/burp-skill}"
+  SKILL_SOURCE="${BURP_MCP_SKILL_SOURCE:-https://github.com/${REPO}/tree/main/skills/burpsuite}"
   CONFIG_DIR="${BURP_MCP_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/burp-mcp}"
   WITH_SKILL=false
   SKILL_AGENT=""
@@ -106,7 +106,7 @@ Install burp-mcp on macOS or Linux.
 
 Options:
   --dir PATH       Install binary to PATH (default: ~/.local/bin)
-  --with-skill     Install docs/burp-skill with the skills CLI
+  --with-skill     Install skills/burpsuite with the skills CLI
   --agent NAME     Target one skills CLI agent (for example codex)
   -h, --help       Show this help
 

@@ -217,6 +217,18 @@ class ProxyFacadeTest {
     }
 
     @Test
+    fun `proxy body replacement preserves surrounding binary bytes`() {
+        val input = byteArrayOf(0x00, 0xff.toByte(), 'o'.code.toByte(), 'l'.code.toByte(), 'd'.code.toByte(), 0x80.toByte())
+
+        val replaced = replaceBytes(input, "old".toByteArray(), "new-value".toByteArray())
+
+        kotlin.test.assertContentEquals(
+            byteArrayOf(0x00, 0xff.toByte(), 'n'.code.toByte(), 'e'.code.toByte(), 'w'.code.toByte(), '-'.code.toByte(), 'v'.code.toByte(), 'a'.code.toByte(), 'l'.code.toByte(), 'u'.code.toByte(), 'e'.code.toByte(), 0x80.toByte()),
+            replaced,
+        )
+    }
+
+    @Test
     fun `proxy rule close is idempotent`() {
         var deregisterCalls = 0
         val registration = fake<Registration>(mapOf("deregister" to { deregisterCalls += 1 }))

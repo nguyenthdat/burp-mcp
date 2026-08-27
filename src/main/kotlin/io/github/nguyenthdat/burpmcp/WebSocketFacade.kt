@@ -10,6 +10,7 @@ import burp.api.montoya.websocket.TextMessage
 import burp.api.montoya.websocket.extension.ExtensionWebSocketMessageHandler
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 internal data class WebSocketCreation(
@@ -42,6 +43,8 @@ internal class WebSocketFacade(
     private val messageIds = AtomicLong()
     private val connections = ConcurrentHashMap<String, Connection>()
     private val messages = ConcurrentLinkedQueue<ManagedWebSocketMessage>()
+    private val messageCount = AtomicInteger()
+    private val messageLock = Any()
     fun create(host: String, port: Int, https: Boolean, path: String): WebSocketCreation {
         require(host.isNotBlank()) { "host must not be blank" }
         val creation = api.websockets().createWebSocket(HttpService.httpService(host, port, https), path)
@@ -84,10 +87,12 @@ internal class WebSocketFacade(
 
     fun history(id: String?, offset: Int, limit: Int): ManagedWebSocketMessagePage {
         require(offset >= 0 && limit >= 0) { "offset and limit must be non-negative" }
-        val matching = messages.filter { id.isNullOrEmpty() || it.webSocketId == id }
-        val end = minOf(offset + limit, matching.size)
-        val items = if (offset >= matching.size) emptyList() else matching.subList(offset, end)
-        return ManagedWebSocketMessagePage(items, matching.size, offset)
+        synchronized(messageLock) {
+            val matching = messages.filter { id.isNullOrEmpty() || it.webSocketId == id }
+            val end = minOf(offset + limit, matching.size)
+            val items = if (offset >= matching.size) emptyList() else matching.subList(offset, end)
+            return ManagedWebSocketMessagePage(items, matching.size, offset)
+        }
     }
 
     fun close(id: String) {
@@ -100,8 +105,14 @@ internal class WebSocketFacade(
         connections[id]?.socket ?: throw NoSuchElementException("managed WebSocket $id was not found or already closed")
 
     private fun record(id: String, direction: String, type: String, payload: kotlin.ByteArray) {
-        messages.add(ManagedWebSocketMessage(messageIds.getAndIncrement(), id, direction, type, payload))
-        while (messages.size > MAX_RETAINED_MESSAGES) messages.poll()
+        synchronized(messageLock) {
+            messages.add(ManagedWebSocketMessage(messageIds.getAndIncrement(), id, direction, type, payload))
+            messageCount.incrementAndGet()
+            while (messageCount.get() > MAX_RETAINED_MESSAGES) {
+                if (messages.poll() == null) break
+                messageCount.decrementAndGet()
+            }
+        }
     }
 
     override fun close() {

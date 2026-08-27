@@ -11,8 +11,10 @@ pub mod protocol {
 pub use protocol as interop_proto;
 use protocol as proto;
 
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinSet;
 use tonic::transport::{
     Certificate, Channel, ClientTlsConfig as TonicTlsConfig, Endpoint, Identity,
 };
@@ -23,6 +25,8 @@ pub use config::{
     BurpClientConfig, ClientTlsConfig, DEFAULT_CALL_TIMEOUT, DEFAULT_MAX_MESSAGE_BYTES,
     DEFAULT_QUEUE_CAPACITY,
 };
+
+const MAX_CONCURRENT_COMMANDS_PER_CONNECTION: usize = 32;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -1171,18 +1175,59 @@ pub fn spawn_client(config: BurpClientConfig) -> Result<BurpClient, ClientError>
 }
 
 async fn run_actor(config: BurpClientConfig, mut receiver: mpsc::Receiver<Command>) {
-    let mut client: Option<proto::burp_service_client::BurpServiceClient<Channel>> = None;
-    while let Some(command) = receiver.recv().await {
-        if client.is_none() {
-            client = connect(&config).await;
+    let config = Arc::new(config);
+    let mut client = None;
+    let mut connection_generation = 0_u64;
+    let mut in_flight = JoinSet::new();
+    let mut receiver_open = true;
+
+    loop {
+        if !receiver_open && in_flight.is_empty() {
+            break;
         }
-        let Some(current_client) = client.as_mut() else {
-            respond_offline(command);
-            continue;
-        };
-        let result = execute(current_client, &config, command).await;
-        if result {
-            client = None;
+
+        let has_in_flight = !in_flight.is_empty();
+        let can_receive = receiver_open && in_flight.len() < MAX_CONCURRENT_COMMANDS_PER_CONNECTION;
+        tokio::select! {
+            biased;
+
+            completed = in_flight.join_next(), if has_in_flight => {
+                if let Some(Ok((generation, reconnect))) = completed {
+                    let failed_current_connection = client
+                        .as_ref()
+                        .is_some_and(|(current_generation, _)| *current_generation == generation);
+                    if reconnect && failed_current_connection {
+                        client = None;
+                    }
+                }
+            }
+            command = receiver.recv(), if can_receive => {
+                let Some(command) = command else {
+                    receiver_open = false;
+                    continue;
+                };
+
+                if client.is_none() {
+                    let Some(connected) = connect(config.as_ref()).await else {
+                        respond_offline(command);
+                        continue;
+                    };
+                    connection_generation = connection_generation.wrapping_add(1);
+                    client = Some((connection_generation, connected));
+                }
+                let Some((generation, current_client)) = client.as_ref() else {
+                    respond_offline(command);
+                    continue;
+                };
+                let generation = *generation;
+                let mut task_client = current_client.clone();
+                let task_config = Arc::clone(&config);
+                in_flight.spawn(async move {
+                    let reconnect =
+                        execute(&mut task_client, task_config.as_ref(), command).await;
+                    (generation, reconnect)
+                });
+            }
         }
     }
 }

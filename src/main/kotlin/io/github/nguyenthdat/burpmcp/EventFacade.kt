@@ -45,7 +45,8 @@ internal class EventFacade(
             }
 
             override fun handleHttpResponseReceived(responseReceived: HttpResponseReceived): ResponseReceivedAction {
-                append("http_response", responseReceived.initiatingRequest().method() + " " + responseReceived.initiatingRequest().url())
+                val request = responseReceived.initiatingRequest()
+                append("http_response", request?.let { "${it.method()} ${it.url()}" } ?: "unassociated-response")
                 return ResponseReceivedAction.continueWith(responseReceived)
             }
         },

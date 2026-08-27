@@ -83,6 +83,27 @@ async fn kotlin_server_echoes_binary_payloads_and_handles_concurrency() -> Resul
         .await?;
     assert!(removed.success);
 
+    let slow_actor = actor.clone();
+    let slow = tokio::spawn(async move {
+        slow_actor
+            .echo_bytes(EchoBytesRequest {
+                payload: b"slow".to_vec(),
+                delay_millis: 500,
+            })
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    let started = tokio::time::Instant::now();
+    let fast = actor
+        .echo_bytes(EchoBytesRequest {
+            payload: b"fast".to_vec(),
+            delay_millis: 0,
+        })
+        .await?;
+    assert_eq!(fast.payload, b"fast");
+    assert!(started.elapsed() < Duration::from_millis(300));
+    assert_eq!(slow.await??.payload, b"slow");
+
     for payload in [Vec::new(), vec![0xa5], patterned_payload(10 * 1024 * 1024)] {
         let mut request = Request::new(EchoBytesRequest {
             payload: payload.clone(),

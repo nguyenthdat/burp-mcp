@@ -15,7 +15,7 @@ This preliminary catalog is a reference for live testing. It explains what each 
 
 ## Inventory
 
-The default v3 runtime registers **90 tools**. Enabling the advanced sitegraph adds **14 tools**.
+The default v3 runtime registers **96 tools**. Enabling the advanced sitegraph adds **15 tools**.
 
 | Feature group | Tools |
 |---|---:|
@@ -23,7 +23,7 @@ The default v3 runtime registers **90 tools**. Enabling the advanced sitegraph a
 | Scope, target, and site map | 5 |
 | Proxy evidence | 6 |
 | HTTP sending and preparation | 6 |
-| Handlers and interception | 11 |
+| Handlers and interception | 17 |
 | Cookies | 2 |
 | Sessions and macros | 9 |
 | Intruder and bounded payloads | 8 |

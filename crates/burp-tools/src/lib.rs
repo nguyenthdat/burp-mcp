@@ -3100,7 +3100,7 @@ impl BurpTools {
 
     #[tool(
         name = "sitegraph_sync",
-        description = "Synchronize bounded Burp sitemap metadata into the local SQLite graph",
+        description = "Synchronize bounded Burp metadata and exact HTTP/WebSocket evidence into the local SQLite graph",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -4766,8 +4766,14 @@ fn export_request_text(input: ExportRequestInput) -> Result<String, String> {
         format!("{scheme}://{host}{target}")
     };
     if format == "python" {
+        let headers = lines
+            .filter_map(|line| line.split_once(':'))
+            .filter(|(name, _)| !name.eq_ignore_ascii_case("content-length"))
+            .map(|(name, value)| format!("{:?}: {:?}", name.trim(), value.trim()))
+            .collect::<Vec<_>>()
+            .join(", ");
         return Ok(format!(
-            "requests.request({method:?}, {url:?}, data={body:?})"
+            "requests.request({method:?}, {url:?}, headers={{{headers}}}, data={body:?})"
         ));
     }
     if format != "curl" {
@@ -4870,6 +4876,23 @@ mod contract_tests {
         .expect("raw export must not require a host");
 
         assert_eq!(request, exported);
+    }
+
+    #[test]
+    fn python_request_export_preserves_headers_and_body() {
+        let exported = export_request_text(ExportRequestInput {
+            request: "POST /submit HTTP/1.1\r\nHost: example.test\r\nAuthorization: Bearer token\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}".to_owned(),
+            host: None,
+            format: Some("python".to_owned()),
+            https: Some(true),
+        })
+        .expect("Python export must succeed");
+
+        assert!(exported.contains("\"Host\": \"example.test\""));
+        assert!(exported.contains("\"Authorization\": \"Bearer token\""));
+        assert!(exported.contains("\"Content-Type\": \"application/json\""));
+        assert!(!exported.contains("Content-Length"));
+        assert!(exported.contains("data=\"{}\""));
     }
 
     #[test]

@@ -84,6 +84,7 @@ internal class JobFacade : AutoCloseable {
     @Synchronized
     fun completed(operation: String, output: JobOutput): JobSnapshot {
         require(operation.isNotBlank()) { "job operation must not be blank" }
+        evictTerminalJobsUntilCapacity()
         require(records.size < MAX_RETAINED_JOBS) { "too many retained jobs" }
         val record = Record("job-${ids.incrementAndGet()}", operation)
         record.result = output
@@ -97,6 +98,7 @@ internal class JobFacade : AutoCloseable {
     @Synchronized
     fun startWithId(operation: String, task: (String) -> JobOutput): JobSnapshot {
         require(operation.isNotBlank()) { "job operation must not be blank" }
+        evictTerminalJobsUntilCapacity()
         require(records.size < MAX_RETAINED_JOBS) { "too many retained jobs" }
         val record = Record("job-${ids.incrementAndGet()}", operation)
         records[record.id] = record
@@ -147,15 +149,20 @@ internal class JobFacade : AutoCloseable {
 
     private fun snapshot(record: Record): JobSnapshot =
         JobSnapshot(record.id, record.operation, record.state.get(), record.result, record.error, record.scanType, record.stateless, record.statusMessage)
-    private fun evictTerminalJobs() {
-        repeat(order.size) {
-            val id = order.poll() ?: return
-            val record = records[id] ?: return@repeat
-            if (record.state.get() in TERMINAL_STATES) {
-                records.remove(id, record)
-            } else {
-                order.add(id)
+    private fun evictTerminalJobsUntilCapacity() {
+        while (records.size >= MAX_RETAINED_JOBS) {
+            val passSize = order.size
+            var evicted = false
+            repeat(passSize) {
+                val id = order.poll() ?: return@repeat
+                val record = records[id] ?: return@repeat
+                if (!evicted && record.state.get() in TERMINAL_STATES && records.remove(id, record)) {
+                    evicted = true
+                } else {
+                    order.add(id)
+                }
             }
+            if (!evicted) return
         }
     }
 

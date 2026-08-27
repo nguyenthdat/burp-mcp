@@ -1,6 +1,7 @@
 package io.github.nguyenthdat.burpmcp
 
 import burp.api.montoya.MontoyaApi
+import burp.api.montoya.core.ByteArray as MontoyaByteArray
 import burp.api.montoya.core.Registration
 import burp.api.montoya.http.message.requests.HttpRequest
 import burp.api.montoya.http.message.responses.HttpResponse
@@ -80,7 +81,8 @@ internal class ProxyRuleFacade(
     private fun responseHandler(): ProxyResponseHandler =
         object : ProxyResponseHandler {
             override fun handleResponseReceived(response: InterceptedResponse): ProxyResponseReceivedAction {
-                val rule = matchingRule("response", response.initiatingRequest().url()) ?: return ProxyResponseReceivedAction.continueWith(response)
+                val requestUrl = response.initiatingRequest()?.url() ?: return ProxyResponseReceivedAction.continueWith(response)
+                val rule = matchingRule("response", requestUrl) ?: return ProxyResponseReceivedAction.continueWith(response)
                 val updated = editResponse(response, rule)
                 return when (rule.action) {
                     "intercept" -> ProxyResponseReceivedAction.intercept(updated)
@@ -130,8 +132,8 @@ internal fun editRequest(request: HttpRequest, rule: ProxyRule): HttpRequest {
                 updated = updated.withUpdatedHeader(header.name(), header.value().replace(rule.match, rule.replacement))
             }
         }
-        val body = updated.bodyToString()
-        if (body.contains(rule.match)) updated = updated.withBody(body.replace(rule.match, rule.replacement))
+        val body = replaceBytes(updated.body().getBytes(), rule.match.toByteArray(), rule.replacement.toByteArray())
+        if (body != null) updated = updated.withBody(MontoyaByteArray.byteArray(*body))
     }
     return updated
 }
@@ -152,8 +154,45 @@ internal fun editResponse(response: HttpResponse, rule: ProxyRule): HttpResponse
                 updated = updated.withUpdatedHeader(header.name(), header.value().replace(rule.match, rule.replacement))
             }
         }
-        val body = updated.bodyToString()
-        if (body.contains(rule.match)) updated = updated.withBody(body.replace(rule.match, rule.replacement))
+        val body = replaceBytes(updated.body().getBytes(), rule.match.toByteArray(), rule.replacement.toByteArray())
+        if (body != null) updated = updated.withBody(MontoyaByteArray.byteArray(*body))
     }
     return updated
+}
+
+internal fun replaceBytes(
+    input: kotlin.ByteArray,
+    match: kotlin.ByteArray,
+    replacement: kotlin.ByteArray,
+): kotlin.ByteArray? {
+    if (match.isEmpty()) return null
+    var index = input.indexOfSlice(match)
+    if (index < 0) return null
+
+    val output = java.io.ByteArrayOutputStream(input.size)
+    var offset = 0
+    while (index >= 0) {
+        output.write(input, offset, index - offset)
+        output.write(replacement)
+        offset = index + match.size
+        index = input.indexOfSlice(match, offset)
+    }
+    output.write(input, offset, input.size - offset)
+    return output.toByteArray()
+}
+
+private fun kotlin.ByteArray.indexOfSlice(needle: kotlin.ByteArray, start: Int = 0): Int {
+    if (needle.isEmpty()) return start.coerceAtMost(size)
+    if (start < 0 || start > size || needle.size > size - start) return -1
+    for (index in start..(size - needle.size)) {
+        var matches = true
+        for (needleIndex in needle.indices) {
+            if (this[index + needleIndex] != needle[needleIndex]) {
+                matches = false
+                break
+            }
+        }
+        if (matches) return index
+    }
+    return -1
 }
