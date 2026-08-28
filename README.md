@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/nguyenthdat/burp-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/nguyenthdat/burp-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tools](https://img.shields.io/badge/Tools-115%20(100%20Core%20%2B%2015%20SiteGraph)-brightgreen.svg)](docs/features.md)
+[![Tools](https://img.shields.io/badge/Tools-40%20Default%20%2B%201%20SiteGraph-brightgreen.svg)](docs/features.md)
 
 Burp MCP connects MCP-compatible clients to Burp Suite through a native Rust
 stdio server and a Kotlin extension built on the Montoya API. The Kotlin/Rust
@@ -64,7 +64,7 @@ Burp MCP has two runtime tiers:
 - **Collaborator Auto-Correlation Tracker**: Automatic mapping between injected parameter/URL origins and out-of-band DNS/HTTP interaction callbacks.
 - **Response Comparer & Diffing**: Compute similarity scores, header diffs, and unified line diffs between HTTP responses with `burp_diff_responses` and `burp_send_to_comparer`.
 - **Compound Security Workflows**: High-level automated workflows for IDOR verification (`burp_verify_idor`), CORS auditing (`burp_check_cors`), and Access Control Matrix testing (`burp_auth_matrix`).
-- **Consolidated Action-Based Tools**: Streamlined ~15 action-based tools for modern AI agents to dramatically reduce context-window overhead and tool hallucinations.
+- **Action-Based Pentesting Suite**: Streamlined ~15 action-based tools for modern AI agents to dramatically reduce context-window overhead and tool hallucinations.
 - **Cookie Jar**: Inspect, filter by domain, and set cookies within Burp's active cookie jar.
 - **Session Handling & Macros**: Create, list, execute, update, and remove scoped session handling rules and multi-request macros with parameter extraction.
 - **In-Memory Payload Lists**: Create, import from file/JSON/text, update, paginate, and delete named payload lists for fuzzing and Intruder attacks.
@@ -75,158 +75,63 @@ Some capabilities require Burp Suite Professional or a Burp feature advertised
 by the connected extension. The runtime tool schema and
 `burp_burp_version.capabilities` are authoritative.
 
----
+## Tools Inventory (40 Default + 1 SiteGraph)
 
-## Tools Inventory (115 Tools)
+Burp MCP registers **40 tools by default** (39 Burp tools + 1 offline Decoder tool), plus **1 SiteGraph tool** when SiteGraph is enabled with `--enable-sitegraph`.
 
-Burp MCP provides **100 tools by default**, plus **15 advanced tools** when SiteGraph is enabled.
-
-### 1. Connection & Project Configuration (5 tools)
+### 1. Connection & Project Configuration (2 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
 | `burp_burp_version` | `{}` | Return Burp Suite version, edition, extension version, capabilities, and runtime limits. | Yes |
 | `burp_extension_info` | `{}` | Return extension and process metadata (JAR location, BApp status, Java arguments). | Yes |
-| `burp_export_config` | `{}` | Export project configuration as a JSON string. | No |
-| `burp_inspect_config` | `{paths?}` | Export scoped project options with discovered leaf paths and UTF-8 size. | Yes |
-| `burp_import_config` | `{config}` | Validate and import size-bounded project configuration JSON. | No |
 
-### 2. Scope, Target & Site Map (5 tools)
+### 2. Core Pentesting Suite (13 tools)
+
+| Tool | Key Actions | Description | Read-Only |
+|---|---|---|:---:|
+| `burp_proxy` | `history`, `detail`, `annotate`, `highlight`, `extract`, `websocket_history` | Proxy HTTP/WebSocket history inspection & annotation. | No |
+| `burp_http` | `send`, `send_batch`, `convert`, `export`, `send_to_repeater` | Send requests, batch testing, format export, and Repeater UI bridge. | No |
+| `burp_target` | `get_scope`, `add_scope`, `remove_scope`, `info`, `sitemap` | Scope checking/mutation and Site Map exploration. | No |
+| `burp_scanner` | `start_audit`, `start_crawl`, `stop`, `list_issues`, `issue_detail`, `update_issue`, `report`, `test_bcheck`, `remove` | Automated scanning, issue triage, and BCheck test runner. | No |
+| `burp_scan_config` | `list_configs`, `get_config`, `upsert_config`, `delete_config`, `list_pools`, `get_pool`, `upsert_pool`, `delete_pool` | Full CRUD for scan configurations and resource pools. | No |
+| `burp_fuzzer` | `fuzz`, `race`, `send_to_intruder`, `list_payloads`, `upsert_payloads`, `register_payload_processor`, `register_payload_generator` | Multi-marker fuzzing (`pitchfork`/`cluster_bomb`/`sniper`), single-packet race attack, and payload management. | No |
+| `burp_collaborator` | `generate`, `poll`, `correlate` | Out-of-band OAST testing with origin correlation tracking. | No |
+| `burp_websocket` | `create`, `send_text`, `send_binary`, `history`, `close`, `list` | Outbound managed WebSocket connections. | No |
+| `burp_session` | `list_rules`, `get_rule`, `upsert_rule`, `delete_rule`, `run_macro`, `upsert_macro`, `list_macros`, `delete_macro` | Session handling rules and multi-request macros. | No |
+| `burp_settings` | `get_proxy_settings`, `update_proxy_settings`, `export_config`, `inspect_config`, `import_config`, `intercept_state`, `set_intercept_state`, `proxy_intercept_config`, `update_proxy_intercept_config`, `register_http_handler`, `remove_http_handler`, `register_proxy_rule`, `list_proxy_rules`, `remove_proxy_rule` | Proxy listeners, intercept settings, handlers, and configuration. | No |
+| `burp_logger` | `query`, `detail`, `clear` | Comprehensive traffic logger across all Burp tools. | No |
+| `burp_organizer` | `add`, `list` | Burp Organizer item storage and triage. | No |
+| `burp_diff` | `diff_responses`, `compare_exchanges` | HTTP response diffing, similarity scoring, and Comparer UI bridge. | Yes |
+
+### 3. Compound Security Workflows (3 tools)
+
+| Tool | Description | Read-Only |
+|---|---|:---:|
+| `burp_verify_idor` | Automated IDOR verification across two user authorization contexts (User A vs User B). | No |
+| `burp_check_cors` | Automated CORS vulnerability auditing with origin reflection analysis. | No |
+| `burp_auth_matrix` | Automated role-based access control matrix across multiple endpoints. | No |
+
+### 4. Active UI & Desktop Editor Integration (7 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
-| `burp_get_scope` | `{url}` | Check whether a specific URL is in the current target scope. | Yes |
-| `burp_add_to_scope` | `{url}` | Add a URL to Burp target scope. | No |
-| `burp_remove_from_scope` | `{url}` | Remove a URL from Burp target scope. | No |
-| `burp_target_info` | `{url?, limit?}` | Summarize hosts and technology headers from a bounded site map sample. | Yes |
-| `burp_sitemap` | `{url_prefix?, limit?, cursor?}` | Page through Burp site map entries with optional URL prefix filtering. | Yes |
-
-### 3. Proxy Evidence & WebSocket History (6 tools)
-
-| Tool | Parameters | Description | Read-Only |
-|---|---|---|:---:|
-| `burp_proxy_history` | `{limit?, offset?, cursor?, url_filter?, method_filter?, status_filter?, has_notes?, color?}` | Page and filter Proxy HTTP history. | Yes |
-| `burp_proxy_detail` | `{index}` | Get full raw request and response details, notes, and highlight for a history index. | Yes |
-| `burp_highlight` | `{index, color?}` | Set or clear the highlight color on an item in Proxy history. | No |
-| `burp_annotate` | `{index, note}` | Set or update notes on an item in Proxy history. | No |
-| `burp_extract_from_response` | `{index, regex, limit?}` | Extract regex matches from a recorded response. | No |
-| `burp_proxy_websocket_history` | `{limit?, cursor?}` | Page through observed WebSocket messages captured by Burp Proxy (base64 payloads). | Yes |
-
-### 4. HTTP Sending, Preparation & Repeater (6 tools)
-
-| Tool | Parameters | Description | Read-Only |
-|---|---|---|:---:|
-| `burp_send_request` | `{url, method?, body?, headers?}` | Send an HTTP request through Burp and receive the response. | No |
-| `burp_send_request_parallel` | `{requests}` | Send a batch of HTTP requests concurrently (up to 32 requests). | No |
-| `burp_send_to_repeater` | `{request, host, port?, https?, tab_name?}` | Display a raw HTTP request in a Burp Repeater tab without sending it. | No |
-| `burp_race_condition` | `{request, host, port?, https?, count?}` | Start a bounded concurrent request comparison job. | No |
-| `burp_convert_request` | `{request, convert_to?}` | Convert HTTP request method (e.g. GET ↔ POST). | No |
-| `burp_export_request` | `{request, host?, format?, https?}` | Export a request as raw text, `curl` command, or Python `requests` code. | No |
-
-### 5. Interception, Handlers & Proxy Settings (17 tools)
-
-| Tool | Parameters | Description | Read-Only |
-|---|---|---|:---:|
-| `burp_intercept_state` | `{}` | Read current master Proxy interception state (enabled/disabled). | Yes |
-| `burp_set_intercept_state` | `{enabled}` | Toggle master Proxy interception state. | No |
-| `burp_intercept_controller` | `{enabled?, timeout_seconds?}` | Read or configure the MCP-owned HTTP interception queue. Pending messages auto-forward on timeout. | No |
-| `burp_intercepted_messages` | `{limit?, cursor?}` | Page pending HTTP requests and responses, including lossless base64 messages. | Yes |
-| `burp_control_intercepted_message` | `{id, action, message_base64?}` | Forward, drop, or send one paused HTTP message to Burp's manual Intercept tab; optionally replace the full message. | No |
-| `burp_websocket_intercept_controller` | `{enabled?, timeout_seconds?}` | Read or configure MCP-owned WebSocket interception. | No |
-| `burp_intercepted_websocket_messages` | `{limit?, cursor?}` | Page pending intercepted WebSocket messages. | Yes |
-| `burp_control_intercepted_websocket_message` | `{id, action, payload_base64?}` | Forward, drop, or send one paused WebSocket message to Burp's manual Intercept tab; optionally replace its payload. | No |
-| `burp_register_http_handler` | `{header_name?, header_value?, match_text?, replace?}` | Register a bounded HTTP request handler rule for header injection or string replacement. | No |
-| `burp_remove_http_handler` | `{}` | Remove all registered HTTP handler rules. | No |
-| `burp_register_proxy_rule` | `{url_contains, id?, phase?, action?, match_text?, replace?, header_name?, header_value?, enabled?}` | Register a Proxy request/response rule (`forward`, `intercept`, `drop`, `edit`). | No |
-| `burp_list_proxy_rules` | `{}` | List registered Proxy request and response rules. | Yes |
-| `burp_remove_proxy_rule` | `{id?}` | Remove a Proxy rule by ID, or clear all rules. | No |
-| `burp_proxy_intercept_config` | `{}` | Read Proxy request, response, WebSocket interception filters, and response modification settings. | Yes |
-| `burp_update_proxy_intercept_config` | `{master_intercept_enabled?, request_do_intercept?, response_do_intercept?, ...}` | Patch Proxy interception filters and response modification options. | No |
-| `burp_proxy_settings` | `{}` | Read Proxy listeners, script filters, and interception settings together. | Yes |
-| `burp_update_proxy_settings` | `{operation, port?, running?, listen_mode?, ...}` | Granular mutation of Proxy listeners, script filters, or interception rules. | No |
-
-### 6. Active Editor UI (4 tools)
-
-| Tool | Parameters | Description | Read-Only |
-|---|---|---|:---:|
-| `burp_active_editor_get` | `{}` | Capture the focused editable Burp text editor with a short-lived token and SHA-256 hash. | Yes |
-| `burp_active_editor_set` | `{token, expected_sha256, text}` | Guardedly replace that exact text editor; stale or expired writes fail. | No |
-| `burp_websocket_editor_get` | `{}` | Capture the focused MCP WebSocket extension tab with lossless Base64 payload. | Yes |
-| `burp_websocket_editor_set` | `{token, expected_sha256, payload_base64}` | Stage a guarded binary-safe payload replacement in that tab. | No |
-
-### 7. Cookies (2 tools)
+| `burp_editor_get` | `{target_hint?, ttl_seconds?}` | Capture active or last-focused editor tab with rich metadata, selection offsets, and UTF-8 decoded text. | Yes |
+| `burp_editor_patch` | `{token, expected_sha256, mode?, text?, ...}` | Surgically modify active Burp editor contents (`replace_selection`, `set_header`, `json_patch`, `set_param`, `regex`, `replace_all`) with automatic Content-Length and CRLF calculation. | No |
+| `burp_editor_renew_lease` | `{token, extend_seconds?}` | Extend the lifetime of an active Burp editor lease token. | No |
+| `burp_active_editor_get` | `{}` | Capture focused editable Burp text editor with short-lived token and SHA-256 hash (legacy compatible). | Yes |
+| `burp_active_editor_set` | `{token, expected_sha256, text}` | Replace captured HTTP editor text after token/hash validation (legacy compatible). | No |
+| `burp_websocket_editor_get` | `{}` | Capture focused MCP WebSocket extension tab with lossless Base64 payload (legacy compatible). | Yes |
+| `burp_websocket_editor_set` | `{token, expected_sha256, payload_base64}` | Stage a guarded binary-safe payload replacement in that tab (legacy compatible). | No |
+### 5. Cookies & Findings (3 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
 | `burp_cookie_jar` | `{limit?, domain?}` | List cookies in Burp's cookie jar with domain, path, value, and expiration. | Yes |
 | `burp_cookie_jar_set` | `{name, value, domain, path?, expiration?}` | Set or update a cookie in Burp's cookie jar. | No |
+| `burp_add_issue` | `{name, url, detail?, remediation?, severity?, confidence?}` | Add a custom typed security issue to the Burp site map. | No |
 
-### 8. Sessions & Macros (9 tools)
-
-| Tool | Parameters | Description | Read-Only |
-|---|---|---|:---:|
-| `burp_session_create_rule` | `{id?, description?, action_type?, find?, replace?, header_name?, parameter_name?, macro_description?, url_contains?, tools?, enabled?}` | Create a scoped session handling rule. | No |
-| `burp_session_get_rule` | `{id}` | Get a session handling rule by ID. | Yes |
-| `burp_session_update_rule` | `{id, description?, action_type?, find?, replace?, ...}` | Update an existing session handling rule by ID. | No |
-| `burp_session_list_rules` | `{}` | List all registered session handling rules. | Yes |
-| `burp_session_delete_rule` | `{id}` | Delete a session handling rule by ID. | No |
-| `burp_macro_create` | `{description, serial_number?, items}` | Create or replace a Burp session macro definition. | No |
-| `burp_macro_list` | `{}` | List all defined Burp session macros. | Yes |
-| `burp_macro_run` | `{description}` | Execute requests in a named session macro and inspect results. | No |
-| `burp_macro_remove` | `{description}` | Remove a session macro by description. | No |
-
-### 9. Intruder & Declarative Fuzzing (8 tools)
-
-| Tool | Parameters | Description | Read-Only |
-|---|---|---|:---:|
-| `burp_inline_fuzzer` | `{template, host, port?, https?, marker?, wordlist, payload_list_id?, payload_offset?}` | Start a bounded input matrix fuzzing job against a raw request template. | No |
-| `burp_send_to_intruder` | `{request, host, port?, https?, tab_name?}` | Open a raw request in Burp Intruder UI without starting an attack. | No |
-| `burp_intruder_payload_processor_register` | `{id, display_name, operation, argument?, replacement?}` | Register a declarative Intruder payload processor. | No |
-| `burp_intruder_payload_processor_list` | `{}` | List registered Intruder payload processors. | Yes |
-| `burp_intruder_payload_processor_remove` | `{id}` | Deregister an Intruder payload processor by ID. | No |
-| `burp_intruder_payload_generator_register` | `{id, display_name, payloads, max_output_count?, payload_list_id?, payload_offset?}` | Register a declarative Intruder payload generator. | No |
-| `burp_intruder_payload_generator_list` | `{}` | List registered Intruder payload generators. | Yes |
-| `burp_intruder_payload_generator_remove` | `{id}` | Deregister an Intruder payload generator by ID. | No |
-
-### 10. Payload Lists (6 tools)
-
-| Tool | Parameters | Description | Read-Only |
-|---|---|---|:---:|
-| `burp_payload_list_create` | `{id, display_name, payloads}` | Create a named in-memory payload list. | No |
-| `burp_payload_list_import` | `{id, display_name, content, format?, keep_empty?}` | Import a payload list from newline text or JSON array. | No |
-| `burp_payload_list_list` | `{}` | List metadata for all in-memory payload lists. | Yes |
-| `burp_payload_list_get` | `{id, offset?, limit?}` | Read a paginated slice of payloads from a list. | Yes |
-| `burp_payload_list_update` | `{id, operation, payloads?, index?, indexes?, display_name?}` | Append, prepend, insert, replace, remove, or clear entries in a payload list. | No |
-| `burp_payload_list_delete` | `{id}` | Delete a payload list by ID. | No |
-
-### 11. Scanner Execution, Crawl & Findings (7 tools)
-
-| Tool | Parameters | Description | Read-Only |
-|---|---|---|:---:|
-| `burp_scan_start` | `{url, audit_type?, scan_configuration_id?, resource_pool_id?, timeout_seconds?, stable_seconds?, include_out_of_scope?}` | Start a passive stateless audit or active scan with bounded options. | No |
-| `burp_scan_stop` | `{job_id}` | Stop an active Burp audit job by job ID. | No |
-| `burp_scan_remove` | `{job_id}` | Remove a terminal scan/crawl job from the registry. | No |
-| `burp_crawl` | `{seed_urls, scan_configuration_id?, resource_pool_id?, timeout_seconds?, stable_seconds?, include_out_of_scope?}` | Start a bounded Burp crawl from seed URLs. | No |
-| `burp_scan_issues` | `{limit?, cursor?, severity_filter?, confidence_filter?, url_filter?, index?}` | Page through Scanner issues with severity/confidence filters. | Yes |
-| `burp_scan_issue_detail` | `{index}` | Get complete details and HTTP evidence for a Scanner issue index. | Yes |
-| `burp_scanner_generate_report` | `{format, path, issue_indexes?}` | Generate an HTML or XML Burp Scanner report for selected issues. | No |
-
-### 12. Scanner Configuration & Resource Pools (10 tools)
-
-| Tool | Parameters | Description | Read-Only |
-|---|---|---|:---:|
-| `burp_scan_config_list` | `{}` | List built-in and project-persisted scan configurations. | Yes |
-| `burp_scan_config_get` | `{id}` | Get a scan configuration by ID. | Yes |
-| `burp_scan_config_create` | `{id?, name, scan_type, audit_type?, include_out_of_scope?, timeout_seconds?, stable_seconds?, resource_pool_id?}` | Create a persisted scan configuration. | No |
-| `burp_scan_config_update` | `{id?, name, scan_type, audit_type?, include_out_of_scope?, timeout_seconds?, stable_seconds?, resource_pool_id?}` | Update a persisted scan configuration by ID. | No |
-| `burp_scan_config_delete` | `{id}` | Delete a persisted scan configuration by ID. | No |
-| `burp_scan_pool_list` | `{}` | List scanner resource pool definitions. | Yes |
-| `burp_scan_pool_get` | `{id}` | Get a scanner resource pool definition by ID. | Yes |
-| `burp_scan_pool_create` | `{id?, name, kind, existing_pool_name?, concurrent_request_limit?, throttle_millis?, max_retries?}` | Create a scanner resource pool definition. | No |
-| `burp_scan_pool_update` | `{id?, name, kind, existing_pool_name?, concurrent_request_limit?, throttle_millis?, max_retries?}` | Update a scanner resource pool definition by ID. | No |
-| `burp_scan_pool_delete` | `{id}` | Delete a scanner resource pool definition by ID. | No |
-
-### 13. Background Jobs (3 tools)
+### 6. Background Jobs (3 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
@@ -234,66 +139,37 @@ Burp MCP provides **100 tools by default**, plus **15 advanced tools** when Site
 | `burp_job_result` | `{job_id, limit?, cursor?}` | Read paginated result items from a completed background job. | Yes |
 | `burp_job_cancel` | `{job_id}` | Cancel an in-progress background job. | No |
 
-### 14. Collaborator & Custom Findings (3 tools)
-
-| Tool | Parameters | Description | Read-Only |
-|---|---|---|:---:|
-| `burp_collaborator_generate` | `{count?}` | Generate bounded Collaborator payloads for out-of-band testing. | No |
-| `burp_collaborator_poll` | `{limit?, cursor?}` | Page DNS, HTTP, HTTPS, or SMTP interactions observed by the extension's active Collaborator context. | Yes |
-| `burp_add_issue` | `{name, url, detail?, remediation?, severity?, confidence?}` | Add a custom typed security issue to the Burp site map. | No |
-
-### 15. Managed WebSockets (6 tools)
-
-| Tool | Parameters | Description | Read-Only |
-|---|---|---|:---:|
-| `burp_websocket_create` | `{host, port?, https?, path?}` | Open a managed WebSocket connection through Burp. | No |
-| `burp_websocket_send_text` | `{id, text}` | Send a text message over a managed WebSocket connection. | No |
-| `burp_websocket_send_binary` | `{id, data}` | Send base64-encoded binary data over a managed WebSocket connection. | No |
-| `burp_websocket_history` | `{id?, limit?, cursor?}` | Read message history (sent and received) for managed WebSocket connections. | Yes |
-| `burp_websocket_close` | `{id}` | Close a managed WebSocket connection. | No |
-| `burp_websocket_list` | `{}` | List all active managed WebSocket connection IDs. | Yes |
-
-### 16. Bambda & BCheck Script Imports (2 tools)
+### 7. Custom Script Imports (2 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
 | `burp_bambda_import` | `{script}` | Validate and import a complete Bambda YAML script without executing it. | No |
 | `burp_bcheck_import` | `{script, enabled?}` | Validate and import a complete BCheck script definition into Burp. | No |
 
-### 17. Persistent Sitegraph (15 tools, Opt-in)
-
-*Requires starting the server with `--enable-sitegraph` or `BURP_MCP_ENABLE_SITEGRAPH=true`.*
+### 8. MCP Interception Queues (6 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
-| `sitegraph_sync` | `{url_prefix?}` | Synchronize bounded Burp observations into the active project's local SQLite graph. | No |
-| `sitegraph_status` | `{}` | Get local sitegraph synchronization and schema status. | Yes |
-| `sitegraph_stats` | `{}` | Return graph node and edge counts and last sync time. | Yes |
-| `sitegraph_config` | `{}` | Read active auto-index settings; change them in configuration and restart. | Yes |
-| `sitegraph_projects` | `{}` | List the active project-scoped graph identity. | Yes |
-| `sitegraph_search` | `{query, limit?, cursor?}` | Search normalized endpoints with metadata filters. | Yes |
-| `sitegraph_history_search` | `{query, source?, limit?, cursor?}` | Search indexed raw HTTP/WebSocket evidence with bounded pagination. | Yes |
-| `sitegraph_endpoint_detail` | `{id}` | Get full normalized endpoint metadata and adjacency counts. | Yes |
-| `sitegraph_neighbors` | `{id, limit?, cursor?}` | Page adjacent inbound and outbound graph nodes. | Yes |
-| `sitegraph_trace` | `{id, max_depth?, limit?}` | Trace graph relationships to a depth of 1..8 hops. | Yes |
-| `sitegraph_shortest_path` | `{from_id, to_id, max_depth?}` | Find the shortest directed path between two graph nodes. | Yes |
-| `sitegraph_clusters` | `{limit?}` | Cluster project endpoints by origin and path segments. | Yes |
-| `sitegraph_impact` | `{id, max_depth?, limit?}` | Perform downstream impact analysis from a seed node. | Yes |
-| `sitegraph_diff` | `{since, limit?, cursor?}` | Query nodes changed since a specific Unix timestamp. | Yes |
-| `sitegraph_export` | `{profile?, format?, snapshot_id?, cursor?, limit?}` | Export bounded metadata or exact-evidence pages; exact evidence is sensitive. | Yes |
+| `burp_intercept_controller` | `{enabled?, timeout_seconds?}` | Read or configure the MCP-owned HTTP interception queue. Pending messages auto-forward on timeout. | No |
+| `burp_intercepted_messages` | `{limit?, cursor?}` | Page pending HTTP requests and responses, including lossless base64 messages. | Yes |
+| `burp_control_intercepted_message` | `{id, action, message_base64?}` | Forward, drop, or send one paused HTTP message to Burp's manual Intercept tab; optionally replace the full message. | No |
+| `burp_websocket_intercept_controller` | `{enabled?, timeout_seconds?}` | Read or configure MCP-owned WebSocket interception. | No |
+| `burp_intercepted_websocket_messages` | `{limit?, cursor?}` | Page pending intercepted WebSocket messages. | Yes |
+| `burp_control_intercepted_websocket_message` | `{id, action, payload_base64?}` | Forward, drop, or send one paused WebSocket message to Burp's manual Intercept tab; optionally replace its payload. | No |
 
-### 18. Offline Decoder Engine (1 tool)
+### 9. Offline Decoder Engine (1 tool)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
 | `decoder` | `{input, operation?, args?, steps?, query?, describe?, magic?}` | Execute deterministic transformations, multi-step recipes, search catalog, or get magic decode suggestions. | Yes |
 
-Supported operation categories:
-- **Encoding/Decoding**: `base64.encode`, `base64.decode`, `base64url.encode`, `base64url.decode`, `hex.encode`, `hex.decode`, `url.encode`, `url.decode`, `html.encode`, `html.decode`, `unicode.escape`, `unicode.unescape`.
-- **Hashes & Checksums**: `md5`, `sha1`, `sha256`, `sha512`, `blake3`, `hmac.sha256`, `hmac.sha512`, `entropy`, `length`, `strings.extract`.
-- **Compression**: `gzip.compress`, `gzip.decompress`, `zlib.compress`, `zlib.decompress`, `deflate.compress`, `deflate.decompress`, `brotli.compress`, `brotli.decompress`.
-- **Web & Security**: `jwt.decode`, `jwt.verify_hs256`, `cookie.parse`, `query.parse`, `query.build`, `http.parse`, `http.set_body`, `http.update_content_length`.
-- **JSON & Text**: `json.pretty`, `json.minify`, `json.query`, `text.uppercase`, `text.lowercase`, `text.reverse`, `text.split`, `text.join`, `regex.extract`, `regex.replace`.
+### 10. Persistent Sitegraph (1 tool, Opt-in)
+
+*Requires starting the server with `--enable-sitegraph` or `BURP_MCP_ENABLE_SITEGRAPH=true`.*
+
+| Tool | Parameters | Description | Read-Only |
+|---|---|---|:---:|
+| `sitegraph` | `{action, url_prefix?, query?, id?, from_id?, to_id?, limit?, cursor?, max_depth?, since?, profile?, format?, snapshot_id?}` | SiteGraph attack surface graph analyzer (`status`, `sync`, `search`, `neighbors`, `trace`, `shortest_path`, `clusters`, `impact`, `diff`, `export`, `history_search`, `endpoint_detail`, `projects`, `config`). | No |
 
 ---
 

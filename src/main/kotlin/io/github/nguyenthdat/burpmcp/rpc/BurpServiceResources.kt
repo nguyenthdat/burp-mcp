@@ -1,7 +1,7 @@
 package io.github.nguyenthdat.burpmcp.rpc
 
 import burp.api.montoya.MontoyaApi
-import io.github.nguyenthdat.burpmcp.ActiveEditorFacade
+import io.github.nguyenthdat.burpmcp.EnhancedEditorFacade
 import io.github.nguyenthdat.burpmcp.BurpCapabilityFacade
 import io.github.nguyenthdat.burpmcp.ConfigFacade
 import io.github.nguyenthdat.burpmcp.CookieFacade
@@ -28,12 +28,10 @@ import io.github.nguyenthdat.burpmcp.TargetFacade
 import io.github.nguyenthdat.burpmcp.AnnotationFacade
 import io.github.nguyenthdat.burpmcp.CollaboratorFacade
 import io.github.nguyenthdat.burpmcp.WebSocketFacade
-import io.github.nguyenthdat.burpmcp.WebSocketEditorFacade
 import io.github.nguyenthdat.burpmcp.LoggerFacade
 import io.github.nguyenthdat.burpmcp.OrganizerFacade
 internal class BurpServiceResources(api: MontoyaApi) : AutoCloseable {
-    val activeEditor = ActiveEditorFacade(api)
-    val webSocketEditor = WebSocketEditorFacade(api)
+    val enhancedEditor = EnhancedEditorFacade(api)
     val proxy = ProxyFacade(api)
     val sitemap = SitemapFacade(api)
     val target = TargetFacade(api)
@@ -64,8 +62,6 @@ internal class BurpServiceResources(api: MontoyaApi) : AutoCloseable {
     val logger = LoggerFacade(api)
     val organizer = OrganizerFacade(api)
     override fun close() {
-        activeEditor.close()
-        webSocketEditor.close()
         events.close()
         jobs.close()
         httpHandlers.clear()
@@ -76,5 +72,6 @@ internal class BurpServiceResources(api: MontoyaApi) : AutoCloseable {
         webSockets.close()
         intruderPayloads.close()
         logger.close()
+        enhancedEditor.close()
     }
 }

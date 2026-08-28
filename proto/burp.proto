@@ -21,10 +21,9 @@ service BurpService {
   rpc InterceptedWebSocketMessages(InterceptedWebSocketMessagesRequest) returns (InterceptedWebSocketMessagesResponse);
   rpc ControlInterceptedWebSocketMessage(ControlInterceptedWebSocketMessageRequest) returns (InterceptedWebSocketMessageResponse);
   rpc WebSocketInterceptControllerConfig(WebSocketInterceptControllerConfigRequest) returns (WebSocketInterceptControllerConfigResponse);
-  rpc ActiveEditorGet(ActiveEditorGetRequest) returns (ActiveEditorSnapshot);
-  rpc ActiveEditorSet(ActiveEditorSetRequest) returns (ActiveEditorSnapshot);
-  rpc WebSocketEditorGet(WebSocketEditorGetRequest) returns (WebSocketEditorSnapshot);
-  rpc WebSocketEditorSet(WebSocketEditorSetRequest) returns (WebSocketEditorSnapshot);
+  rpc EditorGet(EditorGetRequest) returns (EditorSnapshot);
+  rpc EditorPatch(EditorPatchRequest) returns (EditorSnapshot);
+  rpc EditorRenewLease(EditorRenewLeaseRequest) returns (EditorRenewLeaseResponse);
   rpc EventsSince(EventsSinceRequest) returns (EventsSinceResponse);
   rpc TargetInfo(TargetInfoRequest) returns (TargetInfoResponse);
   rpc ScopeCheck(ScopeCheckRequest) returns (ScopeCheckResponse);
@@ -357,39 +356,79 @@ message WebSocketInterceptControllerConfigResponse {
   uint32 timeout_seconds = 2;
   uint32 pending = 3;
 }
-message ActiveEditorGetRequest {}
-message ActiveEditorSnapshot {
-  string token = 1;
-  string text = 2;
-  bool editable = 3;
-  string sha256 = 4;
-  int32 caret_position = 5;
-  int32 selection_start = 6;
-  int32 selection_end = 7;
+
+message EditorGetRequest {
+  optional string target_hint = 1;
+  optional uint32 ttl_seconds = 2;
 }
-message ActiveEditorSetRequest {
+
+message EditorSnapshot {
+  string token = 1;
+  string kind = 2;
+  string tool_source = 3;
+  string tab_name = 4;
+  string host = 5;
+  uint32 port = 6;
+  bool https = 7;
+  string text = 8;
+  bytes payload = 9;
+  bool is_json = 10;
+  bool editable = 11;
+  string sha256 = 12;
+  int32 caret_position = 13;
+  int32 selection_start = 14;
+  int32 selection_end = 15;
+  string selected_text = 16;
+  uint64 expires_at_millis = 17;
+}
+
+message RegexPatch {
+  string pattern = 1;
+  string replacement = 2;
+  bool replace_all = 3;
+  bool case_insensitive = 4;
+}
+
+message HeaderPatch {
+  string name = 1;
+  string value = 2;
+  bool remove = 3;
+}
+
+message JsonPatch {
+  string json_path = 1;
+  string value_json = 2;
+}
+
+message ParamPatch {
+  string name = 1;
+  string value = 2;
+  bool remove = 3;
+  optional string param_type = 4;
+}
+
+message EditorPatchRequest {
   string token = 1;
   string expected_sha256 = 2;
-  string text = 3;
+  oneof patch_operation {
+    string replace_all_text = 3;
+    bytes replace_all_payload = 4;
+    string replace_selection = 5;
+    RegexPatch regex_patch = 6;
+    HeaderPatch header_patch = 7;
+    JsonPatch json_patch = 8;
+    ParamPatch param_patch = 9;
+  }
 }
-message WebSocketEditorGetRequest {}
-message WebSocketEditorSnapshot {
+
+message EditorRenewLeaseRequest {
   string token = 1;
-  bytes payload = 2;
-  bool editable = 3;
-  string sha256 = 4;
-  int32 caret_position = 5;
-  int32 selection_start = 6;
-  int32 selection_end = 7;
-  string direction = 8;
-  string source = 10;
-  bool apply_required = 11;
-  string upgrade_url = 9;
+  uint32 extend_seconds = 2;
 }
-message WebSocketEditorSetRequest {
-  string token = 1;
-  string expected_sha256 = 2;
-  bytes payload = 3;
+
+message EditorRenewLeaseResponse {
+  bool success = 1;
+  uint64 new_expires_at_millis = 2;
 }
 message ProxySettingsResponse {
   repeated ProxyListener listeners = 1;

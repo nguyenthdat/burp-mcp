@@ -161,6 +161,13 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.ExportConfigRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ImportConfigRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ClearHttpHandlerRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.RegisterHttpHandlerRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.EditorGetRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.EditorSnapshot
+import io.github.nguyenthdat.burpmcp.grpc.v1.EditorPatchRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.EditorRenewLeaseRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.EditorRenewLeaseResponse
+import io.github.nguyenthdat.burpmcp.PatchOp
+import io.github.nguyenthdat.burpmcp.UnifiedEditorSnapshot
 import io.github.nguyenthdat.burpmcp.grpc.v1.ClearProxyRulesRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.RegisterProxyRuleRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.UpsertSessionRuleRequest
@@ -491,32 +498,68 @@ internal class BurpRpcService(
     override fun serverInfo(request: ServerInfoRequest, responseObserver: StreamObserver<ServerInfoResponse>) =
         responseObserver.respond { systemGrpcService.serverInfoValue(request) }
 
-    override fun activeEditorGet(
-        request: ActiveEditorGetRequest,
-        responseObserver: StreamObserver<ActiveEditorSnapshot>,
+    override fun editorGet(
+        request: EditorGetRequest,
+        responseObserver: StreamObserver<EditorSnapshot>,
     ) = responseObserver.respond {
-        resources.activeEditor.capture().toProto()
+        val targetHint = request.targetHint.takeIf(String::isNotBlank)
+        val ttl = if (request.hasTtlSeconds()) request.ttlSeconds.toLong() else null
+        resources.enhancedEditor.capture(targetHint, ttl).toProto()
     }
 
-    override fun activeEditorSet(
-        request: ActiveEditorSetRequest,
-        responseObserver: StreamObserver<ActiveEditorSnapshot>,
+    override fun editorPatch(
+        request: EditorPatchRequest,
+        responseObserver: StreamObserver<EditorSnapshot>,
     ) = responseObserver.respond {
-        resources.activeEditor.replace(request.token, request.expectedSha256, request.text).toProto()
-    }
-    override fun webSocketEditorGet(
-        request: WebSocketEditorGetRequest,
-        responseObserver: StreamObserver<WebSocketEditorSnapshot>,
-    ) = responseObserver.respond {
-        resources.webSocketEditor.capture().toProto()
+        val op = when (request.patchOperationCase) {
+            EditorPatchRequest.PatchOperationCase.REPLACE_ALL_TEXT ->
+                PatchOp.ReplaceAllText(request.replaceAllText)
+            EditorPatchRequest.PatchOperationCase.REPLACE_ALL_PAYLOAD ->
+                PatchOp.ReplaceAllPayload(request.replaceAllPayload.toByteArray())
+            EditorPatchRequest.PatchOperationCase.REPLACE_SELECTION ->
+                PatchOp.ReplaceSelection(request.replaceSelection, 0, 0)
+            EditorPatchRequest.PatchOperationCase.REGEX_PATCH ->
+                PatchOp.RegexPatch(
+                    pattern = request.regexPatch.pattern,
+                    replacement = request.regexPatch.replacement,
+                    replaceAll = request.regexPatch.replaceAll,
+                    caseInsensitive = request.regexPatch.caseInsensitive,
+                )
+            EditorPatchRequest.PatchOperationCase.HEADER_PATCH ->
+                PatchOp.HeaderPatch(
+                    name = request.headerPatch.name,
+                    value = request.headerPatch.value,
+                    remove = request.headerPatch.remove,
+                )
+            EditorPatchRequest.PatchOperationCase.JSON_PATCH ->
+                PatchOp.JsonPatch(
+                    jsonPath = request.jsonPatch.jsonPath,
+                    valueJson = request.jsonPatch.valueJson,
+                )
+            EditorPatchRequest.PatchOperationCase.PARAM_PATCH ->
+                PatchOp.ParamPatch(
+                    name = request.paramPatch.name,
+                    value = request.paramPatch.value,
+                    remove = request.paramPatch.remove,
+                    paramType = request.paramPatch.paramType.takeIf(String::isNotBlank),
+                )
+            else -> throw IllegalArgumentException("no patch operation specified")
+        }
+        resources.enhancedEditor.patch(request.token, request.expectedSha256, op).toProto()
     }
 
-    override fun webSocketEditorSet(
-        request: WebSocketEditorSetRequest,
-        responseObserver: StreamObserver<WebSocketEditorSnapshot>,
+    override fun editorRenewLease(
+        request: EditorRenewLeaseRequest,
+        responseObserver: StreamObserver<EditorRenewLeaseResponse>,
     ) = responseObserver.respond {
-        resources.webSocketEditor.replace(request.token, request.expectedSha256, request.payload.toByteArray()).toProto()
+        val extendSeconds = request.extendSeconds.toLong().coerceAtLeast(10L)
+        val newExpiry = resources.enhancedEditor.renew(request.token, extendSeconds)
+        EditorRenewLeaseResponse.newBuilder()
+            .setSuccess(true)
+            .setNewExpiresAtMillis(newExpiry)
+            .build()
     }
+
 
     override fun proxyHistory(
         request: ProxyHistoryRequest,
@@ -2209,4 +2252,25 @@ internal class BurpRpcService(
             .setMessage("Issue status updated to ${request.status}")
             .build()
     }
+
+    private fun UnifiedEditorSnapshot.toProto(): EditorSnapshot =
+        EditorSnapshot.newBuilder()
+            .setToken(token)
+            .setKind(kind.name.lowercase())
+            .setToolSource(toolSource)
+            .setTabName(tabName)
+            .setHost(host)
+            .setPort(port)
+            .setHttps(https)
+            .setText(text)
+            .setPayload(com.google.protobuf.ByteString.copyFrom(payload))
+            .setIsJson(isJson)
+            .setEditable(editable)
+            .setSha256(sha256)
+            .setCaretPosition(caretPosition)
+            .setSelectionStart(selectionStart)
+            .setSelectionEnd(selectionEnd)
+            .setSelectedText(selectedText)
+            .setExpiresAtMillis(expiresAtMillis)
+            .build()
 }

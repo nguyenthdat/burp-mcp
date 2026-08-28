@@ -88,22 +88,6 @@ enum Command {
         response:
             oneshot::Sender<Result<proto::WebSocketInterceptControllerConfigResponse, ClientError>>,
     },
-    ActiveEditorGet {
-        request: proto::ActiveEditorGetRequest,
-        response: oneshot::Sender<Result<proto::ActiveEditorSnapshot, ClientError>>,
-    },
-    ActiveEditorSet {
-        request: proto::ActiveEditorSetRequest,
-        response: oneshot::Sender<Result<proto::ActiveEditorSnapshot, ClientError>>,
-    },
-    WebSocketEditorGet {
-        request: proto::WebSocketEditorGetRequest,
-        response: oneshot::Sender<Result<proto::WebSocketEditorSnapshot, ClientError>>,
-    },
-    WebSocketEditorSet {
-        request: proto::WebSocketEditorSetRequest,
-        response: oneshot::Sender<Result<proto::WebSocketEditorSnapshot, ClientError>>,
-    },
     TargetInfo {
         request: proto::TargetInfoRequest,
         response: oneshot::Sender<Result<proto::TargetInfoResponse, ClientError>>,
@@ -456,6 +440,18 @@ enum Command {
         request: proto::SendToComparerRequest,
         response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
     },
+    EditorGet {
+        request: proto::EditorGetRequest,
+        response: oneshot::Sender<Result<proto::EditorSnapshot, ClientError>>,
+    },
+    EditorPatch {
+        request: proto::EditorPatchRequest,
+        response: oneshot::Sender<Result<proto::EditorSnapshot, ClientError>>,
+    },
+    EditorRenewLease {
+        request: proto::EditorRenewLeaseRequest,
+        response: oneshot::Sender<Result<proto::EditorRenewLeaseResponse, ClientError>>,
+    },
 }
 
 #[derive(Clone)]
@@ -578,36 +574,6 @@ impl BurpClient {
         request: proto::WebSocketInterceptControllerConfigRequest,
     ) -> Result<proto::WebSocketInterceptControllerConfigResponse, ClientError> {
         self.send(|response| Command::WebSocketInterceptControllerConfig { request, response })
-            .await
-    }
-    pub async fn active_editor_get(
-        &self,
-        request: proto::ActiveEditorGetRequest,
-    ) -> Result<proto::ActiveEditorSnapshot, ClientError> {
-        self.send(|response| Command::ActiveEditorGet { request, response })
-            .await
-    }
-    pub async fn web_socket_editor_get(
-        &self,
-        request: proto::WebSocketEditorGetRequest,
-    ) -> Result<proto::WebSocketEditorSnapshot, ClientError> {
-        self.send(|response| Command::WebSocketEditorGet { request, response })
-            .await
-    }
-
-    pub async fn web_socket_editor_set(
-        &self,
-        request: proto::WebSocketEditorSetRequest,
-    ) -> Result<proto::WebSocketEditorSnapshot, ClientError> {
-        self.send(|response| Command::WebSocketEditorSet { request, response })
-            .await
-    }
-
-    pub async fn active_editor_set(
-        &self,
-        request: proto::ActiveEditorSetRequest,
-    ) -> Result<proto::ActiveEditorSnapshot, ClientError> {
-        self.send(|response| Command::ActiveEditorSet { request, response })
             .await
     }
     pub async fn target_info(
@@ -1283,6 +1249,30 @@ impl BurpClient {
         self.send(|response| Command::SendToComparer { request, response })
             .await
     }
+
+    pub async fn editor_get(
+        &self,
+        request: proto::EditorGetRequest,
+    ) -> Result<proto::EditorSnapshot, ClientError> {
+        self.send(|response| Command::EditorGet { request, response })
+            .await
+    }
+
+    pub async fn editor_patch(
+        &self,
+        request: proto::EditorPatchRequest,
+    ) -> Result<proto::EditorSnapshot, ClientError> {
+        self.send(|response| Command::EditorPatch { request, response })
+            .await
+    }
+
+    pub async fn editor_renew_lease(
+        &self,
+        request: proto::EditorRenewLeaseRequest,
+    ) -> Result<proto::EditorRenewLeaseResponse, ClientError> {
+        self.send(|response| Command::EditorRenewLease { request, response })
+            .await
+    }
     async fn send<T>(
         &self,
         command: impl FnOnce(oneshot::Sender<Result<T, ClientError>>) -> Command,
@@ -1520,12 +1510,6 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
-        Command::WebSocketEditorGet { request, response } => {
-            rpc_command!(client, web_socket_editor_get, request, response, config)
-        }
-        Command::WebSocketEditorSet { request, response } => {
-            rpc_command!(client, web_socket_editor_set, request, response, config)
-        }
         Command::WebSocketInterceptControllerConfig { request, response } => {
             let result = client
                 .web_socket_intercept_controller_config(with_deadline(request, config.call_timeout))
@@ -1535,12 +1519,6 @@ async fn execute(
             let reconnect = result.as_ref().is_err_and(is_transport_failure);
             let _ = response.send(result);
             reconnect
-        }
-        Command::ActiveEditorGet { request, response } => {
-            rpc_command!(client, active_editor_get, request, response, config)
-        }
-        Command::ActiveEditorSet { request, response } => {
-            rpc_command!(client, active_editor_set, request, response, config)
         }
         Command::TargetInfo { request, response } => {
             let result = client
@@ -2269,6 +2247,36 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::EditorGet { request, response } => {
+            let result = client
+                .editor_get(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::EditorPatch { request, response } => {
+            let result = client
+                .editor_patch(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::EditorRenewLease { request, response } => {
+            let result = client
+                .editor_renew_lease(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
         Command::CancelJob { request, response } => {
             let result = client
                 .cancel_job(with_deadline(request, config.call_timeout))
@@ -2364,18 +2372,6 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::WebSocketInterceptControllerConfig { response, .. } => {
-            let _ = response.send(Err(ClientError::Rpc(status)));
-        }
-        Command::ActiveEditorGet { response, .. } => {
-            let _ = response.send(Err(ClientError::Rpc(status)));
-        }
-        Command::ActiveEditorSet { response, .. } => {
-            let _ = response.send(Err(ClientError::Rpc(status)));
-        }
-        Command::WebSocketEditorGet { response, .. } => {
-            let _ = response.send(Err(ClientError::Rpc(status)));
-        }
-        Command::WebSocketEditorSet { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::ScanIssueDetail { response, .. } => {
@@ -2601,6 +2597,15 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::SendToComparer { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::EditorGet { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::EditorPatch { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::EditorRenewLease { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::ListWebSockets { response, .. } => {
