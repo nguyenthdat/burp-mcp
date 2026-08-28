@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 use std::collections::{HashMap, HashSet, VecDeque};
 
-const MAX_ANALYSIS_NODES: usize = 25_000;
-const MAX_ANALYSIS_EDGES: usize = 100_000;
+const MAX_ANALYSIS_NODES: usize = 250_000;
+const MAX_ANALYSIS_EDGES: usize = 1_000_000;
 const MAX_PATH_DEPTH: usize = 16;
 const MAX_RESULT_ITEMS: usize = 500;
 
@@ -180,6 +180,170 @@ pub(crate) async fn impact(
         }
     }
     Ok(result)
+}
+
+pub async fn security_view(
+    pool: &SqlitePool,
+    view_name: &str,
+    limit: usize,
+) -> Result<serde_json::Value, StorageError> {
+    let limit = limit.clamp(1, MAX_RESULT_ITEMS);
+    match view_name.to_lowercase().as_str() {
+        "unauthenticated" => {
+            let rows = sqlx::query(
+                "SELECT id, metadata FROM nodes 
+                 WHERE kind = 'endpoint' AND json_extract(metadata, '$.status') = 200
+                 ORDER BY id LIMIT ?1",
+            )
+            .bind(limit as i64)
+            .fetch_all(pool)
+            .await?;
+
+            let items: Vec<serde_json::Value> = rows
+                .into_iter()
+                .map(|row| {
+                    let id: String = row.get("id");
+                    let meta: String = row.get("metadata");
+                    let meta_val: serde_json::Value =
+                        serde_json::from_str(&meta).unwrap_or_default();
+                    serde_json::json!({
+                        "id": id,
+                        "origin": meta_val.get("origin"),
+                        "method": meta_val.get("method"),
+                        "path": meta_val.get("path"),
+                        "status": meta_val.get("status"),
+                    })
+                })
+                .collect();
+            Ok(
+                serde_json::json!({ "view": "unauthenticated", "count": items.len(), "items": items }),
+            )
+        }
+        "sensitive_params" => {
+            let rows = sqlx::query(
+                "SELECT id, metadata FROM nodes 
+                 WHERE kind = 'endpoint' AND (
+                   json_extract(metadata, '$.parameter_names') LIKE '%id%' OR
+                   json_extract(metadata, '$.parameter_names') LIKE '%user%' OR
+                   json_extract(metadata, '$.parameter_names') LIKE '%role%' OR
+                   json_extract(metadata, '$.parameter_names') LIKE '%token%' OR
+                   json_extract(metadata, '$.parameter_names') LIKE '%admin%' OR
+                   json_extract(metadata, '$.parameter_names') LIKE '%file%' OR
+                   json_extract(metadata, '$.parameter_names') LIKE '%url%' OR
+                   json_extract(metadata, '$.parameter_names') LIKE '%redirect%'
+                 )
+                 ORDER BY id LIMIT ?1",
+            )
+            .bind(limit as i64)
+            .fetch_all(pool)
+            .await?;
+
+            let items: Vec<serde_json::Value> = rows
+                .into_iter()
+                .map(|row| {
+                    let id: String = row.get("id");
+                    let meta: String = row.get("metadata");
+                    let meta_val: serde_json::Value =
+                        serde_json::from_str(&meta).unwrap_or_default();
+                    serde_json::json!({
+                        "id": id,
+                        "method": meta_val.get("method"),
+                        "path": meta_val.get("path"),
+                        "parameters": meta_val.get("parameter_names"),
+                    })
+                })
+                .collect();
+            Ok(
+                serde_json::json!({ "view": "sensitive_params", "count": items.len(), "items": items }),
+            )
+        }
+        "idor_candidates" => {
+            let rows = sqlx::query(
+                "SELECT id, metadata FROM nodes 
+                 WHERE kind = 'endpoint' AND (
+                   json_extract(metadata, '$.path') LIKE '%{id}%' OR
+                   json_extract(metadata, '$.parameter_names') LIKE '%id%' OR
+                   json_extract(metadata, '$.parameter_names') LIKE '%user_id%' OR
+                   json_extract(metadata, '$.parameter_names') LIKE '%account%'
+                 )
+                 ORDER BY id LIMIT ?1",
+            )
+            .bind(limit as i64)
+            .fetch_all(pool)
+            .await?;
+
+            let items: Vec<serde_json::Value> = rows
+                .into_iter()
+                .map(|row| {
+                    let id: String = row.get("id");
+                    let meta: String = row.get("metadata");
+                    let meta_val: serde_json::Value =
+                        serde_json::from_str(&meta).unwrap_or_default();
+                    serde_json::json!({
+                        "id": id,
+                        "method": meta_val.get("method"),
+                        "path": meta_val.get("path"),
+                        "parameters": meta_val.get("parameter_names"),
+                    })
+                })
+                .collect();
+            Ok(
+                serde_json::json!({ "view": "idor_candidates", "count": items.len(), "items": items }),
+            )
+        }
+        "untested_routes" => {
+            let rows = sqlx::query(
+                "SELECT n.id, n.metadata FROM nodes n
+                 JOIN edges e ON n.id = e.to_id AND e.kind = 'discovers_route'
+                 WHERE n.kind = 'endpoint'
+                 ORDER BY n.id LIMIT ?1",
+            )
+            .bind(limit as i64)
+            .fetch_all(pool)
+            .await?;
+
+            let items: Vec<serde_json::Value> = rows
+                .into_iter()
+                .map(|row| {
+                    let id: String = row.get("id");
+                    let meta: String = row.get("metadata");
+                    let meta_val: serde_json::Value =
+                        serde_json::from_str(&meta).unwrap_or_default();
+                    serde_json::json!({
+                        "id": id,
+                        "method": meta_val.get("method"),
+                        "path": meta_val.get("path"),
+                        "source": "client_js_route"
+                    })
+                })
+                .collect();
+            Ok(
+                serde_json::json!({ "view": "untested_routes", "count": items.len(), "items": items }),
+            )
+        }
+        _ => Err(StorageError::InvalidInput(format!(
+            "unknown security view: {view_name}"
+        ))),
+    }
+}
+
+#[allow(dead_code)]
+pub fn format_as_mermaid(edges: &[(String, String, String)]) -> String {
+    let mut mermaid = String::from("```mermaid\ngraph LR\n");
+    for (from, to, kind) in edges {
+        mermaid.push_str(&format!("    \"{}\" -->|{}| \"{}\"\n", from, kind, to));
+    }
+    mermaid.push_str("```\n");
+    mermaid
+}
+
+#[allow(dead_code)]
+pub fn format_as_ascii_tree(paths: &[String]) -> String {
+    let mut tree = String::from(".\n");
+    for p in paths {
+        tree.push_str(&format!("├── {}\n", p));
+    }
+    tree
 }
 
 struct LoadedGraph {

@@ -65,3 +65,48 @@ pub fn metadata_url(value: &str, base: &str) -> Option<String> {
     url.set_fragment(None);
     Some(url.into())
 }
+
+pub fn parameterize_path(raw_path: &str) -> (String, bool) {
+    let mut parameterized = String::with_capacity(raw_path.len());
+    let mut has_template = false;
+    let segments: Vec<&str> = raw_path.split('/').collect();
+
+    for (i, seg) in segments.iter().enumerate() {
+        if i > 0 {
+            parameterized.push('/');
+        }
+        if is_dynamic_segment(seg) {
+            parameterized.push_str("{id}");
+            has_template = true;
+        } else {
+            parameterized.push_str(seg);
+        }
+    }
+
+    (parameterized, has_template)
+}
+
+fn is_dynamic_segment(seg: &str) -> bool {
+    if seg.is_empty() {
+        return false;
+    }
+    // Integer check: 12345
+    if seg.chars().all(|c| c.is_ascii_digit()) && seg.len() <= 19 {
+        return true;
+    }
+    // UUID check: 8-4-4-4-12
+    if seg.len() == 36 && seg.chars().filter(|&c| c == '-').count() == 4 {
+        let clean = seg.replace('-', "");
+        if clean.len() == 32 && clean.chars().all(|c| c.is_ascii_hexdigit()) {
+            return true;
+        }
+    }
+    // Hex Hash check (e.g. 32-64 hex chars)
+    let hex_part = seg.strip_prefix("0x").unwrap_or(seg);
+    if (hex_part.len() == 32 || hex_part.len() == 40 || hex_part.len() == 64)
+        && hex_part.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        return true;
+    }
+    false
+}

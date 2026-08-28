@@ -235,4 +235,20 @@ impl GraphBackend {
             }
         }
     }
+
+    pub async fn security_view(&self, view_name: &str, limit: usize) -> Result<serde_json::Value> {
+        match self {
+            Self::Local(graph) => Ok(graph.security_view(view_name, limit).await?),
+            Self::Remote(_) => Ok(serde_json::json!({ "view": view_name, "items": [] })),
+        }
+    }
+
+    pub async fn import_openapi(&self, content: &str, base_url: &str) -> Result<SyncSummary> {
+        match self {
+            Self::Local(graph) => Ok(graph.import_openapi(content, base_url).await?),
+            Self::Remote(_) => Err(crate::Error::Protocol(
+                "remote import_openapi not supported".to_string(),
+            )),
+        }
+    }
 }

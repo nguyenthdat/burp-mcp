@@ -15,6 +15,7 @@ futures.workspace = true
 fs2.workspace = true
 getrandom.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sitegraph = { path = "../sitegraph" }
 tokio-util.workspace = true
 thiserror.workspace = true

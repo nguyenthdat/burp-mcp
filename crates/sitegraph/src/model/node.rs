@@ -69,6 +69,10 @@ pub struct NodeMetadata {
     pub direction: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub url: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub path_template: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_template: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

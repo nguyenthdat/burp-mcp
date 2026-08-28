@@ -3766,6 +3766,32 @@ impl BurpTools {
                 }))
                 .await
             }
+            "security_view" => {
+                let Some(sitegraph) = &self.sitegraph else {
+                    return sitegraph_disabled_json();
+                };
+                let view = input
+                    .view_name
+                    .unwrap_or_else(|| "unauthenticated".to_string());
+                let limit = input.limit.unwrap_or(50) as usize;
+                match sitegraph.graph.security_view(&view, limit).await {
+                    Ok(res) => serde_json::to_string(&res).expect("security view serializes"),
+                    Err(err) => serde_json::json!({"error": err.to_string()}).to_string(),
+                }
+            }
+            "import_spec" | "import_openapi" => {
+                let Some(sitegraph) = &self.sitegraph else {
+                    return sitegraph_disabled_json();
+                };
+                let spec = input.spec_content.unwrap_or_default();
+                let base_url = input
+                    .url_prefix
+                    .unwrap_or_else(|| "https://localhost".to_string());
+                match sitegraph.graph.import_openapi(&spec, &base_url).await {
+                    Ok(summary) => serde_json::to_string(&summary).expect("summary serializes"),
+                    Err(err) => serde_json::json!({"error": err.to_string()}).to_string(),
+                }
+            }
             "neighbors" => {
                 let id = input.id.unwrap_or_default();
                 self.sitegraph_neighbors(Parameters(SiteGraphNeighborsInput {

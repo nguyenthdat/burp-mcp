@@ -233,6 +233,7 @@ impl SiteGraph {
             let normalized =
                 url::normalize(&observation.url).map_err(StorageError::InvalidInput)?;
             let method = observation.method.to_ascii_uppercase();
+            let (path_template, is_template) = url::parameterize_path(&normalized.path);
             let endpoint_hash = fingerprint::stable_id(
                 "endpoint",
                 &[&normalized.origin, &method, &normalized.path],
@@ -249,6 +250,8 @@ impl SiteGraph {
                     content_type: headers::content_type(&observation.content_type),
                     response_fingerprint: fingerprint::response(&observation.response_body),
                     parameter_names: normalized.parameter_names,
+                    path_template,
+                    is_template,
                     ..NodeMetadata::default()
                 },
             );
@@ -1390,6 +1393,32 @@ impl SiteGraph {
     ) -> Result<Vec<crate::ImpactNode>, StorageError> {
         analysis::impact(&self.pool, start_id, max_depth, limit).await
     }
+
+    pub async fn import_openapi(
+        &self,
+        content: &str,
+        base_url: &str,
+    ) -> Result<SyncSummary, StorageError> {
+        let observations =
+            crate::ingest::openapi::observations(content.as_bytes(), base_url, 16_384)
+                .map_err(StorageError::InvalidInput)?;
+        let batch = SyncBatch {
+            sitemap: observations,
+            ..SyncBatch::default()
+        };
+        let mut context = SyncContext::snapshot(&self.graph_id, "openapi");
+        context.source = "openapi_import".to_string();
+        context.items_seen = batch.sitemap.len() as u64;
+        self.sync_with_context(&batch, &context).await
+    }
+
+    pub async fn security_view(
+        &self,
+        view_name: &str,
+        limit: usize,
+    ) -> Result<serde_json::Value, StorageError> {
+        analysis::security_view(&self.pool, view_name, limit).await
+    }
 }
 
 async fn index_evidence_for_search(
@@ -1411,10 +1440,23 @@ async fn index_evidence_for_search(
     let blobs = sqlx::query("SELECT id, surface, direction, content_type, payload FROM evidence_blobs WHERE source_entry_id=?1")
         .bind(node_id).fetch_all(&mut **transaction).await?;
     for row in blobs {
+        let content_type = row.get::<String, _>("content_type");
         let payload = row.get::<Vec<u8>, _>("payload");
         let text = match std::str::from_utf8(&payload) {
             Ok(value) => value.to_owned(),
-            Err(_) => base64::Engine::encode(&base64::engine::general_purpose::STANDARD, payload),
+            Err(_) => {
+                if content_type.starts_with("image/")
+                    || content_type.starts_with("video/")
+                    || content_type.starts_with("audio/")
+                    || content_type.contains("octet-stream")
+                {
+                    format!("[binary media: {} bytes]", payload.len())
+                } else if payload.len() > 64 * 1024 {
+                    format!("[large binary: {} bytes]", payload.len())
+                } else {
+                    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, payload)
+                }
+            }
         };
         let surface = row.get::<String, _>("surface");
         let blob_id = row.get::<String, _>("id");

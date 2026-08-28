@@ -1,4 +1,4 @@
-use regex::bytes::Regex;
+use regex::bytes::{Regex, RegexSet};
 use serde::Deserialize;
 use std::collections::HashSet;
 
@@ -18,9 +18,9 @@ pub struct RulePack {
     id: String,
     version: String,
     rules: Vec<CompiledRule>,
+    set: RegexSet,
     max_matches: usize,
 }
-
 #[derive(Debug)]
 struct CompiledRule {
     id: String,
@@ -106,14 +106,17 @@ impl RulePack {
                 surfaces: raw_rule.surfaces.into_iter().collect(),
             });
         }
+        let patterns = rules.iter().map(|r| r.regex.as_str());
+        let set = RegexSet::new(patterns)
+            .map_err(|e| format!("failed to build compiled rule set: {e}"))?;
         Ok(Self {
             id: raw.id,
             version: raw.version,
             rules,
+            set,
             max_matches: raw.max_matches,
         })
     }
-
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -124,7 +127,9 @@ impl RulePack {
 
     pub fn matches(&self, surface: &str, input: &[u8]) -> Vec<RuleMatch> {
         let mut matches = Vec::new();
-        for rule in &self.rules {
+        let set_matches = self.set.matches(input);
+        for idx in set_matches.into_iter() {
+            let rule = &self.rules[idx];
             if !rule.surfaces.contains(surface) {
                 continue;
             }

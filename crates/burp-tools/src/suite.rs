@@ -321,7 +321,7 @@ pub struct EditorRenewInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SiteGraphActionInput {
-    pub action: String, // "status", "sync", "search", "neighbors", "trace", "shortest_path", "clusters", "impact", "diff", "export", "history_search", "endpoint_detail", "projects", "config"
+    pub action: String, // "status", "sync", "search", "security_view", "neighbors", "trace", "shortest_path", "clusters", "impact", "diff", "export", "import_spec", "history_search", "endpoint_detail", "projects", "config"
     pub url_prefix: Option<String>,
     pub query: Option<String>,
     pub id: Option<String>,
@@ -332,6 +332,8 @@ pub struct SiteGraphActionInput {
     pub max_depth: Option<u32>,
     pub since: Option<i64>,
     pub profile: Option<String>,
-    pub format: Option<String>,
+    pub format: Option<String>, // "json", "mermaid", "ascii_tree", "csv"
     pub snapshot_id: Option<String>,
+    pub spec_content: Option<String>,
+    pub view_name: Option<String>,
 }
