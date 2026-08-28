@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/nguyenthdat/burp-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/nguyenthdat/burp-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tools](https://img.shields.io/badge/Tools-40%20Default%20%2B%201%20SiteGraph-brightgreen.svg)](docs/features.md)
+[![Tools](https://img.shields.io/badge/Tools-37%20Default%20%2B%201%20SiteGraph-brightgreen.svg)](docs/features.md)
 
 Burp MCP connects MCP-compatible clients to Burp Suite through a native Rust
 stdio server and a Kotlin extension built on the Montoya API. The Kotlin/Rust
@@ -75,9 +75,9 @@ Some capabilities require Burp Suite Professional or a Burp feature advertised
 by the connected extension. The runtime tool schema and
 `burp_burp_version.capabilities` are authoritative.
 
-## Tools Inventory (40 Default + 1 SiteGraph)
+## Tools Inventory (37 Default + 1 SiteGraph)
 
-Burp MCP registers **40 tools by default** (39 Burp tools + 1 offline Decoder tool), plus **1 SiteGraph tool** when SiteGraph is enabled with `--enable-sitegraph`.
+Burp MCP registers **37 tools by default** (36 Burp tools + 1 offline Decoder tool), plus **1 SiteGraph tool** when SiteGraph is enabled with `--enable-sitegraph`.
 
 ### 1. Connection & Project Configuration (2 tools)
 
@@ -112,17 +112,13 @@ Burp MCP registers **40 tools by default** (39 Burp tools + 1 offline Decoder to
 | `burp_check_cors` | Automated CORS vulnerability auditing with origin reflection analysis. | No |
 | `burp_auth_matrix` | Automated role-based access control matrix across multiple endpoints. | No |
 
-### 4. Active UI & Desktop Editor Integration (7 tools)
+### 4. Active UI & Desktop Editor Integration (3 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
 | `burp_editor_get` | `{target_hint?, ttl_seconds?}` | Capture active or last-focused editor tab with rich metadata, selection offsets, and UTF-8 decoded text. | Yes |
 | `burp_editor_patch` | `{token, expected_sha256, mode?, text?, ...}` | Surgically modify active Burp editor contents (`replace_selection`, `set_header`, `json_patch`, `set_param`, `regex`, `replace_all`) with automatic Content-Length and CRLF calculation. | No |
 | `burp_editor_renew_lease` | `{token, extend_seconds?}` | Extend the lifetime of an active Burp editor lease token. | No |
-| `burp_active_editor_get` | `{}` | Capture focused editable Burp text editor with short-lived token and SHA-256 hash (legacy compatible). | Yes |
-| `burp_active_editor_set` | `{token, expected_sha256, text}` | Replace captured HTTP editor text after token/hash validation (legacy compatible). | No |
-| `burp_websocket_editor_get` | `{}` | Capture focused MCP WebSocket extension tab with lossless Base64 payload (legacy compatible). | Yes |
-| `burp_websocket_editor_set` | `{token, expected_sha256, payload_base64}` | Stage a guarded binary-safe payload replacement in that tab (legacy compatible). | No |
 ### 5. Cookies & Findings (3 tools)
 
 | Tool | Parameters | Description | Read-Only |

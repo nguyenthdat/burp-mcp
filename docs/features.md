@@ -12,23 +12,22 @@ This catalog is the definitive reference for Burp MCP tools, actions, and verifi
 
 ## Inventory
 
-Burp MCP registers **40 tools by default** (39 Burp tools + 1 offline Decoder tool), plus **1 SiteGraph tool** when SiteGraph is enabled with `--enable-sitegraph`.
+Burp MCP registers **37 tools by default** (36 Burp tools + 1 offline Decoder tool), plus **1 SiteGraph tool** when SiteGraph is enabled with `--enable-sitegraph`.
 
 | Feature group | Tools |
 |---|---:|
 | Connection and project configuration | 2 |
 | Core Pentesting Suite | 13 |
 | Compound Security Workflows (IDOR, CORS, Auth Matrix) | 3 |
-| Active UI & Desktop Editor Integration | 7 |
+| Active UI & Desktop Editor Integration | 3 |
 | Cookies & Findings | 3 |
 | Background Job Control | 3 |
 | Custom Script Imports | 2 |
 | MCP Interception Queues | 6 |
 | Offline Utility Decoder | 1 |
 | SiteGraph (Advanced Opt-in) | 1 |
-| **Total Default Tools** | **40** |
-| **Total with SiteGraph** | **41** |
----
+| **Total Default Tools** | **37** |
+| **Total with SiteGraph** | **38** |
 
 ## 1. Connection & Project Configuration (2 tools)
 
@@ -187,18 +186,13 @@ Response Comparer & Diff engine.
 |---|---|---|
 | `burp_verify_idor` | Automated IDOR verification across two user authorization contexts (User A vs User B). | Send requests with original and victim auth headers, verify similarity and differential verdict. |
 | `burp_check_cors` | Automated CORS vulnerability auditing with origin reflections, wildcard checks, and credentials evaluation. | Pass target URL, review generated findings across test origins. |
-## 4. Active UI & Desktop Editor Integration (7 tools)
+## 4. Active UI & Desktop Editor Integration (3 tools)
 
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
 | `burp_editor_get` | Capture the active or last-focused Burp editor tab (HTTP Request/Response or WebSocket) with rich metadata, selection offsets, and UTF-8 decoded text. | Focus a tab, test fallback to Last-Active or Staged Buffer, verify rich metadata. |
 | `burp_editor_patch` | Surgically modify the active Burp editor contents (`replace_selection`, `set_header`, `json_patch`, `set_param`, `regex`, `replace_all`) with automatic Content-Length calculation and CRLF normalization. | Apply a surgical patch, verify zero formatting corruption and 90% token reduction. |
 | `burp_editor_renew_lease` | Extend the lifetime of an active Burp editor lease token. | Renew active token, verify extended expiry timestamp. |
-| `burp_active_editor_get` | Capture focused editable HTTP text editor; returns short-lived token and content hash (legacy compatible). | Focus an HTTP editor in Proxy Intercept/Repeater, capture token. |
-| `burp_active_editor_set` | Replace captured HTTP editor text after token/hash validation (legacy compatible). | Guarded write ensuring no concurrent overwrite races. |
-| `burp_websocket_editor_get` | Capture focused MCP WebSocket editor tab with lossless Base64 payload (legacy compatible). | Focus the **MCP** tab in WebSocket message editor. |
-| `burp_websocket_editor_set` | Replace captured MCP WebSocket editor payload after token/hash validation (legacy compatible). | Apply Base64 payload, verify staged message. |
-
 ## 5. Cookies & Findings (3 tools)
 
 | Tool | Purpose | Preliminary live check |

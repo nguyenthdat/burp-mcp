@@ -18,20 +18,24 @@ Burp's embedded browser is preconfigured and is the safest default. For an exter
 3. Install Burp's CA certificate only in the intended testing browser profile. Follow the [CA certificate guide](https://portswigger.net/burp/documentation/desktop/external-browser-config/certificate). Never disclose the CA private key; see [certificate management](https://portswigger.net/burp/documentation/desktop/tools/proxy/manage-certificates).
 4. Use **Proxy > Intercept** for deliberate inspection/editing, then turn interception off for normal browsing so requests do not remain blocked. HTTP history continues recording proxied traffic when interception is off. See [intercepting HTTP traffic](https://portswigger.net/burp/documentation/desktop/getting-started/intercepting-http-traffic) and [intercept controls](https://portswigger.net/burp/documentation/desktop/tools/proxy/intercept-messages).
 
-`burp-mcp` can now capture and guardedly replace the focused editable text editor
-through `burp_active_editor_get` followed by `burp_active_editor_set`. The get
-call returns a short-lived token and SHA-256 content hash; set must supply both,
-so edits fail closed if the user changes tabs or contents in between. This path
-does not forward, drop, or otherwise take ownership of a manually held request.
+`burp-mcp` captures and surgically modifies focused or last-active text editors and
+extension-provided **MCP** tabs across HTTP requests/responses and WebSocket messages
+through `burp_editor_get` and `burp_editor_patch`.
 
-For WebSocket UI editing, use `burp_websocket_editor_get` and
-`burp_websocket_editor_set`. These operate through the registered
-`ExtensionProvidedWebSocketMessageEditor` tab named **MCP**, return lossless
-Base64 payloads, and mark the tab modified so Burp obtains the staged bytes via
-`getMessage()`. Focus that MCP tab before `get`; a read-only creation context is
-rejected. The result still requires the normal Burp action to send it and is not
-the same as controlling an MCP-owned Proxy interception queue.
+The `burp_editor_get` tool leverages multi-tier target discovery:
+1. Direct Swing focus on editable editors / extension-provided tabs.
+2. Explicit `target_hint` targeting (`"repeater"`, `"request"`, `"websocket"`).
+3. Last-Active Editor cache (retained across window switching).
+4. Staged buffer from the desktop context menu (**"Send to MCP Active Buffer"**).
 
+The `burp_editor_patch` tool performs surgical mutations without transmitting full payloads:
+- `replace_selection`: Replaces only the currently highlighted text slice.
+- `set_header`: Adds, updates, or deletes headers with automatic `Content-Length` recomputation.
+- `json_patch`: Modifies nested JSON fields via dot-notation.
+- `set_param`: Updates query or body parameters.
+- `regex`: Regular expression search and replacement.
+- Automatic CRLF (`\r\n`) header normalization.
+- Adaptive leases with configurable TTL (default 120s) and renewal via `burp_editor_renew_lease`.
 ## MCP-owned interception queues
 
 The MCP queues are separate from master Proxy Intercept state and Proxy history.

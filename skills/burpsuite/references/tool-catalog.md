@@ -58,17 +58,14 @@ Fields ending in `?` are optional. `{}` means no arguments.
 
 ---
 
-## 4. Active UI & Desktop Editor Integration (7 tools)
+## 4. Active UI & Desktop Editor Integration (3 tools)
 
 | Tool | Input | Purpose |
 |---|---|---|
 | `burp_editor_get` | `{target_hint?, ttl_seconds?}` | Capture active or last-focused editor tab with rich metadata, selection offsets, and UTF-8 decoded text. |
 | `burp_editor_patch` | `{token, expected_sha256, mode?, text?, payload_base64?, selection_replacement?, header_name?, header_value?, header_remove?, regex_pattern?, regex_replacement?, regex_replace_all?, regex_case_insensitive?, json_path?, json_value?, param_name?, param_value?, param_remove?, param_type?}` | Surgically modify active Burp editor contents (`replace_selection`, `set_header`, `json_patch`, `set_param`, `regex`, `replace_all`) with automatic Content-Length and CRLF calculation. |
 | `burp_editor_renew_lease` | `{token, extend_seconds?}` | Extend the lifetime of an active Burp editor lease token. |
-| `burp_active_editor_get` | `{}` | Capture focused editable HTTP text editor; returns short-lived token and content hash (legacy compatible). |
-| `burp_active_editor_set` | `{token, expected_sha256, text}` | Replace captured HTTP editor text after token/hash validation (legacy compatible). |
-| `burp_websocket_editor_get` | `{}` | Capture focused MCP WebSocket editor tab with lossless Base64 payload (legacy compatible). |
-| `burp_websocket_editor_set` | `{token, expected_sha256, payload_base64}` | Replace captured MCP WebSocket editor payload after token/hash validation (legacy compatible). |
+
 ---
 
 ## 5. Cookies & Findings (3 tools)

@@ -228,12 +228,6 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.ScanIssueEntry
 import io.github.nguyenthdat.burpmcp.grpc.v1.ScanIssuesRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ScanIssuesResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ServerInfoRequest
-import io.github.nguyenthdat.burpmcp.grpc.v1.ActiveEditorGetRequest
-import io.github.nguyenthdat.burpmcp.grpc.v1.ActiveEditorSetRequest
-import io.github.nguyenthdat.burpmcp.grpc.v1.ActiveEditorSnapshot
-import io.github.nguyenthdat.burpmcp.grpc.v1.WebSocketEditorGetRequest
-import io.github.nguyenthdat.burpmcp.grpc.v1.WebSocketEditorSetRequest
-import io.github.nguyenthdat.burpmcp.grpc.v1.WebSocketEditorSnapshot
 import io.github.nguyenthdat.burpmcp.grpc.v1.ServerInfoResponse
 import io.grpc.Context
 import io.grpc.Contexts
@@ -1847,31 +1841,6 @@ internal class BurpRpcService(
     fun close() {
         resources.close()
     }
-    private fun io.github.nguyenthdat.burpmcp.ActiveEditorSnapshot.toProto(): io.github.nguyenthdat.burpmcp.grpc.v1.ActiveEditorSnapshot =
-        io.github.nguyenthdat.burpmcp.grpc.v1.ActiveEditorSnapshot.newBuilder()
-            .setToken(token)
-            .setText(text)
-            .setEditable(editable)
-            .setSha256(sha256)
-            .setCaretPosition(caretPosition)
-            .setSelectionStart(selectionStart)
-            .setSelectionEnd(selectionEnd)
-            .build()
-    private fun io.github.nguyenthdat.burpmcp.WebSocketEditorSnapshot.toProto(): io.github.nguyenthdat.burpmcp.grpc.v1.WebSocketEditorSnapshot =
-        io.github.nguyenthdat.burpmcp.grpc.v1.WebSocketEditorSnapshot.newBuilder()
-            .setToken(token)
-            .setPayload(com.google.protobuf.ByteString.copyFrom(payload))
-            .setEditable(editable)
-            .setSha256(sha256)
-            .setCaretPosition(caretPosition)
-            .setSelectionStart(selectionStart)
-            .setSelectionEnd(selectionEnd)
-            .setDirection(direction)
-            .setUpgradeUrl(upgradeUrl)
-            .setSource(source)
-            .setApplyRequired(applyRequired)
-            .build()
-
     private fun extensionVersion(): String =
         BurpRpcService::class.java.`package`.implementationVersion ?: "development"
 
