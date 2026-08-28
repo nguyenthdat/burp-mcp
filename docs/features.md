@@ -21,23 +21,26 @@ The default v3 runtime registers **100 tools**. Enabling the advanced sitegraph 
 |---|---:|
 | Connection and project configuration | 5 |
 | Scope, target, and site map | 5 |
-| Proxy evidence | 6 |
+| Proxy evidence & Token optimization | 6 |
 | HTTP sending and preparation | 6 |
 | Handlers and interception | 17 |
 | Active editor UI | 4 |
 | Cookies | 2 |
 | Sessions and macros | 9 |
-| Intruder and bounded payloads | 8 |
+| Intruder, Race conditions & Multi-marker fuzzing | 8 |
 | Payload lists | 6 |
-| Scanner execution and findings | 7 |
+| Scanner execution, findings & BCheck dry-run | 9 |
 | Scanner configuration | 10 |
 | Background jobs | 3 |
-| Collaborator and custom findings | 3 |
+| Collaborator & Auto-correlation | 3 |
 | Managed WebSockets | 6 |
-| Bambda and BCheck import | 2 |
+| Logger API (Traffic across all tools) | 3 |
+| Organizer API | 2 |
+| Response Comparer & Diff engine | 2 |
+| Compound Security Workflows (CORS, IDOR, Auth Matrix) | 3 |
+| Consolidated Action-Based Tools | 7 |
 | Sitegraph (advanced opt-in) | 14 |
 | Offline decoder | 1 |
-
 ## Connection and project configuration
 
 | Tool | Purpose | Preliminary live check |
@@ -62,13 +65,36 @@ The default v3 runtime registers **100 tools**. Enabling the advanced sitegraph 
 
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
-| `burp_proxy_history` | Page and filter Proxy HTTP history by URL, method, status, notes, or highlight. | Generate fixture traffic, filter it, and retain an `index` for detail/annotation cases. |
-| `burp_proxy_detail` | Return request, response, notes, and highlight for one Proxy history index. | Compare method, path, status, and text body with the fixture. |
+| `burp_proxy_history` | Page and filter Proxy HTTP history with compact metadata by default (`include_bodies: false`). Supports `headers_only`, `extract_css`, `extract_json`, `max_body_length`. | Generate fixture traffic, test metadata listing, and verify projection/extraction. |
+| `burp_proxy_detail` | Return request, response, notes, and highlight for one Proxy history index with optional `headers_only`, `extract_css`, `extract_json`, and truncation. | Compare method, path, status, and text body with the fixture. |
 | `burp_highlight` | Set or clear the highlight color of one Proxy history item. | Save the original color, set a test color, read it back, then restore it. |
 | `burp_annotate` | Set notes on one Proxy history item. | Save the original note, write a unique marker, read it back, then restore it. |
 | `burp_extract_from_response` | Extract bounded regular-expression matches from one recorded response. | Use a response with a deterministic marker and verify matches and limit behavior. |
 | `burp_proxy_websocket_history` | Page through WebSocket messages observed by Burp Proxy; payloads are base64. | Generate fixture WebSocket traffic, decode the payload, and verify direction/listener metadata. |
 
+## Logger, Organizer, Diffing & Compound Security Workflows
+
+| Tool | Purpose | Preliminary live check |
+|---|---|---|
+| `burp_logger_history` | Page full HTTP traffic from Burp Logger across all tools (Proxy, Repeater, Scanner, Intruder, Extensions). | Query traffic across tools, filter by source or URL, verify compact metadata and extraction. |
+| `burp_logger_detail` | Retrieve full request/response for a specific Logger entry index. | Inspect details of scanner or repeater request. |
+| `burp_clear_logger` | Clear in-memory Logger traffic buffer. | Clear and verify history returns empty. |
+| `burp_organizer_send` | Send request/response exchange into Burp Organizer with notes and highlight color. | Send a test item, verify acceptance. |
+| `burp_organizer_list` | List and filter items stored in Burp Organizer. | Query items by status/URL filter. |
+| `burp_diff_responses` | Compare two HTTP response texts or history entries, computing similarity ratio, header diffs, and body diff. | Compare two different responses, verify similarity score and header/body diff. |
+| `burp_send_to_comparer` | Send two raw HTTP messages directly to Burp Comparer UI tab. | Send two test payloads, verify in Burp Comparer. |
+| `burp_test_bcheck` | Dry-run and syntax check a BCheck script against sample request/response. | Pass a valid BCheck script and sample HTTP exchange, verify rule matching. |
+| `burp_update_scan_issue_status` | Update a scanner issue status (False Positive, Ignored, Confirmed) and notes. | Update an issue index, verify updated status. |
+| `burp_verify_idor` | Compound workflow to verify IDOR between two authorization tokens/headers. | Test two roles against an endpoint, inspect similarity and differential verdict. |
+| `burp_check_cors` | Compound workflow to audit CORS configuration with origin reflections and credentials. | Test target URL with test origins, review CORS findings. |
+| `burp_auth_matrix` | Compound workflow to evaluate role-based access control matrix across multiple endpoints. | Pass endpoint list and role headers, review access matrix. |
+| `burp_proxy` | Consolidated action-based proxy tool (`history`, `detail`, `annotate`, `highlight`, `extract`). | Call actions via unified schema. |
+| `burp_http` | Consolidated action-based HTTP tool (`send`, `send_batch`, `convert`, `export`, `send_to_repeater`). | Call actions via unified schema. |
+| `burp_target` | Consolidated action-based target tool (`get_scope`, `add_scope`, `remove_scope`, `info`, `sitemap`). | Call actions via unified schema. |
+| `burp_scanner` | Consolidated action-based scanner tool (`start_audit`, `start_crawl`, `stop`, `list_issues`, `issue_detail`, `update_issue`, `report`). | Call actions via unified schema. |
+| `burp_fuzzer` | Consolidated action-based fuzzer tool (`fuzz`, `race`, `send_to_intruder`, `list_payloads`, `upsert_payloads`). | Call actions via unified schema. |
+| `burp_collaborator` | Consolidated action-based collaborator tool (`generate`, `poll`, `correlate`). | Call actions via unified schema. |
+| `burp_diff` | Consolidated action-based diffing tool (`diff_responses`, `compare_exchanges`). | Call actions via unified schema. |
 ## HTTP sending and preparation
 
 | Tool | Purpose | Preliminary live check |

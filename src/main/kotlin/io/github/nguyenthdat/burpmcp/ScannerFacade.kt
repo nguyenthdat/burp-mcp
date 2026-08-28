@@ -67,7 +67,45 @@ internal class ScannerFacade(
             detail = issue.detail().orEmpty(),
         )
     }
+    fun updateIssueStatus(
+        index: Int,
+        status: String,
+        severity: String?,
+        confidence: String?,
+        notes: String?,
+    ): Boolean {
+        require(index >= 0) { "index must be non-negative" }
+        val allIssues = api.siteMap().issues()
+        val issue = allIssues.getOrNull(index) ?: error("scan issue index out of range: $index")
+        
+        val updatedSeverity = severity?.trim()?.uppercase()?.takeIf { it in SEVERITIES }
+            ?: if (status.equals("false_positive", ignoreCase = true)) "FALSE_POSITIVE" else issue.severity().name
+        val updatedConfidence = confidence?.trim()?.uppercase()?.takeIf { it in CONFIDENCES }
+            ?: issue.confidence().name
+        
+        val extraDetail = buildString {
+            append(issue.detail().orEmpty())
+            append("\n\n[MCP Status Update: ${status.uppercase()}]")
+            if (!notes.isNullOrBlank()) {
+                append(" Notes: $notes")
+            }
+        }
 
+        val updatedIssue = burp.api.montoya.scanner.audit.issues.AuditIssue.auditIssue(
+            issue.name(),
+            extraDetail,
+            issue.remediation().orEmpty(),
+            issue.baseUrl(),
+            burp.api.montoya.scanner.audit.issues.AuditIssueSeverity.valueOf(updatedSeverity),
+            burp.api.montoya.scanner.audit.issues.AuditIssueConfidence.valueOf(updatedConfidence),
+            null,
+            null,
+            burp.api.montoya.scanner.audit.issues.AuditIssueSeverity.valueOf(updatedSeverity),
+            issue.requestResponses(),
+        )
+        api.siteMap().add(updatedIssue)
+        return true
+    }
     fun addIssue(
         name: String,
         url: String,

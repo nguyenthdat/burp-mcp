@@ -1,0 +1,10 @@
+css_query = { SOI ~ selector_step+ ~ EOI }
+selector_step = { (tag_name ~ (id_selector | class_selector | attr_selector)*) | (id_selector | class_selector | attr_selector)+ }
+tag_name = @{ (ASCII_ALPHANUMERIC | "-" | "_")+ | "*" }
+id_selector = { "#" ~ ident }
+class_selector = { "." ~ ident }
+attr_selector = { "[" ~ ident ~ (attr_op ~ (string_lit | ident))? ~ "]" }
+attr_op = { "=" | "~=" | "|=" | "^=" | "$=" | "*=" }
+ident = @{ (ASCII_ALPHANUMERIC | "_" | "-")+ }
+string_lit = @{ ("\"" ~ (!"\"" ~ ANY)* ~ "\"") | ("'" ~ (!"'" ~ ANY)* ~ "'") }
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }

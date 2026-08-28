@@ -52,13 +52,41 @@ Fields ending in `?` are optional. `{}` means no arguments.
 
 | Tool | Input | Purpose |
 |---|---|---|
-| `burp_proxy_history` | `{limit?, offset?, cursor?, url_filter?, method_filter?, status_filter?, has_notes?, color?}` | Page/filter HTTP history. Prefer `cursor` after the first page. |
-| `burp_proxy_detail` | `{index}` | Read the raw request/response, notes, and highlight for one index. |
+| `burp_proxy_history` | `{limit?, offset?, cursor?, url_filter?, method_filter?, status_filter?, has_notes?, color?, include_bodies?, headers_only?, extract_css?, extract_json?, max_body_length?}` | Page/filter HTTP history with compact metadata by default (`include_bodies: false`). |
+| `burp_proxy_detail` | `{index, headers_only?, extract_css?, extract_json?, max_body_length?}` | Read the raw request/response, notes, and highlight for one index with smart extraction/filtering. |
 | `burp_proxy_websocket_history` | `{limit?, cursor?}` | Read observed WebSocket messages; payloads are base64. |
 | `burp_highlight` | `{index, color?}` | Persist a Proxy history highlight. Empty/default color clears it. |
 | `burp_annotate` | `{index, note}` | Persist a Proxy history note. |
 | `burp_extract_from_response` | `{index, regex, limit?}` | Extract bounded regex matches from one response. |
 
+## 3b. Logger, Organizer, & Diffing Engine (7 tools)
+
+| Tool | Input | Purpose |
+|---|---|---|
+| `burp_logger_history` | `{limit?, offset?, cursor?, source_filter?, url_filter?, method_filter?, status_filter?, has_notes?, color?, include_bodies?, headers_only?, extract_css?, extract_json?, max_body_length?}` | Page comprehensive HTTP traffic across all tools (Proxy, Repeater, Scanner, Intruder, Extensions). |
+| `burp_logger_detail` | `{index, headers_only?, extract_css?, extract_json?, max_body_length?}` | Full details for one Logger history index. |
+| `burp_clear_logger` | `{}` | Clear Logger in-memory buffer. |
+| `burp_organizer_send` | `{request, response?, host, port?, https?, notes?, highlight?}` | Send HTTP exchange to Burp Organizer. |
+| `burp_organizer_list` | `{limit?, cursor?, status_filter?, url_filter?}` | List and filter items in Burp Organizer. |
+| `burp_diff_responses` | `{response_a?, response_b?, index_a?, index_b?}` | Compare two HTTP responses and calculate similarity ratio, header diffs, and body line diffs. |
+| `burp_send_to_comparer` | `{first, second}` | Send two payloads directly to Burp Comparer UI tab. |
+
+## 3c. Compound Security Workflows & Consolidated Tools (10 tools)
+
+| Tool | Input | Purpose |
+|---|---|---|
+| `burp_verify_idor` | `{url, method?, body?, headers?, original_auth_header, victim_auth_header, auth_header_name?, match_pattern?}` | Automated IDOR verification across two user authorization contexts. |
+| `burp_check_cors` | `{url, method?, test_origins?, headers?}` | Automated CORS vulnerability auditing with origin reflection analysis. |
+| `burp_auth_matrix` | `{endpoints, method?, body?, roles}` | Role-based Access Control Matrix testing across endpoints. |
+| `burp_test_bcheck` | `{script, request, response?, host?, port?, https?}` | Dry-run / test BCheck script against sample HTTP exchange. |
+| `burp_update_scan_issue_status` | `{index, status, severity?, confidence?, notes?}` | Update scan issue status (false positive, ignored, confirmed) and notes. |
+| `burp_proxy` | `{action, limit?, offset?, cursor?, url_filter?, method_filter?, status_filter?, has_notes?, color?, include_bodies?, headers_only?, extract_css?, extract_json?, max_body_length?, index?, notes?, regex?}` | Consolidated Proxy tool (`history`, `detail`, `annotate`, `highlight`, `extract`). |
+| `burp_http` | `{action, method?, url?, body?, headers?, headers_only?, extract_css?, extract_json?, max_body_length?, requests?, request?, convert_to?, host?, port?, https?, format?, tab_name?}` | Consolidated HTTP client (`send`, `send_batch`, `convert`, `export`, `send_to_repeater`). |
+| `burp_target` | `{action, url?, url_prefix?, limit?, cursor?}` | Consolidated Target tool (`get_scope`, `add_scope`, `remove_scope`, `info`, `sitemap`). |
+| `burp_scanner` | `{action, url?, audit_type?, seed_urls?, scan_configuration_id?, resource_pool_id?, timeout_seconds?, stable_seconds?, include_out_of_scope?, job_id?, limit?, offset?, cursor?, index?, status?, severity?, confidence?, notes?, format?, path?, issue_indexes?}` | Consolidated Scanner tool. |
+| `burp_fuzzer` | `{action, template?, host?, port?, https?, marker?, wordlist?, payload_list_id?, payload_offset?, attack_mode?, markers?, request?, count?, single_packet_attack?, tab_name?, id?, name?, payloads?}` | Consolidated Fuzzer tool (`fuzz`, `race`, `send_to_intruder`, `list_payloads`, `upsert_payloads`). |
+| `burp_collaborator` | `{action, count?, target_url?, injection_point?, limit?, cursor?}` | Consolidated Collaborator tool (`generate`, `poll`, `correlate`). |
+| `burp_diff` | `{action, response_a?, response_b?, index_a?, index_b?, first?, second?}` | Consolidated Diff tool (`diff_responses`, `compare_exchanges`). |
 ---
 
 ## 4. Sending and preparing HTTP requests (6 tools)

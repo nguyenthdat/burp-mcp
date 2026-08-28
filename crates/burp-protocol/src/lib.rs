@@ -424,6 +424,38 @@ enum Command {
         request: proto::ImportBCheckRequest,
         response: oneshot::Sender<Result<proto::ScriptImportResponse, ClientError>>,
     },
+    TestBCheck {
+        request: proto::TestBCheckRequest,
+        response: oneshot::Sender<Result<proto::TestBCheckResponse, ClientError>>,
+    },
+    LoggerHistory {
+        request: proto::LoggerHistoryRequest,
+        response: oneshot::Sender<Result<proto::LoggerHistoryResponse, ClientError>>,
+    },
+    LoggerDetail {
+        request: proto::LoggerDetailRequest,
+        response: oneshot::Sender<Result<proto::LoggerDetailResponse, ClientError>>,
+    },
+    ClearLogger {
+        request: proto::ClearLoggerRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
+    SendToOrganizer {
+        request: proto::SendToOrganizerRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
+    OrganizerList {
+        request: proto::OrganizerListRequest,
+        response: oneshot::Sender<Result<proto::OrganizerListResponse, ClientError>>,
+    },
+    UpdateScanIssueStatus {
+        request: proto::UpdateScanIssueStatusRequest,
+        response: oneshot::Sender<Result<proto::UpdateScanIssueStatusResponse, ClientError>>,
+    },
+    SendToComparer {
+        request: proto::SendToComparerRequest,
+        response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
+    },
 }
 
 #[derive(Clone)]
@@ -1188,6 +1220,69 @@ impl BurpClient {
             .await
     }
 
+    pub async fn test_bcheck(
+        &self,
+        request: proto::TestBCheckRequest,
+    ) -> Result<proto::TestBCheckResponse, ClientError> {
+        self.send(|response| Command::TestBCheck { request, response })
+            .await
+    }
+
+    pub async fn logger_history(
+        &self,
+        request: proto::LoggerHistoryRequest,
+    ) -> Result<proto::LoggerHistoryResponse, ClientError> {
+        self.send(|response| Command::LoggerHistory { request, response })
+            .await
+    }
+
+    pub async fn logger_detail(
+        &self,
+        request: proto::LoggerDetailRequest,
+    ) -> Result<proto::LoggerDetailResponse, ClientError> {
+        self.send(|response| Command::LoggerDetail { request, response })
+            .await
+    }
+
+    pub async fn clear_logger(
+        &self,
+        request: proto::ClearLoggerRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::ClearLogger { request, response })
+            .await
+    }
+
+    pub async fn send_to_organizer(
+        &self,
+        request: proto::SendToOrganizerRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::SendToOrganizer { request, response })
+            .await
+    }
+
+    pub async fn organizer_list(
+        &self,
+        request: proto::OrganizerListRequest,
+    ) -> Result<proto::OrganizerListResponse, ClientError> {
+        self.send(|response| Command::OrganizerList { request, response })
+            .await
+    }
+
+    pub async fn update_scan_issue_status(
+        &self,
+        request: proto::UpdateScanIssueStatusRequest,
+    ) -> Result<proto::UpdateScanIssueStatusResponse, ClientError> {
+        self.send(|response| Command::UpdateScanIssueStatus { request, response })
+            .await
+    }
+
+    pub async fn send_to_comparer(
+        &self,
+        request: proto::SendToComparerRequest,
+    ) -> Result<proto::ActionResponse, ClientError> {
+        self.send(|response| Command::SendToComparer { request, response })
+            .await
+    }
     async fn send<T>(
         &self,
         command: impl FnOnce(oneshot::Sender<Result<T, ClientError>>) -> Command,
@@ -2094,6 +2189,86 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::TestBCheck { request, response } => {
+            let result = client
+                .test_b_check(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::LoggerHistory { request, response } => {
+            let result = client
+                .logger_history(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::LoggerDetail { request, response } => {
+            let result = client
+                .logger_detail(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::ClearLogger { request, response } => {
+            let result = client
+                .clear_logger(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::SendToOrganizer { request, response } => {
+            let result = client
+                .send_to_organizer(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::OrganizerList { request, response } => {
+            let result = client
+                .organizer_list(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::UpdateScanIssueStatus { request, response } => {
+            let result = client
+                .update_scan_issue_status(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
+        Command::SendToComparer { request, response } => {
+            let result = client
+                .send_to_comparer(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
         Command::CancelJob { request, response } => {
             let result = client
                 .cancel_job(with_deadline(request, config.call_timeout))
@@ -2402,6 +2577,30 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::ImportBCheck { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::TestBCheck { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::LoggerHistory { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::LoggerDetail { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::ClearLogger { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::SendToOrganizer { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::OrganizerList { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::UpdateScanIssueStatus { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::SendToComparer { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::ListWebSockets { response, .. } => {

@@ -53,28 +53,139 @@ internal class LongOperationFacade(
     private val auditRunning = AtomicBoolean()
     private val audits = ConcurrentHashMap<String, AuditHandle>()
 
-    fun startRace(request: String, host: String, port: Int, https: Boolean, count: Int): JobSnapshot {
+    fun startRace(
+        request: String,
+        host: String,
+        port: Int,
+        https: Boolean,
+        count: Int,
+        singlePacketAttack: Boolean = false,
+    ): JobSnapshot {
         require(count in 1..100) { "count must be between 1 and 100" }
         return jobs.start("concurrent_request_check") {
             val service = HttpService.httpService(host, port, https)
-            val message = HttpRequest.httpRequest(service, request)
-            val items = api.http().sendRequests(List(count) { message }).mapIndexed { index, exchange ->
-                val response = exchange.response()
-                HttpJobItem(index.toString(), response?.statusCode()?.toInt(), response?.body()?.length()?.toInt())
+            val items: List<HttpJobItem>
+            if (singlePacketAttack && request.length > 1) {
+                val prefix = request.substring(0, request.length - 1)
+                val lastByte = request.substring(request.length - 1)
+                val readyLatch = java.util.concurrent.CountDownLatch(count)
+                val fireLatch = java.util.concurrent.CountDownLatch(1)
+                val executor = java.util.concurrent.Executors.newFixedThreadPool(count)
+                val futures = (0 until count).map { index ->
+                    executor.submit<HttpJobItem> {
+                        try {
+                            val socket = if (https) {
+                                javax.net.ssl.SSLSocketFactory.getDefault().createSocket(host, port) as javax.net.ssl.SSLSocket
+                            } else {
+                                java.net.Socket(host, port)
+                            }
+                            socket.soTimeout = 10_000
+                            val out = socket.getOutputStream()
+                            out.write(prefix.toByteArray(StandardCharsets.UTF_8))
+                            out.flush()
+                            readyLatch.countDown()
+                            fireLatch.await(5, TimeUnit.SECONDS)
+                            val startNanos = System.nanoTime()
+                            out.write(lastByte.toByteArray(StandardCharsets.UTF_8))
+                            out.flush()
+
+                            val inp = socket.getInputStream()
+                            val reader = inp.bufferedReader(StandardCharsets.UTF_8)
+                            val statusLine = reader.readLine().orEmpty()
+                            val elapsedMicros = (System.nanoTime() - startNanos) / 1_000
+                            val statusCode = Regex("""HTTP/\d(?:\.\d)?\s+(\d{3})""").find(statusLine)?.groupValues?.get(1)?.toIntOrNull()
+
+                            var contentLength: Int? = null
+                            var line = reader.readLine()
+                            while (!line.isNullOrBlank()) {
+                                if (line.lowercase().startsWith("content-length:")) {
+                                    contentLength = line.substringAfter(':').trim().toIntOrNull()
+                                }
+                                line = reader.readLine()
+                            }
+                            val length = contentLength ?: 0
+                            socket.close()
+                            HttpJobItem("${index} [${elapsedMicros}µs]", statusCode, length)
+                        } catch (e: Exception) {
+                            val resp = api.http().sendRequest(HttpRequest.httpRequest(service, request)).response()
+                            HttpJobItem(index.toString(), resp?.statusCode()?.toInt(), resp?.body()?.length()?.toInt())
+                        }
+                    }
+                }
+                readyLatch.await(5, TimeUnit.SECONDS)
+                fireLatch.countDown()
+                items = futures.map { it.get(10, TimeUnit.SECONDS) }
+                executor.shutdown()
+            } else {
+                val message = HttpRequest.httpRequest(service, request)
+                items = api.http().sendRequests(List(count) { message }).mapIndexed { index, exchange ->
+                    val response = exchange.response()
+                    HttpJobItem(index.toString(), response?.statusCode()?.toInt(), response?.body()?.length()?.toInt())
+                }
             }
             val uniqueLengths = items.mapNotNull(HttpJobItem::length).toSet().size
             HttpBatchJobOutput(items, uniqueLengths, if (uniqueLengths > 1) "responses differ" else "responses match")
         }
     }
 
-    fun startInlineFuzzer(template: String, host: String, port: Int, https: Boolean, marker: String, wordlist: List<String>): JobSnapshot {
-        val substitutionCount = validateInlineFuzzerInput(template, marker, wordlist)
+    fun startInlineFuzzer(
+        template: String,
+        host: String,
+        port: Int,
+        https: Boolean,
+        marker: String,
+        wordlist: List<String>,
+        attackMode: String = "pitchfork",
+        markerPayloads: Map<String, List<String>> = emptyMap(),
+    ): JobSnapshot {
+        val markers = if (markerPayloads.isNotEmpty()) markerPayloads else mapOf(marker to wordlist)
+        val attackType = attackMode.lowercase().trim()
+
+        val combinations: List<Pair<String, Map<String, String>>> = when (attackType) {
+            "cluster_bomb" -> {
+                var combos: List<Map<String, String>> = listOf(emptyMap())
+                for ((m, list) in markers) {
+                    combos = combos.flatMap { existing ->
+                        list.map { item -> existing + (m to item) }
+                    }
+                }
+                combos.map { mapping ->
+                    val label = mapping.entries.joinToString(", ") { "${it.key}=${it.value}" }
+                    label to mapping
+                }
+            }
+            "sniper" -> {
+                val list = mutableListOf<Pair<String, Map<String, String>>>()
+                for ((targetMarker, payloads) in markers) {
+                    for (p in payloads) {
+                        list.add("$targetMarker=$p" to mapOf(targetMarker to p))
+                    }
+                }
+                list
+            }
+            else -> {
+                val maxLen = markers.values.maxOfOrNull { it.size } ?: 0
+                (0 until maxLen).map { idx ->
+                    val mapping = markers.mapValues { (_, list) ->
+                        if (idx < list.size) list[idx] else list.lastOrNull().orEmpty()
+                    }
+                    val label = mapping.values.joinToString(",")
+                    label to mapping
+                }
+            }
+        }
+
+        val substitutionCount = combinations.size
         val requestFingerprint = sha256(template.toByteArray(StandardCharsets.UTF_8))
         return jobs.start("bounded_input_matrix") {
             val service = HttpService.httpService(host, port, https)
-            val items = wordlist.map { value ->
-                val response = api.http().sendRequest(HttpRequest.httpRequest(service, template.replace(marker, value))).response()
-                HttpJobItem(value, response?.statusCode()?.toInt(), response?.body()?.length()?.toInt())
+            val items = combinations.map { (label, mapping) ->
+                var req = template
+                for ((m, v) in mapping) {
+                    req = req.replace(m, v)
+                }
+                val response = api.http().sendRequest(HttpRequest.httpRequest(service, req)).response()
+                HttpJobItem(label, response?.statusCode()?.toInt(), response?.body()?.length()?.toInt())
             }
             HttpBatchJobOutput(
                 items = items,

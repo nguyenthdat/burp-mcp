@@ -19,3 +19,5 @@ sitegraph-daemon = { path = "../sitegraph-daemon" }
 tokio.workspace = true
 time.workspace = true
 utility-engine = { path = "../utility-engine" }
+pest.workspace = true
+pest_derive.workspace = true

@@ -1,0 +1,10 @@
+json_path = { SOI ~ ("$" | "@")? ~ segment* ~ EOI }
+segment = _{ dot_segment | bracket_segment | root_ident }
+dot_segment = { "." ~ (wildcard | ident) }
+root_ident = { ident }
+bracket_segment = { "[" ~ (wildcard | number | string_lit | ident) ~ "]" }
+wildcard = { "*" }
+ident = @{ (ASCII_ALPHANUMERIC | "_" | "-")+ }
+number = @{ "-"? ~ ASCII_DIGIT+ }
+string_lit = @{ ("\"" ~ (!"\"" ~ ANY)* ~ "\"") | ("'" ~ (!"'" ~ ANY)* ~ "'") }
+WHITESPACE = _{ " " | "\t" }

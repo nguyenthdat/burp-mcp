@@ -104,6 +104,14 @@ service BurpService {
   rpc ManagedWebSocketHistory(ManagedWebSocketHistoryRequest) returns (ManagedWebSocketHistoryResponse);
   rpc ImportBambda(ImportBambdaRequest) returns (ScriptImportResponse);
   rpc ImportBCheck(ImportBCheckRequest) returns (ScriptImportResponse);
+  rpc TestBCheck(TestBCheckRequest) returns (TestBCheckResponse);
+  rpc LoggerHistory(LoggerHistoryRequest) returns (LoggerHistoryResponse);
+  rpc LoggerDetail(LoggerDetailRequest) returns (LoggerDetailResponse);
+  rpc ClearLogger(ClearLoggerRequest) returns (ActionResponse);
+  rpc SendToOrganizer(SendToOrganizerRequest) returns (ActionResponse);
+  rpc OrganizerList(OrganizerListRequest) returns (OrganizerListResponse);
+  rpc SendToComparer(SendToComparerRequest) returns (ActionResponse);
+  rpc UpdateScanIssueStatus(UpdateScanIssueStatusRequest) returns (UpdateScanIssueStatusResponse);
   rpc ServerInfo(ServerInfoRequest) returns (ServerInfoResponse);
 }
 
@@ -711,7 +719,15 @@ message StartConcurrentRequestCheckRequest {
   uint32 port = 3;
   bool https = 4;
   uint32 count = 5;
+  bool single_packet_attack = 6;
+  uint32 warmup_connections = 7;
 }
+
+message MarkerPayloadSet {
+  string marker = 1;
+  repeated string payloads = 2;
+}
+
 message StartBoundedInputMatrixRequest {
   bytes template = 1;
   string host = 2;
@@ -721,6 +737,8 @@ message StartBoundedInputMatrixRequest {
   repeated string inputs = 6;
   string payload_list_id = 7;
   uint32 payload_offset = 8;
+  string attack_mode = 9;
+  repeated MarkerPayloadSet marker_payloads = 10;
 }
 message StartCrawlRequest {
   repeated string seed_urls = 1;
@@ -833,7 +851,11 @@ message JobResultResponse {
   bool stateless = 15;
   string status_message = 16;
 }
-message GenerateCollaboratorPayloadsRequest { uint32 count = 1; }
+message GenerateCollaboratorPayloadsRequest {
+  uint32 count = 1;
+  string target_url = 2;
+  string injection_point = 3;
+}
 message GenerateCollaboratorPayloadsResponse { repeated string payloads = 1; }
 message PollCollaboratorInteractionsRequest { PageRequest page = 1; }
 message CollaboratorInteractionEntry {
@@ -842,6 +864,9 @@ message CollaboratorInteractionEntry {
   string client_ip = 3;
   uint32 client_port = 4;
   string timestamp = 5;
+  string target_url = 6;
+  string injection_point = 7;
+  string payload = 8;
 }
 message PollCollaboratorInteractionsResponse {
   repeated CollaboratorInteractionEntry items = 1;
@@ -911,4 +936,121 @@ message ServerInfoResponse {
   string project_name = 14;
   string graph_id = 15;
   bool project_temporary = 16;
+}
+
+message LoggerHistoryRequest {
+  PageRequest page = 1;
+  string source_filter = 2;
+  string url_filter = 3;
+  string method_filter = 4;
+  optional uint32 status_filter = 5;
+  bool has_notes = 6;
+  string color = 7;
+  optional uint32 after_id = 8;
+}
+
+message LoggerEntry {
+  uint32 index = 1;
+  uint32 id = 2;
+  string source = 3;
+  string method = 4;
+  string url = 5;
+  uint32 status = 6;
+  uint64 length = 7;
+  bool has_response = 8;
+  bytes request = 9;
+  bytes response = 10;
+  string notes = 11;
+  string highlight = 12;
+  string time = 13;
+  string content_type = 14;
+}
+
+message LoggerHistoryResponse {
+  repeated LoggerEntry items = 1;
+  PageInfo page = 2;
+}
+
+message LoggerDetailRequest {
+  uint32 index = 1;
+}
+
+message LoggerDetailResponse {
+  uint32 index = 1;
+  string source = 2;
+  bytes request = 3;
+  bytes response = 4;
+  string notes = 5;
+  string highlight = 6;
+}
+
+message ClearLoggerRequest {}
+
+message SendToOrganizerRequest {
+  bytes request = 1;
+  bytes response = 2;
+  string host = 3;
+  uint32 port = 4;
+  bool https = 5;
+  string notes = 6;
+  string highlight = 7;
+}
+
+message OrganizerListRequest {
+  PageRequest page = 1;
+  string status_filter = 2;
+  string url_filter = 3;
+}
+
+message OrganizerEntry {
+  uint32 id = 1;
+  uint32 index = 2;
+  string url = 3;
+  string method = 4;
+  uint32 status_code = 5;
+  string status = 6;
+  string notes = 7;
+  string highlight = 8;
+  bool has_response = 9;
+  string content_type = 10;
+}
+
+message OrganizerListResponse {
+  repeated OrganizerEntry items = 1;
+  PageInfo page = 2;
+}
+
+message TestBCheckRequest {
+  string script = 1;
+  bytes request = 2;
+  bytes response = 3;
+  string host = 4;
+  uint32 port = 5;
+  bool https = 6;
+}
+
+message TestBCheckResponse {
+  bool valid = 1;
+  bool matched = 2;
+  string status = 3;
+  repeated string errors = 4;
+  repeated string findings = 5;
+}
+
+message UpdateScanIssueStatusRequest {
+  uint32 index = 1;
+  string status = 2;
+  optional string severity = 3;
+  optional string confidence = 4;
+  optional string notes = 5;
+}
+
+message UpdateScanIssueStatusResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message SendToComparerRequest {
+  bytes first = 1;
+  bytes second = 2;
 }

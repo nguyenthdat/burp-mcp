@@ -121,6 +121,22 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.GetPayloadListResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ImportPayloadListRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ListPayloadListsRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ListPayloadListsResponse
+import io.github.nguyenthdat.burpmcp.LoggerHistoryQuery
+import io.github.nguyenthdat.burpmcp.OrganizerQuery
+import io.github.nguyenthdat.burpmcp.grpc.v1.ClearLoggerRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.LoggerDetailRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.LoggerDetailResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.LoggerEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.LoggerHistoryRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.LoggerHistoryResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.OrganizerEntry
+import io.github.nguyenthdat.burpmcp.grpc.v1.OrganizerListRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.OrganizerListResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.SendToOrganizerRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.TestBCheckRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.TestBCheckResponse
+import io.github.nguyenthdat.burpmcp.grpc.v1.UpdateScanIssueStatusRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.UpdateScanIssueStatusResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.PayloadListEntry
 import io.github.nguyenthdat.burpmcp.grpc.v1.UpdatePayloadListRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.RemovePayloadGeneratorRequest
@@ -1406,6 +1422,7 @@ internal class BurpRpcService(
             port,
             request.https,
             request.count.toInt().takeIf { it > 0 } ?: 10,
+            request.singlePacketAttack,
         ).toStatusProto()
     }
 
@@ -1419,6 +1436,7 @@ internal class BurpRpcService(
             request.payloadListId.isNotBlank() -> payloadListFacade.boundedSlice(request.payloadListId, request.payloadOffset.toInt())
             else -> request.inputsList
         }
+        val markerPayloads = request.markerPayloadsList.associate { it.marker to it.payloadsList }
         longOperationFacade.startInlineFuzzer(
             request.template.toStringUtf8(),
             request.host,
@@ -1426,6 +1444,8 @@ internal class BurpRpcService(
             request.https,
             request.marker.ifEmpty { "FUZZ" },
             inputs,
+            request.attackMode.ifEmpty { "pitchfork" },
+            markerPayloads,
         ).toStatusProto()
     }
     override fun startCrawl(
@@ -1567,7 +1587,11 @@ internal class BurpRpcService(
         request: GenerateCollaboratorPayloadsRequest,
         responseObserver: StreamObserver<GenerateCollaboratorPayloadsResponse>,
     ) = responseObserver.respond {
-        val payloads = collaboratorFacade.generate(request.count.toInt().takeIf { it > 0 } ?: 1)
+        val payloads = collaboratorFacade.generate(
+            count = request.count.toInt().takeIf { it > 0 } ?: 1,
+            targetUrl = request.targetUrl.takeIf(String::isNotBlank),
+            injectionPoint = request.injectionPoint.takeIf(String::isNotBlank),
+        )
         GenerateCollaboratorPayloadsResponse.newBuilder().addAllPayloads(payloads).build()
     }
 
@@ -1591,6 +1615,9 @@ internal class BurpRpcService(
                         .setClientIp(item.clientIp)
                         .setClientPort(item.clientPort)
                         .setTimestamp(item.timestamp)
+                        .setTargetUrl(item.targetUrl.orEmpty())
+                        .setInjectionPoint(item.injectionPoint.orEmpty())
+                        .setPayload(item.payload.orEmpty())
                         .build()
                 },
             ).setPage(
@@ -1600,6 +1627,17 @@ internal class BurpRpcService(
                     .setNextCursor(if (end < items.size) end.toString() else "")
                     .build(),
             ).build()
+    }
+
+    override fun sendToComparer(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.SendToComparerRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) = responseObserver.respond {
+        api.comparer().sendToComparer(
+            burp.api.montoya.core.ByteArray.byteArray(*request.first.toByteArray()),
+            burp.api.montoya.core.ByteArray.byteArray(*request.second.toByteArray()),
+        )
+        ActionResponse.newBuilder().setSuccess(true).setMessage("sent to comparer").build()
     }
 
     override fun createWebSocket(
@@ -2004,4 +2042,171 @@ internal class BurpRpcService(
             .setPayload(com.google.protobuf.ByteString.copyFrom(payload))
             .build()
 
+
+    override fun loggerHistory(
+        request: LoggerHistoryRequest,
+        responseObserver: StreamObserver<LoggerHistoryResponse>,
+    ) = responseObserver.respond {
+        val limit = if (!request.hasPage() || request.page.limit == 0) 100 else request.page.limit.toInt().coerceAtMost(GRPC_MAX_PAGE_SIZE)
+        val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "logger cursor")
+        val page = resources.logger.history(
+            LoggerHistoryQuery(
+                limit = limit,
+                offset = offset,
+                afterId = if (request.hasAfterId()) request.afterId.toLong() else null,
+                sourceFilter = request.sourceFilter.takeIf(String::isNotBlank),
+                urlFilter = request.urlFilter.takeIf(String::isNotBlank),
+                methodFilter = request.methodFilter.takeIf(String::isNotBlank),
+                statusFilter = if (request.hasStatusFilter()) request.statusFilter else null,
+                hasNotes = request.hasNotes,
+                colorFilter = request.color.takeIf(String::isNotBlank),
+            )
+        )
+        val nextOffset = page.offset + page.items.size
+        LoggerHistoryResponse.newBuilder()
+            .addAllItems(page.items.map { item ->
+                LoggerEntry.newBuilder()
+                    .setIndex(item.index)
+                    .setId(item.id.toInt())
+                    .setSource(item.source)
+                    .setMethod(item.method)
+                    .setUrl(item.url)
+                    .also { entry -> item.status?.let(entry::setStatus) }
+                    .also { entry -> item.length?.let(entry::setLength) }
+                    .setHasResponse(item.hasResponse)
+                    .setRequest(com.google.protobuf.ByteString.copyFrom(item.request))
+                    .also { entry -> item.response?.let { entry.setResponse(com.google.protobuf.ByteString.copyFrom(it)) } }
+                    .setNotes(item.notes.orEmpty())
+                    .setHighlight(item.highlight.orEmpty())
+                    .setTime(item.time)
+                    .setContentType(item.contentType)
+                    .build()
+            })
+            .setPage(
+                PageInfo.newBuilder()
+                    .setTotal(page.total)
+                    .setTruncated(nextOffset < page.total)
+                    .setNextCursor(if (nextOffset < page.total) nextOffset.toString() else "")
+                    .build()
+            )
+            .build()
+    }
+
+    override fun loggerDetail(
+        request: LoggerDetailRequest,
+        responseObserver: StreamObserver<LoggerDetailResponse>,
+    ) = responseObserver.respond {
+        val detail = resources.logger.detail(request.index)
+            ?: error("logger index out of range: ${request.index}")
+        LoggerDetailResponse.newBuilder()
+            .setIndex(detail.index)
+            .setSource(detail.source)
+            .setRequest(com.google.protobuf.ByteString.copyFrom(detail.request))
+            .also { entry -> detail.response?.let { entry.setResponse(com.google.protobuf.ByteString.copyFrom(it)) } }
+            .setNotes(detail.notes.orEmpty())
+            .setHighlight(detail.highlight.orEmpty())
+            .build()
+    }
+
+    override fun clearLogger(
+        request: ClearLoggerRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) = responseObserver.respond {
+        resources.logger.clear()
+        ActionResponse.newBuilder().setSuccess(true).setMessage("logger cleared").build()
+    }
+
+    override fun sendToOrganizer(
+        request: SendToOrganizerRequest,
+        responseObserver: StreamObserver<ActionResponse>,
+    ) = responseObserver.respond {
+        resources.organizer.sendToOrganizer(
+            request = request.request.toByteArray(),
+            response = if (request.response.isEmpty) null else request.response.toByteArray(),
+            host = request.host,
+            port = request.port,
+            https = request.https,
+            notes = request.notes.takeIf(String::isNotBlank),
+            highlight = request.highlight.takeIf(String::isNotBlank),
+        )
+        ActionResponse.newBuilder().setSuccess(true).setMessage("sent to organizer").build()
+    }
+
+    override fun organizerList(
+        request: OrganizerListRequest,
+        responseObserver: StreamObserver<OrganizerListResponse>,
+    ) = responseObserver.respond {
+        val limit = if (!request.hasPage() || request.page.limit == 0) 100 else request.page.limit.toInt().coerceAtMost(GRPC_MAX_PAGE_SIZE)
+        val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "organizer cursor")
+        val page = resources.organizer.list(
+            OrganizerQuery(
+                limit = limit,
+                offset = offset,
+                statusFilter = request.statusFilter.takeIf(String::isNotBlank),
+                urlFilter = request.urlFilter.takeIf(String::isNotBlank),
+            )
+        )
+        val nextOffset = page.offset + page.items.size
+        OrganizerListResponse.newBuilder()
+            .addAllItems(page.items.map { item ->
+                OrganizerEntry.newBuilder()
+                    .setId(item.id)
+                    .setIndex(item.index)
+                    .setUrl(item.url)
+                    .setMethod(item.method)
+                    .setStatusCode(item.statusCode)
+                    .setStatus(item.status)
+                    .setNotes(item.notes)
+                    .setHighlight(item.highlight)
+                    .setHasResponse(item.hasResponse)
+                    .setContentType(item.contentType)
+                    .build()
+            })
+            .setPage(
+                PageInfo.newBuilder()
+                    .setTotal(page.total)
+                    .setTruncated(nextOffset < page.total)
+                    .setNextCursor(if (nextOffset < page.total) nextOffset.toString() else "")
+                    .build()
+            )
+            .build()
+    }
+
+    override fun testBCheck(
+        request: TestBCheckRequest,
+        responseObserver: StreamObserver<TestBCheckResponse>,
+    ) = responseObserver.respond {
+        val result = resources.scripts.testBCheck(
+            script = request.script,
+            request = request.request.toByteArray(),
+            response = request.response.toByteArray(),
+            host = request.host,
+            port = request.port.toInt(),
+            https = request.https,
+        )
+        TestBCheckResponse.newBuilder()
+            .setValid(result.valid)
+            .setMatched(result.matched)
+            .setStatus(result.status)
+            .addAllErrors(result.errors)
+            .addAllFindings(result.findings)
+            .build()
+    }
+
+    override fun updateScanIssueStatus(
+        request: UpdateScanIssueStatusRequest,
+        responseObserver: StreamObserver<UpdateScanIssueStatusResponse>,
+    ) = responseObserver.respond {
+        val updated = resources.scanner.updateIssueStatus(
+            index = request.index,
+            status = request.status,
+            severity = if (request.hasSeverity()) request.severity else null,
+            confidence = if (request.hasConfidence()) request.confidence else null,
+            notes = if (request.hasNotes()) request.notes else null,
+        )
+        UpdateScanIssueStatusResponse.newBuilder()
+            .setSuccess(updated)
+            .setMessage("Issue status updated to ${request.status}")
+            .build()
+    }
 }

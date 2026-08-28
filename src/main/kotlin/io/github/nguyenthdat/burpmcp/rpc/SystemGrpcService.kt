@@ -69,6 +69,12 @@ internal class SystemGrpcService(
                     "editor.active.write_guarded",
                     "editor.websocket.read",
                     "editor.websocket.write_guarded",
+                    "logger.read",
+                    "logger.clear",
+                    "organizer.read",
+                    "organizer.write",
+                    "bcheck.test",
+                    "scanner.issues.update",
                 ),
             )
             .setMaxMessageBytes(GRPC_MAX_MESSAGE_BYTES)

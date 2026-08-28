@@ -1,40 +1,45 @@
+pub mod body_filter;
+pub mod consolidated;
+pub mod diff_engine;
 mod sitegraph;
 mod utility;
-
+pub mod workflows;
 use crate::sitegraph::SitegraphIndexer;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use burp_protocol::BurpClient;
 use burp_protocol::protocol::{
     ActiveEditorGetRequest, ActiveEditorSetRequest, AddIssueRequest, CancelJobRequest,
-    ClearHttpHandlerRequest, ClearProxyRulesRequest, CloseWebSocketRequest, ConfigResponse,
-    ControlInterceptedMessageRequest, ControlInterceptedWebSocketMessageRequest, CookieJarRequest,
-    CreateMacroRequest, CreatePayloadListRequest, CreateWebSocketRequest, DeletePayloadListRequest,
-    DeleteScanConfigurationRequest, DeleteScanResourcePoolRequest, DeleteSessionRuleRequest,
-    ExportConfigRequest, ExtensionInfoRequest, GenerateCollaboratorPayloadsRequest,
-    GenerateScannerReportRequest, GetJobResultRequest, GetJobStatusRequest, GetPayloadListRequest,
-    GetScanConfigurationRequest, GetScanResourcePoolRequest, GetSessionRuleRequest,
-    HttpHeaderEntry, ImportBCheckRequest, ImportBambdaRequest, ImportConfigRequest,
-    ImportPayloadListRequest, InterceptAction, InterceptControllerConfigRequest,
-    InterceptStateRequest, InterceptedMessagesRequest, InterceptedWebSocketMessagesRequest,
-    ListMacrosRequest, ListPayloadGeneratorsRequest, ListPayloadListsRequest,
-    ListPayloadProcessorsRequest, ListProxyRulesRequest, ListScanConfigurationsRequest,
-    ListScanResourcePoolsRequest, ListSessionRulesRequest, ListWebSocketsRequest, MacroDefinition,
-    MacroItem, MacroParameter, ManagedWebSocketHistoryRequest, MutateScopeRequest, PageRequest,
-    PollCollaboratorInteractionsRequest, ProxyDetailRequest, ProxyHistoryRequest,
-    ProxyInterceptConfigRequest, ProxyInterceptConfigResponse, ProxyInterceptRule,
-    ProxyInterceptRuleDelete, ProxyInterceptRuleMutation, ProxyInterceptToggle, ProxyListener,
-    ProxyScriptFilter, ProxySettingsRequest, ProxySettingsResponse, ProxySettingsUpdateRequest,
-    ProxyWebSocketHistoryRequest, RegisterHttpHandlerRequest, RegisterPayloadGeneratorRequest,
-    RegisterPayloadProcessorRequest, RegisterProxyRuleRequest, RemoveMacroRequest,
-    RemovePayloadGeneratorRequest, RemovePayloadProcessorRequest, RunMacroRequest,
-    ScanIssueDetailRequest, ScanIssuesRequest, ScopeCheckRequest, SendRequestRequest,
-    SendRequestsRequest, SendToIntruderRequest, SendToRepeaterRequest, SendWebSocketBinaryRequest,
+    ClearHttpHandlerRequest, ClearLoggerRequest, ClearProxyRulesRequest, CloseWebSocketRequest,
+    ConfigResponse, ControlInterceptedMessageRequest, ControlInterceptedWebSocketMessageRequest,
+    CookieJarRequest, CreateMacroRequest, CreatePayloadListRequest, CreateWebSocketRequest,
+    DeletePayloadListRequest, DeleteScanConfigurationRequest, DeleteScanResourcePoolRequest,
+    DeleteSessionRuleRequest, ExportConfigRequest, ExtensionInfoRequest,
+    GenerateCollaboratorPayloadsRequest, GenerateScannerReportRequest, GetJobResultRequest,
+    GetJobStatusRequest, GetPayloadListRequest, GetScanConfigurationRequest,
+    GetScanResourcePoolRequest, GetSessionRuleRequest, HttpHeaderEntry, ImportBCheckRequest,
+    ImportBambdaRequest, ImportConfigRequest, ImportPayloadListRequest, InterceptAction,
+    InterceptControllerConfigRequest, InterceptStateRequest, InterceptedMessagesRequest,
+    InterceptedWebSocketMessagesRequest, ListMacrosRequest, ListPayloadGeneratorsRequest,
+    ListPayloadListsRequest, ListPayloadProcessorsRequest, ListProxyRulesRequest,
+    ListScanConfigurationsRequest, ListScanResourcePoolsRequest, ListSessionRulesRequest,
+    ListWebSocketsRequest, LoggerDetailRequest, LoggerHistoryRequest, MacroDefinition, MacroItem,
+    MacroParameter, ManagedWebSocketHistoryRequest, MarkerPayloadSet, MutateScopeRequest,
+    OrganizerListRequest, PageRequest, PollCollaboratorInteractionsRequest, ProxyDetailRequest,
+    ProxyHistoryRequest, ProxyInterceptConfigRequest, ProxyInterceptConfigResponse,
+    ProxyInterceptRule, ProxyInterceptRuleDelete, ProxyInterceptRuleMutation, ProxyInterceptToggle,
+    ProxyListener, ProxyScriptFilter, ProxySettingsRequest, ProxySettingsResponse,
+    ProxySettingsUpdateRequest, ProxyWebSocketHistoryRequest, RegisterHttpHandlerRequest,
+    RegisterPayloadGeneratorRequest, RegisterPayloadProcessorRequest, RegisterProxyRuleRequest,
+    RemoveMacroRequest, RemovePayloadGeneratorRequest, RemovePayloadProcessorRequest,
+    RunMacroRequest, ScanIssueDetailRequest, ScanIssuesRequest, ScopeCheckRequest,
+    SendRequestRequest, SendRequestsRequest, SendToComparerRequest, SendToIntruderRequest,
+    SendToOrganizerRequest, SendToRepeaterRequest, SendWebSocketBinaryRequest,
     SendWebSocketTextRequest, SetCookieRequest, SetHighlightRequest, SetNoteRequest,
     SitemapSnapshotRequest, StartAuditRequest, StartBoundedInputMatrixRequest,
-    StartConcurrentRequestCheckRequest, StartCrawlRequest, TargetInfoRequest,
-    UpdatePayloadListRequest, UpsertScanConfigurationRequest, UpsertScanResourcePoolRequest,
-    UpsertSessionRuleRequest, WebSocketEditorGetRequest, WebSocketEditorSetRequest,
-    WebSocketInterceptControllerConfigRequest,
+    StartConcurrentRequestCheckRequest, StartCrawlRequest, TargetInfoRequest, TestBCheckRequest,
+    UpdatePayloadListRequest, UpdateScanIssueStatusRequest, UpsertScanConfigurationRequest,
+    UpsertScanResourcePoolRequest, UpsertSessionRuleRequest, WebSocketEditorGetRequest,
+    WebSocketEditorSetRequest, WebSocketInterceptControllerConfigRequest,
 };
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
@@ -78,6 +83,11 @@ pub struct ProxyHistoryInput {
     pub status_filter: Option<u32>,
     pub has_notes: Option<bool>,
     pub color: Option<String>,
+    pub include_bodies: Option<bool>,
+    pub headers_only: Option<bool>,
+    pub extract_css: Option<String>,
+    pub extract_json: Option<String>,
+    pub max_body_length: Option<usize>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -88,10 +98,22 @@ struct ProxyHistoryItemOutput {
     status: u32,
     length: u64,
     has_response: bool,
-    request_base64: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     response_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     highlight: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extracted_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body_truncated: Option<bool>,
 }
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 struct ProxyHistoryOutput {
@@ -104,14 +126,30 @@ struct ProxyHistoryOutput {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ProxyDetailInput {
     pub index: u32,
+    pub headers_only: Option<bool>,
+    pub extract_css: Option<String>,
+    pub extract_json: Option<String>,
+    pub max_body_length: Option<usize>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 struct ProxyDetailOutput {
     index: u32,
-    request_base64: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     response_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extracted_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    truncated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     highlight: Option<String>,
 }
 
@@ -474,6 +512,10 @@ pub struct SendRequestInput {
     pub url: String,
     pub body: Option<String>,
     pub headers: Option<std::collections::HashMap<String, String>>,
+    pub headers_only: Option<bool>,
+    pub extract_css: Option<String>,
+    pub extract_json: Option<String>,
+    pub max_body_length: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -486,6 +528,10 @@ struct SendResponseOutput {
     request: String,
     response: Option<String>,
     status: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extracted: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    truncated: Option<bool>,
 }
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SendToRepeaterInput {
@@ -535,6 +581,169 @@ pub struct GenerateScannerReportInput {
     pub format: String,
     pub path: String,
     pub issue_indexes: Option<Vec<u32>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct LoggerHistoryInput {
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+    pub cursor: Option<String>,
+    pub source_filter: Option<String>,
+    pub url_filter: Option<String>,
+    pub method_filter: Option<String>,
+    pub status_filter: Option<u32>,
+    pub has_notes: Option<bool>,
+    pub color: Option<String>,
+    pub include_bodies: Option<bool>,
+    pub headers_only: Option<bool>,
+    pub extract_css: Option<String>,
+    pub extract_json: Option<String>,
+    pub max_body_length: Option<usize>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct LoggerHistoryItemOutput {
+    index: u32,
+    id: u32,
+    source: String,
+    method: String,
+    url: String,
+    status: u32,
+    length: u64,
+    has_response: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    highlight: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extracted_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body_truncated: Option<bool>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct LoggerHistoryOutput {
+    items: Vec<LoggerHistoryItemOutput>,
+    total: u32,
+    truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct LoggerDetailInput {
+    pub index: u32,
+    pub headers_only: Option<bool>,
+    pub extract_css: Option<String>,
+    pub extract_json: Option<String>,
+    pub max_body_length: Option<usize>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct LoggerDetailOutput {
+    index: u32,
+    source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    truncated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    highlight: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct LoggerClearInput {}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct OrganizerSendInput {
+    pub request: String,
+    pub response: Option<String>,
+    pub host: String,
+    pub port: Option<u32>,
+    pub https: Option<bool>,
+    pub notes: Option<String>,
+    pub highlight: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct OrganizerListInput {
+    pub limit: Option<u32>,
+    pub cursor: Option<String>,
+    pub status_filter: Option<String>,
+    pub url_filter: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct OrganizerItemOutput {
+    id: u32,
+    index: u32,
+    url: String,
+    method: String,
+    status_code: u32,
+    status: String,
+    notes: String,
+    highlight: String,
+    has_response: bool,
+    content_type: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct OrganizerListOutput {
+    items: Vec<OrganizerItemOutput>,
+    total: u32,
+    truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BCheckTestInput {
+    pub script: String,
+    pub request: String,
+    pub response: Option<String>,
+    pub host: Option<String>,
+    pub port: Option<u32>,
+    pub https: Option<bool>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct BCheckTestOutput {
+    valid: bool,
+    matched: bool,
+    status: String,
+    errors: Vec<String>,
+    findings: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ScanIssueUpdateInput {
+    pub index: u32,
+    pub status: String,
+    pub severity: Option<String>,
+    pub confidence: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct ScanIssueUpdateOutput {
+    success: bool,
+    message: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -727,6 +936,7 @@ pub struct ConcurrentRequestCheckInput {
     pub port: Option<u32>,
     pub https: Option<bool>,
     pub count: Option<u32>,
+    pub single_packet_attack: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -736,9 +946,11 @@ pub struct BoundedInputMatrixInput {
     pub port: Option<u32>,
     pub https: Option<bool>,
     pub marker: Option<String>,
-    pub wordlist: Vec<String>,
+    pub wordlist: Option<Vec<String>>,
     pub payload_list_id: Option<String>,
     pub payload_offset: Option<u32>,
+    pub attack_mode: Option<String>,
+    pub markers: Option<std::collections::HashMap<String, Vec<String>>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -809,6 +1021,8 @@ pub struct JobResultInput {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CollaboratorGenerateInput {
     pub count: Option<u32>,
+    pub target_url: Option<String>,
+    pub injection_point: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -913,6 +1127,7 @@ pub struct SiteGraphSearchInput {
     pub limit: Option<u32>,
     pub cursor: Option<u32>,
 }
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SiteGraphHistorySearchInput {
     pub query: String,
@@ -966,6 +1181,7 @@ pub struct SiteGraphImpactInput {
     pub max_depth: Option<u32>,
     pub limit: Option<u32>,
 }
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SiteGraphExportInput {
     pub profile: Option<String>,
@@ -985,6 +1201,20 @@ struct SitegraphRuntime {
     interval_seconds: u64,
     auto_index_shutdown: Arc<tokio::sync::watch::Sender<bool>>,
     auto_index_task: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DiffResponsesInput {
+    pub response_a: Option<String>,
+    pub response_b: Option<String>,
+    pub index_a: Option<u32>,
+    pub index_b: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SendToComparerInput {
+    pub first: String,
+    pub second: String,
 }
 
 #[derive(Clone)]
@@ -1130,7 +1360,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_proxy_history",
-        description = "Page Burp Proxy HTTP history with optional URL, method, status, notes, and highlight filters",
+        description = "Page Burp Proxy HTTP history with optional URL, method, status, notes, and highlight filters. By default returns compact metadata only without heavy bodies.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -1143,6 +1373,11 @@ impl BurpTools {
         if limit > MAX_PAGE_SIZE {
             return serde_json::json!({"error": "limit must be at most 500"}).to_string();
         }
+        let include_bodies = input.include_bodies.unwrap_or(false);
+        let headers_only = input.headers_only.unwrap_or(false);
+        let extract_css = input.extract_css.clone();
+        let extract_json = input.extract_json.clone();
+        let max_body_length = input.max_body_length;
         match self
             .client
             .proxy_history(to_proxy_history_request(input, limit))
@@ -1154,17 +1389,43 @@ impl BurpTools {
                     items: response
                         .items
                         .into_iter()
-                        .map(|item| ProxyHistoryItemOutput {
-                            index: item.index,
-                            method: item.method,
-                            url: item.url,
-                            status: item.status,
-                            length: item.length,
-                            has_response: item.has_response,
-                            request_base64: STANDARD.encode(item.request),
-                            response_base64: item.has_response.then(|| STANDARD.encode(item.response)),
-                            notes: (!item.notes.is_empty()).then_some(item.notes),
-                            highlight: (!item.highlight.is_empty()).then_some(item.highlight),
+                        .map(|item| {
+                            let (resp_b64, resp_text, is_trunc) = if include_bodies && item.has_response {
+                                let (filtered, trunc) = body_filter::filter_and_truncate_payload(
+                                    &item.response,
+                                    (!item.content_type.is_empty()).then_some(&item.content_type),
+                                    headers_only,
+                                    extract_css.as_deref(),
+                                    extract_json.as_deref(),
+                                    max_body_length,
+                                );
+                                (Some(STANDARD.encode(&item.response)), Some(filtered), trunc)
+                            } else {
+                                (None, None, false)
+                            };
+
+                            let req_b64 = if include_bodies {
+                                Some(STANDARD.encode(&item.request))
+                            } else {
+                                None
+                            };
+
+                            ProxyHistoryItemOutput {
+                                index: item.index,
+                                 method: item.method,
+                                 url: item.url,
+                                 status: item.status,
+                                 length: item.length,
+                                 has_response: item.has_response,
+                                 request_base64: req_b64,
+                                 response_base64: resp_b64,
+                                 notes: (!item.notes.is_empty()).then_some(item.notes),
+                                 highlight: (!item.highlight.is_empty()).then_some(item.highlight),
+                                 time: (!item.time.is_empty()).then_some(item.time),
+                                 content_type: (!item.content_type.is_empty()).then_some(item.content_type),
+                                 extracted_text: resp_text,
+                                 body_truncated: is_trunc.then_some(true),
+                            }
                         })
                         .collect(),
                     total: page.total,
@@ -1178,7 +1439,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_proxy_detail",
-        description = "Get full request and response details for one Burp proxy history index",
+        description = "Get full request and response details for one Burp proxy history index with optional headers_only, extraction, or truncation",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -1191,16 +1452,389 @@ impl BurpTools {
             Ok(index) => index,
             Err(error) => return serde_json::json!({"error": error}).to_string(),
         };
+        let headers_only = input.headers_only.unwrap_or(false);
+        let extract_css = input.extract_css.clone();
+        let extract_json = input.extract_json.clone();
+        let max_body_length = input.max_body_length;
         match self.client.proxy_detail(ProxyDetailRequest { index }).await {
-            Ok(detail) => serde_json::to_string(&ProxyDetailOutput {
-                index: detail.index,
-                request_base64: STANDARD.encode(detail.request),
-                response_base64: (!detail.response.is_empty())
-                    .then(|| STANDARD.encode(detail.response)),
-                notes: (!detail.notes.is_empty()).then_some(detail.notes),
-                highlight: (!detail.highlight.is_empty()).then_some(detail.highlight),
+            Ok(detail) => {
+                let req_text = String::from_utf8_lossy(&detail.request).into_owned();
+                let req_display = if headers_only {
+                    body_filter::extract_headers_only(&req_text)
+                } else {
+                    req_text
+                };
+
+                let (resp_text, is_trunc) = if !detail.response.is_empty() {
+                    let (filtered, trunc) = body_filter::filter_and_truncate_payload(
+                        &detail.response,
+                        None,
+                        headers_only,
+                        extract_css.as_deref(),
+                        extract_json.as_deref(),
+                        max_body_length,
+                    );
+                    (Some(filtered), trunc)
+                } else {
+                    (None, false)
+                };
+
+                serde_json::to_string(&ProxyDetailOutput {
+                    index: detail.index,
+                    request_base64: Some(STANDARD.encode(&detail.request)),
+                    response_base64: (!detail.response.is_empty())
+                        .then(|| STANDARD.encode(&detail.response)),
+                    request_text: Some(req_display),
+                    response_text: resp_text,
+                    extracted_text: None,
+                    truncated: is_trunc.then_some(true),
+                    notes: (!detail.notes.is_empty()).then_some(detail.notes),
+                    highlight: (!detail.highlight.is_empty()).then_some(detail.highlight),
+                })
+                .expect("proxy detail output must serialize")
+            }
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_logger_history",
+        description = "Page full Burp HTTP traffic logger (Proxy, Repeater, Scanner, Intruder, Extensions) with optional filtering and projection",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn logger_history(&self, Parameters(input): Parameters<LoggerHistoryInput>) -> String {
+        let limit = input.limit.unwrap_or(100);
+        if limit > MAX_PAGE_SIZE {
+            return serde_json::json!({"error": "limit must be at most 500"}).to_string();
+        }
+        let include_bodies = input.include_bodies.unwrap_or(false);
+        let headers_only = input.headers_only.unwrap_or(false);
+        let extract_css = input.extract_css.clone();
+        let extract_json = input.extract_json.clone();
+        let max_body_length = input.max_body_length;
+        match self
+            .client
+            .logger_history(LoggerHistoryRequest {
+                page: Some(PageRequest {
+                    limit,
+                    cursor: input
+                        .cursor
+                        .unwrap_or_else(|| input.offset.unwrap_or_default().to_string()),
+                }),
+                source_filter: input.source_filter.unwrap_or_default(),
+                url_filter: input.url_filter.unwrap_or_default(),
+                method_filter: input.method_filter.unwrap_or_default(),
+                status_filter: input.status_filter,
+                has_notes: input.has_notes.unwrap_or(false),
+                color: input.color.unwrap_or_default(),
+                after_id: None,
             })
-            .expect("proxy detail output must serialize"),
+            .await
+        {
+            Ok(response) => {
+                let page = response.page.unwrap_or_default();
+                serde_json::to_string(&LoggerHistoryOutput {
+                    items: response
+                        .items
+                        .into_iter()
+                        .map(|item| {
+                            let (resp_b64, resp_text, is_trunc) = if include_bodies
+                                && item.has_response
+                            {
+                                let (filtered, trunc) = body_filter::filter_and_truncate_payload(
+                                    &item.response,
+                                    (!item.content_type.is_empty()).then_some(&item.content_type),
+                                    headers_only,
+                                    extract_css.as_deref(),
+                                    extract_json.as_deref(),
+                                    max_body_length,
+                                );
+                                (Some(STANDARD.encode(&item.response)), Some(filtered), trunc)
+                            } else {
+                                (None, None, false)
+                            };
+
+                            let req_b64 = if include_bodies {
+                                Some(STANDARD.encode(&item.request))
+                            } else {
+                                None
+                            };
+
+                            LoggerHistoryItemOutput {
+                                index: item.index,
+                                id: item.id,
+                                source: item.source,
+                                method: item.method,
+                                url: item.url,
+                                status: item.status,
+                                length: item.length,
+                                has_response: item.has_response,
+                                request_base64: req_b64,
+                                response_base64: resp_b64,
+                                notes: (!item.notes.is_empty()).then_some(item.notes),
+                                highlight: (!item.highlight.is_empty()).then_some(item.highlight),
+                                time: (!item.time.is_empty()).then_some(item.time),
+                                content_type: (!item.content_type.is_empty())
+                                    .then_some(item.content_type),
+                                extracted_text: resp_text,
+                                body_truncated: is_trunc.then_some(true),
+                            }
+                        })
+                        .collect(),
+                    total: page.total,
+                    truncated: page.truncated,
+                    next_cursor: (!page.next_cursor.is_empty()).then_some(page.next_cursor),
+                })
+                .expect("logger history output must serialize")
+            }
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_logger_detail",
+        description = "Get full request and response details for one Burp logger index",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn logger_detail(&self, Parameters(input): Parameters<LoggerDetailInput>) -> String {
+        let index = match validated_index(input.index) {
+            Ok(index) => index,
+            Err(error) => return serde_json::json!({"error": error}).to_string(),
+        };
+        let headers_only = input.headers_only.unwrap_or(false);
+        let extract_css = input.extract_css.clone();
+        let extract_json = input.extract_json.clone();
+        let max_body_length = input.max_body_length;
+        match self
+            .client
+            .logger_detail(LoggerDetailRequest { index })
+            .await
+        {
+            Ok(detail) => {
+                let req_text = String::from_utf8_lossy(&detail.request).into_owned();
+                let req_display = if headers_only {
+                    body_filter::extract_headers_only(&req_text)
+                } else {
+                    req_text
+                };
+
+                let (resp_text, is_trunc) = if !detail.response.is_empty() {
+                    let (filtered, trunc) = body_filter::filter_and_truncate_payload(
+                        &detail.response,
+                        None,
+                        headers_only,
+                        extract_css.as_deref(),
+                        extract_json.as_deref(),
+                        max_body_length,
+                    );
+                    (Some(filtered), trunc)
+                } else {
+                    (None, false)
+                };
+
+                serde_json::to_string(&LoggerDetailOutput {
+                    index: detail.index,
+                    source: detail.source,
+                    request_base64: Some(STANDARD.encode(&detail.request)),
+                    response_base64: (!detail.response.is_empty())
+                        .then(|| STANDARD.encode(&detail.response)),
+                    request_text: Some(req_display),
+                    response_text: resp_text,
+                    truncated: is_trunc.then_some(true),
+                    notes: (!detail.notes.is_empty()).then_some(detail.notes),
+                    highlight: (!detail.highlight.is_empty()).then_some(detail.highlight),
+                })
+                .expect("logger detail output must serialize")
+            }
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_clear_logger",
+        description = "Clear in-memory Burp HTTP traffic logger buffer",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn clear_logger(&self, Parameters(_input): Parameters<LoggerClearInput>) -> String {
+        match self.client.clear_logger(ClearLoggerRequest {}).await {
+            Ok(res) => {
+                serde_json::json!({"success": res.success, "message": res.message}).to_string()
+            }
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_organizer_send",
+        description = "Send an HTTP request/response exchange into Burp Organizer with notes and highlight",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn organizer_send(&self, Parameters(input): Parameters<OrganizerSendInput>) -> String {
+        match self
+            .client
+            .send_to_organizer(SendToOrganizerRequest {
+                request: input.request.into_bytes(),
+                response: input.response.map(|r| r.into_bytes()).unwrap_or_default(),
+                host: input.host,
+                port: input
+                    .port
+                    .unwrap_or(if input.https.unwrap_or(true) { 443 } else { 80 }),
+                https: input.https.unwrap_or(true),
+                notes: input.notes.unwrap_or_default(),
+                highlight: input.highlight.unwrap_or_default(),
+            })
+            .await
+        {
+            Ok(res) => {
+                serde_json::json!({"success": res.success, "message": res.message}).to_string()
+            }
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_organizer_list",
+        description = "List and filter entries in Burp Organizer",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn organizer_list(&self, Parameters(input): Parameters<OrganizerListInput>) -> String {
+        let limit = input.limit.unwrap_or(100);
+        if limit > MAX_PAGE_SIZE {
+            return serde_json::json!({"error": "limit must be at most 500"}).to_string();
+        }
+        match self
+            .client
+            .organizer_list(OrganizerListRequest {
+                page: Some(PageRequest {
+                    limit,
+                    cursor: input.cursor.unwrap_or_default(),
+                }),
+                status_filter: input.status_filter.unwrap_or_default(),
+                url_filter: input.url_filter.unwrap_or_default(),
+            })
+            .await
+        {
+            Ok(response) => {
+                let page = response.page.unwrap_or_default();
+                serde_json::to_string(&OrganizerListOutput {
+                    items: response
+                        .items
+                        .into_iter()
+                        .map(|item| OrganizerItemOutput {
+                            id: item.id,
+                            index: item.index,
+                            url: item.url,
+                            method: item.method,
+                            status_code: item.status_code,
+                            status: item.status,
+                            notes: item.notes,
+                            highlight: item.highlight,
+                            has_response: item.has_response,
+                            content_type: item.content_type,
+                        })
+                        .collect(),
+                    total: page.total,
+                    truncated: page.truncated,
+                    next_cursor: (!page.next_cursor.is_empty()).then_some(page.next_cursor),
+                })
+                .expect("organizer list output must serialize")
+            }
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_test_bcheck",
+        description = "Test / Dry-run a BCheck script against a request and response exchange",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn test_bcheck(&self, Parameters(input): Parameters<BCheckTestInput>) -> String {
+        match self
+            .client
+            .test_bcheck(TestBCheckRequest {
+                script: input.script,
+                request: input.request.into_bytes(),
+                response: input.response.map(|r| r.into_bytes()).unwrap_or_default(),
+                host: input.host.unwrap_or_default(),
+                port: input
+                    .port
+                    .unwrap_or(if input.https.unwrap_or(true) { 443 } else { 80 }),
+                https: input.https.unwrap_or(true),
+            })
+            .await
+        {
+            Ok(res) => serde_json::to_string(&BCheckTestOutput {
+                valid: res.valid,
+                matched: res.matched,
+                status: res.status,
+                errors: res.errors,
+                findings: res.findings,
+            })
+            .expect("bcheck test output must serialize"),
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_update_scan_issue_status",
+        description = "Update Scanner Issue status (e.g. false_positive, ignored, confirmed) and optional severity/confidence/notes",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn update_scan_issue_status(
+        &self,
+        Parameters(input): Parameters<ScanIssueUpdateInput>,
+    ) -> String {
+        match self
+            .client
+            .update_scan_issue_status(UpdateScanIssueStatusRequest {
+                index: input.index,
+                status: input.status,
+                severity: input.severity,
+                confidence: input.confidence,
+                notes: input.notes,
+            })
+            .await
+        {
+            Ok(res) => serde_json::to_string(&ScanIssueUpdateOutput {
+                success: res.success,
+                message: res.message,
+            })
+            .expect("update scan issue status output must serialize"),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
@@ -1307,7 +1941,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_send_request",
-        description = "Send an HTTP request through Burp and get the response",
+        description = "Send an HTTP request through Burp and get the response with optional filtering/extraction",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -1316,9 +1950,19 @@ impl BurpTools {
         )
     )]
     async fn send_request(&self, Parameters(input): Parameters<SendRequestInput>) -> String {
-        match self.client.send_request(to_proto_request(input)).await {
-            Ok(response) => serde_json::to_string(&to_send_output(response))
-                .expect("send output must serialize"),
+        let headers_only = input.headers_only.unwrap_or(false);
+        let extract_css = input.extract_css.clone();
+        let extract_json = input.extract_json.clone();
+        let max_body_length = input.max_body_length;
+        match self.client.send_request(to_proto_request(&input)).await {
+            Ok(response) => serde_json::to_string(&to_send_output_with_options(
+                response,
+                headers_only,
+                extract_css.as_deref(),
+                extract_json.as_deref(),
+                max_body_length,
+            ))
+            .expect("send output must serialize"),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
@@ -1341,10 +1985,11 @@ impl BurpTools {
             return serde_json::json!({"error": "at most 32 requests may be sent in one batch"})
                 .to_string();
         }
+        let proto_requests = input.requests.iter().map(to_proto_request).collect();
         match self
             .client
             .send_requests(SendRequestsRequest {
-                requests: input.requests.into_iter().map(to_proto_request).collect(),
+                requests: proto_requests,
             })
             .await
         {
@@ -1352,7 +1997,17 @@ impl BurpTools {
                 &response
                     .responses
                     .into_iter()
-                    .map(to_send_output)
+                    .enumerate()
+                    .map(|(i, resp)| {
+                        let req_input = input.requests.get(i);
+                        to_send_output_with_options(
+                            resp,
+                            req_input.and_then(|r| r.headers_only).unwrap_or(false),
+                            req_input.and_then(|r| r.extract_css.as_deref()),
+                            req_input.and_then(|r| r.extract_json.as_deref()),
+                            req_input.and_then(|r| r.max_body_length),
+                        )
+                    })
                     .collect::<Vec<_>>(),
             )
             .expect("parallel send output must serialize"),
@@ -1917,7 +2572,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_race_condition",
-        description = "Start a bounded concurrent request comparison job",
+        description = "Start a concurrent request check or Last-Byte Sync Single-Packet Attack",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -1939,6 +2594,8 @@ impl BurpTools {
                     port,
                     https,
                     count: input.count.unwrap_or(10),
+                    single_packet_attack: input.single_packet_attack.unwrap_or(false),
+                    warmup_connections: 0,
                 })
                 .await,
         )
@@ -1946,7 +2603,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_inline_fuzzer",
-        description = "Start a bounded raw HTTP request matrix; template must be a complete raw request containing the nonblank marker",
+        description = "Start a bounded HTTP request matrix (pitchfork, cluster_bomb, or sniper attack modes)",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -1960,6 +2617,15 @@ impl BurpTools {
     ) -> String {
         let https = input.https.unwrap_or(true);
         let port = input.port.unwrap_or(if https { 443 } else { 80 });
+        let marker_payloads = input
+            .markers
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(m, p)| MarkerPayloadSet {
+                marker: m,
+                payloads: p,
+            })
+            .collect();
         job_status_json(
             self.client
                 .start_bounded_input_matrix(StartBoundedInputMatrixRequest {
@@ -1968,9 +2634,11 @@ impl BurpTools {
                     port,
                     https,
                     marker: input.marker.unwrap_or_else(|| "FUZZ".to_owned()),
-                    inputs: input.wordlist,
+                    inputs: input.wordlist.unwrap_or_default(),
                     payload_list_id: input.payload_list_id.unwrap_or_default(),
                     payload_offset: input.payload_offset.unwrap_or(0),
+                    attack_mode: input.attack_mode.unwrap_or_else(|| "pitchfork".to_owned()),
+                    marker_payloads,
                 })
                 .await,
         )
@@ -2565,7 +3233,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_collaborator_generate",
-        description = "Generate bounded Collaborator identifiers",
+        description = "Generate bounded Collaborator identifiers with optional target endpoint and parameter correlation",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -2581,6 +3249,8 @@ impl BurpTools {
             .client
             .generate_collaborator_payloads(GenerateCollaboratorPayloadsRequest {
                 count: input.count.unwrap_or(1),
+                target_url: input.target_url.unwrap_or_default(),
+                injection_point: input.injection_point.unwrap_or_default(),
             })
             .await
         {
@@ -2760,7 +3430,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_collaborator_poll",
-        description = "Get a bounded page of Collaborator interactions",
+        description = "Get a bounded page of Collaborator interactions with correlation info",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -2790,13 +3460,99 @@ impl BurpTools {
                 let page = response.page.unwrap_or_default();
                 serde_json::json!({
                     "interactions": response.items.into_iter().map(|item| serde_json::json!({
-                        "id": item.id, "type": item.r#type, "client_ip": item.client_ip,
-                        "client_port": item.client_port, "timestamp": item.timestamp,
+                        "id": item.id,
+                        "type": item.r#type,
+                        "client_ip": item.client_ip,
+                        "client_port": item.client_port,
+                        "timestamp": item.timestamp,
+                        "target_url": (!item.target_url.is_empty()).then_some(item.target_url),
+                        "injection_point": (!item.injection_point.is_empty()).then_some(item.injection_point),
+                        "payload": (!item.payload.is_empty()).then_some(item.payload),
                     })).collect::<Vec<_>>(),
-                    "count": page.total, "truncated": page.truncated,
+                    "count": page.total,
+                    "truncated": page.truncated,
                     "next_cursor": (!page.next_cursor.is_empty()).then_some(page.next_cursor),
                 })
                 .to_string()
+            }
+            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_diff_responses",
+        description = "Compare two HTTP response texts or history entries, computing similarity ratio, header diffs, and body diff",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn diff_responses(&self, Parameters(input): Parameters<DiffResponsesInput>) -> String {
+        let text_a = if let Some(a) = input.response_a {
+            a
+        } else if let Some(idx) = input.index_a {
+            match self
+                .client
+                .proxy_detail(ProxyDetailRequest { index: idx })
+                .await
+            {
+                Ok(detail) => String::from_utf8_lossy(&detail.response).into_owned(),
+                Err(err) => {
+                    return serde_json::json!({"error": format!("failed to fetch index_a: {err}")})
+                        .to_string();
+                }
+            }
+        } else {
+            return serde_json::json!({"error": "either response_a or index_a must be provided"})
+                .to_string();
+        };
+
+        let text_b = if let Some(b) = input.response_b {
+            b
+        } else if let Some(idx) = input.index_b {
+            match self
+                .client
+                .proxy_detail(ProxyDetailRequest { index: idx })
+                .await
+            {
+                Ok(detail) => String::from_utf8_lossy(&detail.response).into_owned(),
+                Err(err) => {
+                    return serde_json::json!({"error": format!("failed to fetch index_b: {err}")})
+                        .to_string();
+                }
+            }
+        } else {
+            return serde_json::json!({"error": "either response_b or index_b must be provided"})
+                .to_string();
+        };
+
+        let result = diff_engine::compare_http_messages(&text_a, &text_b);
+        serde_json::to_string(&result).expect("diff result must serialize")
+    }
+
+    #[tool(
+        name = "burp_send_to_comparer",
+        description = "Send two raw payloads or responses directly to Burp Comparer UI tab",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn send_to_comparer(&self, Parameters(input): Parameters<SendToComparerInput>) -> String {
+        match self
+            .client
+            .send_to_comparer(SendToComparerRequest {
+                first: input.first.into_bytes(),
+                second: input.second.into_bytes(),
+            })
+            .await
+        {
+            Ok(res) => {
+                serde_json::json!({"success": res.success, "message": res.message}).to_string()
             }
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
@@ -2838,6 +3594,492 @@ impl BurpTools {
                 })
                 .await,
         )
+    }
+
+    #[tool(
+        name = "burp_proxy",
+        description = "Consolidated Burp Proxy tool (actions: history, detail, annotate, highlight, extract)",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn consolidated_proxy(
+        &self,
+        Parameters(input): Parameters<consolidated::ConsolidatedProxyInput>,
+    ) -> String {
+        match input.action.to_lowercase().as_str() {
+            "history" => {
+                self.proxy_history(Parameters(ProxyHistoryInput {
+                    limit: input.limit,
+                    offset: input.offset,
+                    cursor: input.cursor,
+                    url_filter: input.url_filter,
+                    method_filter: input.method_filter,
+                    status_filter: input.status_filter,
+                    has_notes: input.has_notes,
+                    color: input.color,
+                    include_bodies: input.include_bodies,
+                    headers_only: input.headers_only,
+                    extract_css: input.extract_css,
+                    extract_json: input.extract_json,
+                    max_body_length: input.max_body_length,
+                }))
+                .await
+            }
+            "detail" => {
+                let index = input.index.unwrap_or(0);
+                self.proxy_detail(Parameters(ProxyDetailInput {
+                    index,
+                    headers_only: input.headers_only,
+                    extract_css: input.extract_css,
+                    extract_json: input.extract_json,
+                    max_body_length: input.max_body_length,
+                }))
+                .await
+            }
+            "annotate" => {
+                let index = input.index.unwrap_or(0);
+                let note = input.notes.unwrap_or_default();
+                self.annotate(Parameters(AnnotateInput { index, note }))
+                    .await
+            }
+            "highlight" => {
+                let index = input.index.unwrap_or(0);
+                self.highlight(Parameters(HighlightInput {
+                    index,
+                    color: input.color,
+                }))
+                .await
+            }
+            "extract" => {
+                let index = input.index.unwrap_or(0);
+                let regex = input.regex.unwrap_or_default();
+                self.extract_from_response(Parameters(ExtractResponseInput {
+                    index,
+                    regex,
+                    limit: input.limit.map(|l| l as usize),
+                }))
+                .await
+            }
+            other => {
+                serde_json::json!({"error": format!("unknown proxy action: {other}")}).to_string()
+            }
+        }
+    }
+
+    #[tool(
+        name = "burp_http",
+        description = "Consolidated Burp HTTP client (actions: send, send_batch, convert, export, send_to_repeater)",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn consolidated_http(
+        &self,
+        Parameters(input): Parameters<consolidated::ConsolidatedHttpInput>,
+    ) -> String {
+        match input.action.to_lowercase().as_str() {
+            "send" => {
+                let url = input.url.unwrap_or_default();
+                self.send_request(Parameters(SendRequestInput {
+                    method: input.method,
+                    url,
+                    body: input.body,
+                    headers: input.headers,
+                    headers_only: input.headers_only,
+                    extract_css: input.extract_css,
+                    extract_json: input.extract_json,
+                    max_body_length: input.max_body_length,
+                }))
+                .await
+            }
+            "send_batch" => {
+                let requests = input.requests.unwrap_or_default();
+                self.send_request_parallel(Parameters(SendRequestsInput { requests }))
+                    .await
+            }
+            "convert" => {
+                let request = input.request.unwrap_or_default();
+                self.convert_request(Parameters(ConvertRequestInput {
+                    request,
+                    convert_to: input.convert_to,
+                }))
+                .await
+            }
+            "export" => {
+                let request = input.request.unwrap_or_default();
+                self.export_request(Parameters(ExportRequestInput {
+                    request,
+                    host: input.host,
+                    format: input.format,
+                    https: input.https,
+                }))
+                .await
+            }
+            "send_to_repeater" => {
+                let request = input.request.unwrap_or_default();
+                let host = input.host.unwrap_or_default();
+                self.send_to_repeater(Parameters(SendToRepeaterInput {
+                    request,
+                    host,
+                    port: input.port,
+                    https: input.https,
+                    tab_name: input.tab_name,
+                }))
+                .await
+            }
+            other => {
+                serde_json::json!({"error": format!("unknown http action: {other}")}).to_string()
+            }
+        }
+    }
+
+    #[tool(
+        name = "burp_target",
+        description = "Consolidated Burp Target tool (actions: get_scope, add_scope, remove_scope, info, sitemap)",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn consolidated_target(
+        &self,
+        Parameters(input): Parameters<consolidated::ConsolidatedTargetInput>,
+    ) -> String {
+        match input.action.to_lowercase().as_str() {
+            "get_scope" | "scope_check" => {
+                let url = input.url.unwrap_or_default();
+                self.scope_check(Parameters(ScopeCheckInput { url })).await
+            }
+            "add_scope" => {
+                let url = input.url.unwrap_or_default();
+                self.add_to_scope(Parameters(ScopeMutationInput { url }))
+                    .await
+            }
+            "remove_scope" => {
+                let url = input.url.unwrap_or_default();
+                self.remove_from_scope(Parameters(ScopeMutationInput { url }))
+                    .await
+            }
+            "info" => {
+                self.target_info(Parameters(TargetInfoInput {
+                    url: input.url_prefix,
+                    limit: input.limit,
+                }))
+                .await
+            }
+            "sitemap" => {
+                self.sitemap(Parameters(SitemapInput {
+                    url_prefix: input.url_prefix,
+                    limit: input.limit,
+                    cursor: input.cursor,
+                }))
+                .await
+            }
+            other => {
+                serde_json::json!({"error": format!("unknown target action: {other}")}).to_string()
+            }
+        }
+    }
+
+    #[tool(
+        name = "burp_scanner",
+        description = "Consolidated Burp Scanner (actions: start_audit, start_crawl, stop, list_issues, issue_detail, update_issue, report)",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn consolidated_scanner(
+        &self,
+        Parameters(input): Parameters<consolidated::ConsolidatedScannerInput>,
+    ) -> String {
+        match input.action.to_lowercase().as_str() {
+            "start_audit" => {
+                let url = input.url.unwrap_or_default();
+                self.scan_start(Parameters(AuditInput {
+                    url,
+                    audit_type: input.audit_type,
+                    scan_configuration_id: input.scan_configuration_id,
+                    resource_pool_id: input.resource_pool_id,
+                    timeout_seconds: input.timeout_seconds,
+                    stable_seconds: input.stable_seconds,
+                    include_out_of_scope: input.include_out_of_scope,
+                }))
+                .await
+            }
+            "start_crawl" => {
+                let seed_urls = input.seed_urls.unwrap_or_default();
+                self.crawl(Parameters(CrawlInput {
+                    seed_urls,
+                    scan_configuration_id: input.scan_configuration_id,
+                    resource_pool_id: input.resource_pool_id,
+                    timeout_seconds: input.timeout_seconds,
+                    stable_seconds: input.stable_seconds,
+                    include_out_of_scope: input.include_out_of_scope,
+                }))
+                .await
+            }
+            "stop" => {
+                let job_id = input.job_id.unwrap_or_default();
+                self.scan_stop(Parameters(JobInput { job_id })).await
+            }
+            "list_issues" => {
+                self.scan_issues(Parameters(ScanIssuesInput {
+                    limit: input.limit,
+                    cursor: input.cursor,
+                }))
+                .await
+            }
+            "issue_detail" => {
+                let index = input.index.unwrap_or(0);
+                self.scan_issue_detail(Parameters(ScanIssueDetailInput { index }))
+                    .await
+            }
+            "update_issue" => {
+                let index = input.index.unwrap_or(0);
+                let status = input.status.unwrap_or_else(|| "confirmed".to_string());
+                self.update_scan_issue_status(Parameters(ScanIssueUpdateInput {
+                    index,
+                    status,
+                    severity: input.severity,
+                    confidence: input.confidence,
+                    notes: input.notes,
+                }))
+                .await
+            }
+            "report" => {
+                let format = input.format.unwrap_or_else(|| "html".to_string());
+                let path = input.path.unwrap_or_default();
+                self.scanner_generate_report(Parameters(GenerateScannerReportInput {
+                    format,
+                    path,
+                    issue_indexes: input.issue_indexes,
+                }))
+                .await
+            }
+            other => {
+                serde_json::json!({"error": format!("unknown scanner action: {other}")}).to_string()
+            }
+        }
+    }
+
+    #[tool(
+        name = "burp_fuzzer",
+        description = "Consolidated Burp Fuzzer & Intruder tool (actions: fuzz, race, send_to_intruder, list_payloads, upsert_payloads)",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn consolidated_fuzzer(
+        &self,
+        Parameters(input): Parameters<consolidated::ConsolidatedFuzzerInput>,
+    ) -> String {
+        match input.action.to_lowercase().as_str() {
+            "fuzz" => {
+                let template = input.template.unwrap_or_default();
+                let host = input.host.unwrap_or_default();
+                self.inline_fuzzer(Parameters(BoundedInputMatrixInput {
+                    template,
+                    host,
+                    port: input.port,
+                    https: input.https,
+                    marker: input.marker,
+                    wordlist: input.wordlist,
+                    payload_list_id: input.payload_list_id,
+                    payload_offset: input.payload_offset,
+                    attack_mode: input.attack_mode,
+                    markers: input.markers,
+                }))
+                .await
+            }
+            "race" => {
+                let request = input.request.unwrap_or_default();
+                let host = input.host.unwrap_or_default();
+                self.race_condition(Parameters(ConcurrentRequestCheckInput {
+                    request,
+                    host,
+                    port: input.port,
+                    https: input.https,
+                    count: input.count,
+                    single_packet_attack: input.single_packet_attack,
+                }))
+                .await
+            }
+            "send_to_intruder" => {
+                let request = input.request.unwrap_or_default();
+                let host = input.host.unwrap_or_default();
+                self.send_to_intruder(Parameters(SendToIntruderInput {
+                    request,
+                    host,
+                    port: input.port,
+                    https: input.https,
+                    tab_name: input.tab_name,
+                }))
+                .await
+            }
+            "list_payloads" => self.payload_list_list().await,
+            "upsert_payloads" => {
+                let id = input.id.unwrap_or_default();
+                let name = input.name.unwrap_or_else(|| id.clone());
+                let payloads = input.payloads.unwrap_or_default();
+                self.payload_list_update(Parameters(UpdatePayloadListInput {
+                    id,
+                    operation: "replace_all".to_string(),
+                    payloads: Some(payloads),
+                    index: None,
+                    indexes: None,
+                    display_name: Some(name),
+                }))
+                .await
+            }
+            other => {
+                serde_json::json!({"error": format!("unknown fuzzer action: {other}")}).to_string()
+            }
+        }
+    }
+
+    #[tool(
+        name = "burp_collaborator",
+        description = "Consolidated Burp Collaborator tool (actions: generate, poll, correlate)",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn consolidated_collaborator(
+        &self,
+        Parameters(input): Parameters<consolidated::ConsolidatedCollaboratorInput>,
+    ) -> String {
+        match input.action.to_lowercase().as_str() {
+            "generate" | "correlate" => {
+                self.collaborator_generate(Parameters(CollaboratorGenerateInput {
+                    count: input.count,
+                    target_url: input.target_url,
+                    injection_point: input.injection_point,
+                }))
+                .await
+            }
+            "poll" => {
+                self.collaborator_poll(Parameters(CollaboratorPollInput {
+                    limit: input.limit,
+                    cursor: input.cursor,
+                }))
+                .await
+            }
+            other => serde_json::json!({"error": format!("unknown collaborator action: {other}")})
+                .to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_diff",
+        description = "Consolidated Response Comparer & Diff engine (actions: compare_exchanges, diff_responses)",
+        annotations(
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn consolidated_diff(
+        &self,
+        Parameters(input): Parameters<consolidated::ConsolidatedDiffInput>,
+    ) -> String {
+        match input.action.to_lowercase().as_str() {
+            "diff_responses" => {
+                self.diff_responses(Parameters(DiffResponsesInput {
+                    response_a: input.response_a,
+                    response_b: input.response_b,
+                    index_a: input.index_a,
+                    index_b: input.index_b,
+                }))
+                .await
+            }
+            "compare_exchanges" => {
+                let first = input.first.or(input.response_a).unwrap_or_default();
+                let second = input.second.or(input.response_b).unwrap_or_default();
+                self.send_to_comparer(Parameters(SendToComparerInput { first, second }))
+                    .await
+            }
+            other => {
+                serde_json::json!({"error": format!("unknown diff action: {other}")}).to_string()
+            }
+        }
+    }
+
+    #[tool(
+        name = "burp_verify_idor",
+        description = "High-level Compound Workflow to verify Insecure Direct Object Reference (IDOR) with two roles",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn verify_idor(
+        &self,
+        Parameters(input): Parameters<workflows::VerifyIdorInput>,
+    ) -> String {
+        match workflows::run_verify_idor(&self.client, input).await {
+            Ok(output) => serde_json::to_string(&output).expect("idor output must serialize"),
+            Err(error) => serde_json::json!({"error": error}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_check_cors",
+        description = "High-level Compound Workflow to audit CORS misconfigurations on a target URL",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn check_cors(&self, Parameters(input): Parameters<workflows::CheckCorsInput>) -> String {
+        match workflows::run_check_cors(&self.client, input).await {
+            Ok(output) => serde_json::to_string(&output).expect("cors output must serialize"),
+            Err(error) => serde_json::json!({"error": error}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_auth_matrix",
+        description = "High-level Compound Workflow to run an Access Control Matrix across multiple endpoints and roles",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn auth_matrix(
+        &self,
+        Parameters(input): Parameters<workflows::AuthMatrixInput>,
+    ) -> String {
+        match workflows::run_auth_matrix(&self.client, input).await {
+            Ok(output) => {
+                serde_json::to_string(&output).expect("auth matrix output must serialize")
+            }
+            Err(error) => serde_json::json!({"error": error}).to_string(),
+        }
     }
 
     #[tool(
@@ -4804,13 +6046,14 @@ fn utility_value_json(value: DataValue) -> serde_json::Value {
     }
 }
 
-fn to_proto_request(input: SendRequestInput) -> SendRequestRequest {
+fn to_proto_request(input: &SendRequestInput) -> SendRequestRequest {
     SendRequestRequest {
-        method: input.method.unwrap_or_else(|| "GET".to_owned()),
-        url: input.url,
-        body: input.body.unwrap_or_default().into_bytes(),
+        method: input.method.clone().unwrap_or_else(|| "GET".to_owned()),
+        url: input.url.clone(),
+        body: input.body.clone().unwrap_or_default().into_bytes(),
         headers: input
             .headers
+            .clone()
             .unwrap_or_default()
             .into_iter()
             .map(|(name, value)| HttpHeaderEntry { name, value })
@@ -4855,14 +6098,44 @@ fn job_status_json(
         Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
     }
 }
-fn to_send_output(response: burp_protocol::protocol::SendRequestResponse) -> SendResponseOutput {
+fn to_send_output_with_options(
+    response: burp_protocol::protocol::SendRequestResponse,
+    headers_only: bool,
+    extract_css: Option<&str>,
+    extract_json: Option<&str>,
+    max_length: Option<usize>,
+) -> SendResponseOutput {
+    let req_str = String::from_utf8_lossy(&response.request).into_owned();
+    let (resp_str, is_trunc) = if response.has_response {
+        let (filtered, trunc) = body_filter::filter_and_truncate_payload(
+            &response.response,
+            None,
+            headers_only,
+            extract_css,
+            extract_json,
+            max_length,
+        );
+        (Some(filtered), trunc)
+    } else {
+        (None, false)
+    };
+
     SendResponseOutput {
-        request: String::from_utf8_lossy(&response.request).into_owned(),
-        response: response
-            .has_response
-            .then(|| String::from_utf8_lossy(&response.response).into_owned()),
+        request: if headers_only {
+            body_filter::extract_headers_only(&req_str)
+        } else {
+            req_str
+        },
+        response: resp_str,
         status: response.has_response.then_some(response.status),
+        extracted: None,
+        truncated: is_trunc.then_some(true),
     }
+}
+
+#[allow(dead_code)]
+fn to_send_output(response: burp_protocol::protocol::SendRequestResponse) -> SendResponseOutput {
+    to_send_output_with_options(response, false, None, None, None)
 }
 
 fn convert_request_text(request: &str, target_method: &str) -> Result<String, String> {
@@ -5019,6 +6292,11 @@ mod contract_tests {
             "status_filter",
             "has_notes",
             "color",
+            "include_bodies",
+            "headers_only",
+            "extract_css",
+            "extract_json",
+            "max_body_length",
         ] {
             assert!(
                 schema["properties"].get(property).is_some(),
@@ -5036,6 +6314,11 @@ mod contract_tests {
                 limit: Some(5),
                 offset: None,
                 cursor: None,
+                include_bodies: Some(false),
+                headers_only: Some(false),
+                extract_css: None,
+                extract_json: None,
+                max_body_length: None,
             },
             5,
         );
@@ -5046,7 +6329,6 @@ mod contract_tests {
         assert_eq!(request.color, "red");
         assert_eq!(request.page.expect("page is required").limit, 5);
     }
-
     #[test]
     fn raw_request_export_preserves_input_without_host() {
         let request = "GET /health HTTP/1.1\r\n\r\n".to_owned();
@@ -5384,6 +6666,59 @@ mod contract_tests {
             Err("limit must be between 1 and 500"),
             super::validated_graph_limit(Some(501))
         );
+    }
+
+    #[test]
+    fn stage2_tools_are_mounted_and_expose_schemas() {
+        let tools = actual_tool_names();
+        for tool in [
+            "burp_logger_history",
+            "burp_logger_detail",
+            "burp_clear_logger",
+            "burp_organizer_send",
+            "burp_organizer_list",
+            "burp_test_bcheck",
+            "burp_update_scan_issue_status",
+        ] {
+            assert!(tools.contains(tool), "Tool must be mounted: {tool}");
+        }
+    }
+
+    #[test]
+    fn stage3_tools_are_mounted_and_expose_schemas() {
+        let tools = actual_tool_names();
+        for tool in [
+            "burp_diff_responses",
+            "burp_send_to_comparer",
+            "burp_race_condition",
+            "burp_inline_fuzzer",
+            "burp_collaborator_generate",
+            "burp_collaborator_poll",
+        ] {
+            assert!(tools.contains(tool), "Tool must be mounted: {tool}");
+        }
+    }
+
+    #[test]
+    fn stage4_consolidated_tools_are_mounted() {
+        let tools = actual_tool_names();
+        for tool in [
+            "burp_proxy",
+            "burp_http",
+            "burp_target",
+            "burp_scanner",
+            "burp_fuzzer",
+            "burp_collaborator",
+            "burp_diff",
+            "burp_verify_idor",
+            "burp_check_cors",
+            "burp_auth_matrix",
+        ] {
+            assert!(
+                tools.contains(tool),
+                "Consolidated/Compound Tool must be mounted: {tool}"
+            );
+        }
     }
 
     fn schema_true_paths(value: &Value, path: String) -> Vec<String> {

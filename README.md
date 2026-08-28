@@ -54,21 +54,23 @@ Burp MCP has two runtime tiers:
 
 ## Features & Capabilities
 
-- **Proxy Traffic Inspection & Triage**: Search, filter (status, method, URL, regex), annotate, highlight, and view full raw HTTP/WebSocket traffic history.
+- **Proxy Traffic Inspection & Triage**: Search, filter (status, method, URL, regex), annotate, highlight, and view full raw HTTP/WebSocket traffic history with compact metadata by default (`include_bodies: false`) and smart field projection (`extract_css`, `extract_json`, `headers_only`, truncation).
+- **Logger API Integration**: Complete traffic visibility across all Burp tools (`Proxy`, `Repeater`, `Scanner`, `Intruder`, `Extensions`) via `burp_logger_history`, `burp_logger_detail`, and `burp_clear_logger`.
+- **Organizer Integration**: Send important request/response pairs directly into Burp Organizer and query/filter saved entries via `burp_organizer_send` and `burp_organizer_list`.
 - **Active editor UI integration**: Capture and guardedly replace focused editable HTTP text editors with short-lived token/hash leases; edit WebSocket payloads through an MCP-provided extension tab with lossless Base64.
 - **Interception & HTTP Handlers**: Toggle master proxy interception, register custom request/response modifying handlers, and configure granular proxy rules (`forward`, `intercept`, `drop`, `edit`).
+- **True Single-Packet Attack (Last-Byte Sync)**: Synchronized race condition testing via `burp_race_condition` (`single_packet_attack: true`).
+- **Multi-Marker Fuzzing**: Advanced matrix fuzzing supporting `pitchfork`, `cluster_bomb`, and `sniper` attack modes via `burp_inline_fuzzer`.
+- **Collaborator Auto-Correlation Tracker**: Automatic mapping between injected parameter/URL origins and out-of-band DNS/HTTP interaction callbacks.
+- **Response Comparer & Diffing**: Compute similarity scores, header diffs, and unified line diffs between HTTP responses with `burp_diff_responses` and `burp_send_to_comparer`.
+- **Compound Security Workflows**: High-level automated workflows for IDOR verification (`burp_verify_idor`), CORS auditing (`burp_check_cors`), and Access Control Matrix testing (`burp_auth_matrix`).
+- **Consolidated Action-Based Tools**: Streamlined ~15 action-based tools for modern AI agents to dramatically reduce context-window overhead and tool hallucinations.
 - **Cookie Jar**: Inspect, filter by domain, and set cookies within Burp's active cookie jar.
 - **Session Handling & Macros**: Create, list, execute, update, and remove scoped session handling rules and multi-request macros with parameter extraction.
-- **Intruder & Declarative Fuzzing**: Open raw requests with insertion points in Intruder UI, run bounded single-marker fuzzer jobs, and register custom payload processors and generators.
 - **In-Memory Payload Lists**: Create, import from file/JSON/text, update, paginate, and delete named payload lists for fuzzing and Intruder attacks.
-- **Scanner & Crawl Automation**: Launch bounded passive audits, active scans, and crawls; poll background jobs; triage and inspect issues; persist custom audit findings; and generate HTML or XML Scanner reports.
-- **Scan Configuration & Resource Pools**: Full CRUD for scan configurations (audit types, out-of-scope policies, timeouts) and scanner resource pools (concurrency limits, throttling, retries).
-- **Burp Collaborator & Out-of-Band (OAST) Testing**: Generate unique out-of-band interaction payloads and poll for DNS, HTTP, HTTPS, and SMTP interactions to detect blind vulnerabilities (Blind SSRF, Blind SQLi, Blind XXE, Blind RCE, Log4Shell, and Deserialization).
-- **Managed WebSockets**: Establish and manage outbound WebSocket connections through Burp, send text or base64 binary frames, and review message history.
-- **Bambda & BCheck Script Imports**: Safely validate and import Java Bambdas and declarative BCheck scripts into Burp without unsafe automatic execution.
+- **Scanner & Crawl Automation**: Launch bounded passive audits, active scans, and crawls; poll background jobs; triage and inspect issues; update issue statuses (False Positive/Ignored); and test/dry-run BCheck scripts via `burp_test_bcheck`.
 - **Sitegraph Engine (Advanced Opt-in)**: Project-scoped SQLite graph mapping endpoints, parameters, topology, shortest paths, clusters, downstream impact, diffs, and indexed HTTP/WebSocket evidence. Treat each graph as sensitive engagement data.
 - **Offline Utility Decoder Engine**: 40+ built-in operations for encoding/decoding (Base64, Hex, URL, HTML, Unicode), cryptographic hashes (MD5, SHA-1/256/512, BLAKE3, HMAC), compression (Gzip, Zlib, Deflate, Brotli), JWT decoding/verification, and HTTP parsing.
-
 Some capabilities require Burp Suite Professional or a Burp feature advertised
 by the connected extension. The runtime tool schema and
 `burp_burp_version.capabilities` are authoritative.
