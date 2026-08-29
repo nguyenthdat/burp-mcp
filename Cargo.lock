@@ -277,7 +277,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "burp-mcp"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "anyhow",
  "burp-protocol",
@@ -301,7 +301,7 @@ dependencies = [
 
 [[package]]
 name = "burp-protocol"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "anyhow",
  "prost",
@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "burp-tools"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -2379,7 +2379,7 @@ checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
 name = "sitegraph"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -2400,7 +2400,7 @@ dependencies = [
 
 [[package]]
 name = "sitegraph-daemon"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "base64 0.22.1",
  "capnp",
@@ -3181,7 +3181,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "utility-engine"
-version = "3.1.0"
+version = "3.2.0"
 dependencies = [
  "base64 0.22.1",
  "blake3",
