@@ -2409,7 +2409,7 @@ dependencies = [
  "ciborium",
  "fs2",
  "futures",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "serde",
  "serde_json",
  "sitegraph",

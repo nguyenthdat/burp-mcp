@@ -60,7 +60,7 @@ tonic = { version = "0.14.6", features = ["transport", "tls-ring"] }
 tonic-prost = "0.14.6"
 rmcp = { version = "3.1.4", features = ["macros", "server", "transport-io"] }
 prost-build = "0.14.4"
-getrandom = "0.3.4"
+getrandom = "0.4.3"
 protoc-bin-vendored = "3.2.0"
 tonic-prost-build = "0.14.6"
 schemars = "1.1.0"
