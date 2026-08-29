@@ -4,10 +4,9 @@ use crate::storage::StorageError;
 mod tests;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 
 const MAX_ANALYSIS_NODES: usize = 250_000;
-const MAX_ANALYSIS_EDGES: usize = 1_000_000;
 const MAX_PATH_DEPTH: usize = 16;
 const MAX_RESULT_ITEMS: usize = 500;
 
@@ -43,62 +42,81 @@ pub(crate) async fn shortest_path(
     to_id: &str,
     max_depth: usize,
 ) -> Result<ShortestPath, StorageError> {
-    let graph = load(pool).await?;
-    if !graph.nodes.contains(from_id) || !graph.nodes.contains(to_id) {
+    if from_id == to_id {
+        return Ok(ShortestPath {
+            items: vec![PathStep {
+                node_id: from_id.to_owned(),
+                edge_id: None,
+            }],
+            depth: 0,
+            truncated: false,
+        });
+    }
+
+    let depth_limit = max_depth.clamp(1, MAX_PATH_DEPTH);
+    let row = sqlx::query(
+        "WITH RECURSIVE bfs(node_id, edge_id, path_nodes, path_edges, depth, visited) AS (
+            SELECT ?1, '', ?1, '', 0, '|' || ?1 || '|'
+            UNION ALL
+            SELECT e.to_id, e.id,
+                   bfs.path_nodes || ',' || e.to_id,
+                   CASE WHEN bfs.path_edges = '' THEN e.id ELSE bfs.path_edges || ',' || e.id END,
+                   bfs.depth + 1,
+                   bfs.visited || e.to_id || '|'
+            FROM edges e
+            JOIN bfs ON e.from_id = bfs.node_id
+            WHERE bfs.depth < ?3
+              AND instr(bfs.visited, '|' || e.to_id || '|') = 0
+              AND bfs.node_id != ?2
+        )
+        SELECT depth, path_nodes, path_edges
+        FROM bfs
+        WHERE node_id = ?2
+        ORDER BY depth ASC
+        LIMIT 1",
+    )
+    .bind(from_id)
+    .bind(to_id)
+    .bind(depth_limit as i64)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(row) = row else {
         return Ok(ShortestPath {
             items: Vec::new(),
             depth: 0,
             truncated: false,
         });
-    }
-    let depth_limit = max_depth.clamp(1, MAX_PATH_DEPTH);
-    let mut queue = VecDeque::from([(from_id.to_owned(), 0_usize)]);
-    let mut previous: HashMap<String, (String, String)> = HashMap::new();
-    let mut visited = HashSet::from([from_id.to_owned()]);
-    let mut truncated = false;
-    while let Some((node_id, depth)) = queue.pop_front() {
-        if node_id == to_id {
-            break;
-        }
-        if depth == depth_limit {
-            truncated = true;
-            continue;
-        }
-        for (next, edge_id) in graph.adjacency.get(&node_id).into_iter().flatten() {
-            if visited.insert(next.clone()) {
-                previous.insert(next.clone(), (node_id.clone(), edge_id.clone()));
-                queue.push_back((next.clone(), depth + 1));
-            }
-        }
-    }
-    if !visited.contains(to_id) {
-        return Ok(ShortestPath {
-            items: Vec::new(),
-            depth: 0,
-            truncated,
-        });
-    }
-    let mut current = to_id.to_owned();
-    let mut reverse = vec![PathStep {
-        node_id: current.clone(),
-        edge_id: None,
-    }];
-    while current != from_id {
-        let Some((parent, edge_id)) = previous.get(&current) else {
-            break;
+    };
+
+    let depth: i64 = row.get("depth");
+    let path_nodes: String = row.get("path_nodes");
+    let path_edges: String = row.get("path_edges");
+
+    let nodes_list: Vec<&str> = path_nodes.split(',').collect();
+    let edges_list: Vec<&str> = if path_edges.is_empty() {
+        Vec::new()
+    } else {
+        path_edges.split(',').collect()
+    };
+
+    let mut items = Vec::with_capacity(nodes_list.len());
+    for (i, node) in nodes_list.iter().enumerate() {
+        let edge_id = if i == 0 {
+            None
+        } else {
+            edges_list.get(i - 1).map(|&e| e.to_owned())
         };
-        reverse.push(PathStep {
-            node_id: parent.clone(),
-            edge_id: Some(edge_id.clone()),
+        items.push(PathStep {
+            node_id: (*node).to_owned(),
+            edge_id,
         });
-        current = parent.clone();
     }
-    reverse.reverse();
-    let depth = reverse.len().saturating_sub(1);
+
     Ok(ShortestPath {
-        items: reverse,
-        depth,
-        truncated,
+        items,
+        depth: depth as usize,
+        truncated: false,
     })
 }
 
@@ -156,30 +174,46 @@ pub(crate) async fn impact(
     max_depth: usize,
     limit: usize,
 ) -> Result<Vec<ImpactNode>, StorageError> {
-    let graph = load(pool).await?;
     let depth_limit = max_depth.clamp(1, MAX_PATH_DEPTH);
     let result_limit = limit.clamp(1, MAX_RESULT_ITEMS);
-    let mut queue = VecDeque::from([(start_id.to_owned(), 0_usize)]);
-    let mut visited = HashSet::from([start_id.to_owned()]);
-    let mut result = Vec::new();
-    while let Some((node_id, depth)) = queue.pop_front() {
-        if depth == depth_limit {
-            continue;
-        }
-        for (next, _) in graph.adjacency.get(&node_id).into_iter().flatten() {
-            if visited.insert(next.clone()) {
-                result.push(ImpactNode {
-                    node_id: next.clone(),
-                    depth: depth + 1,
-                });
-                if result.len() == result_limit {
-                    return Ok(result);
-                }
-                queue.push_back((next.clone(), depth + 1));
+
+    let rows = sqlx::query(
+        "WITH RECURSIVE impact_walk(node_id, depth, visited) AS (
+            SELECT e.to_id, 1, '|' || ?1 || '|' || e.to_id || '|'
+            FROM edges e
+            WHERE e.from_id = ?1
+            UNION ALL
+            SELECT e.to_id, impact_walk.depth + 1, impact_walk.visited || e.to_id || '|'
+            FROM edges e
+            JOIN impact_walk ON e.from_id = impact_walk.node_id
+            WHERE impact_walk.depth < ?2
+              AND instr(impact_walk.visited, '|' || e.to_id || '|') = 0
+        )
+        SELECT node_id, min(depth) as depth
+        FROM impact_walk
+        GROUP BY node_id
+        ORDER BY depth ASC, node_id ASC
+        LIMIT ?3",
+    )
+    .bind(start_id)
+    .bind(depth_limit as i64)
+    .bind(result_limit as i64)
+    .fetch_all(pool)
+    .await?;
+
+    let items = rows
+        .into_iter()
+        .map(|r| {
+            let node_id: String = r.get("node_id");
+            let depth: i64 = r.get("depth");
+            ImpactNode {
+                node_id,
+                depth: depth as usize,
             }
-        }
-    }
-    Ok(result)
+        })
+        .collect();
+
+    Ok(items)
 }
 
 pub async fn security_view(
@@ -344,48 +378,4 @@ pub fn format_as_ascii_tree(paths: &[String]) -> String {
         tree.push_str(&format!("├── {}\n", p));
     }
     tree
-}
-
-struct LoadedGraph {
-    nodes: HashSet<String>,
-    adjacency: HashMap<String, Vec<(String, String)>>,
-}
-
-async fn load(pool: &SqlitePool) -> Result<LoadedGraph, StorageError> {
-    let nodes = sqlx::query("SELECT id FROM nodes ORDER BY id LIMIT ?1")
-        .bind(i64::try_from(MAX_ANALYSIS_NODES + 1).unwrap_or(i64::MAX))
-        .fetch_all(pool)
-        .await?;
-    if nodes.len() > MAX_ANALYSIS_NODES {
-        return Err(StorageError::InvalidInput(format!(
-            "analysis node limit exceeded: {MAX_ANALYSIS_NODES}"
-        )));
-    }
-    let node_ids = nodes
-        .into_iter()
-        .map(|row| row.get::<String, _>("id"))
-        .collect::<HashSet<_>>();
-    let edges = sqlx::query("SELECT id, from_id, to_id FROM edges ORDER BY id LIMIT ?1")
-        .bind(i64::try_from(MAX_ANALYSIS_EDGES + 1).unwrap_or(i64::MAX))
-        .fetch_all(pool)
-        .await?;
-    if edges.len() > MAX_ANALYSIS_EDGES {
-        return Err(StorageError::InvalidInput(format!(
-            "analysis edge limit exceeded: {MAX_ANALYSIS_EDGES}"
-        )));
-    }
-    let mut adjacency: HashMap<String, Vec<(String, String)>> = HashMap::new();
-    for row in edges {
-        adjacency
-            .entry(row.get("from_id"))
-            .or_default()
-            .push((row.get("to_id"), row.get("id")));
-    }
-    for neighbors in adjacency.values_mut() {
-        neighbors.sort_unstable();
-    }
-    Ok(LoadedGraph {
-        nodes: node_ids,
-        adjacency,
-    })
 }

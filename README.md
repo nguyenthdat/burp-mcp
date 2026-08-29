@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/nguyenthdat/burp-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/nguyenthdat/burp-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tools](https://img.shields.io/badge/Tools-37%20Default%20%2B%201%20SiteGraph-brightgreen.svg)](docs/features.md)
+[![Tools](https://img.shields.io/badge/Tools-43%20Default%20%2B%201%20SiteGraph-brightgreen.svg)](docs/features.md)
 
 Burp MCP connects MCP-compatible clients to Burp Suite through a native Rust
 stdio server and a Kotlin extension built on the Montoya API. The Kotlin/Rust
@@ -75,10 +75,9 @@ Some capabilities require Burp Suite Professional or a Burp feature advertised
 by the connected extension. The runtime tool schema and
 `burp_burp_version.capabilities` are authoritative.
 
-## Tools Inventory (37 Default + 1 SiteGraph)
+## Tools Inventory (43 Default + 1 SiteGraph)
 
-Burp MCP registers **37 tools by default** (36 Burp tools + 1 offline Decoder tool), plus **1 SiteGraph tool** when SiteGraph is enabled with `--enable-sitegraph`.
-
+Burp MCP registers **43 tools by default** (42 Burp tools + 1 offline Decoder tool), plus **1 SiteGraph tool** when SiteGraph is enabled with `--enable-sitegraph`.
 ### 1. Connection & Project Configuration (2 tools)
 
 | Tool | Parameters | Description | Read-Only |
@@ -104,14 +103,19 @@ Burp MCP registers **37 tools by default** (36 Burp tools + 1 offline Decoder to
 | `burp_organizer` | `add`, `list` | Burp Organizer item storage and triage. | No |
 | `burp_diff` | `diff_responses`, `compare_exchanges` | HTTP response diffing, similarity scoring, and Comparer UI bridge. | Yes |
 
-### 3. Compound Security Workflows (3 tools)
+### 3. Compound Security Workflows (9 tools)
 
 | Tool | Description | Read-Only |
 |---|---|:---:|
 | `burp_verify_idor` | Automated IDOR verification across two user authorization contexts (User A vs User B). | No |
 | `burp_check_cors` | Automated CORS vulnerability auditing with origin reflection analysis. | No |
 | `burp_auth_matrix` | Automated role-based access control matrix across multiple endpoints. | No |
-
+| `burp_audit_jwt` | Automated JWT vulnerability audit (None algorithm, RS256 -> HS256 key confusion, and claim tampering). | No |
+| `burp_verify_ssrf` | Automated SSRF verification with Collaborator interaction polling and payload correlation. | No |
+| `burp_verify_sqli_blind` | Differential boolean-based and timing statistical blind SQL injection verification. | No |
+| `burp_audit_graphql` | Automated GraphQL security audit (Introspection, Field Suggestions, and Query Batching). | No |
+| `burp_verify_csrf_samesite` | Automated CSRF risk audit, SameSite cookie evaluation, and auto-generated HTML PoC form. | No |
+| `burp_api_fuzz_orchestrator` | Automated specification-driven API fuzzing from OpenAPI 2.0 / 3.0 or Swagger documents. | No |
 ### 4. Active UI & Desktop Editor Integration (3 tools)
 
 | Tool | Parameters | Description | Read-Only |

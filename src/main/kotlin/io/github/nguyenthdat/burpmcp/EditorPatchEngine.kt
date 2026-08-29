@@ -119,22 +119,76 @@ internal object EditorPatchEngine {
 
     private fun updateJsonString(jsonText: String, path: String, valueJson: String): String {
         val rootNode = runCatching { mapper.readTree(jsonText) }.getOrNull() ?: return jsonText
-        val parsedValue = runCatching { mapper.readTree(valueJson) }.getOrElse { mapper.valueToTree(valueJson) }
+        val isRemove = valueJson.isBlank() || valueJson == "__DELETE__"
+        val parsedValue = if (isRemove) {
+            null
+        } else {
+            runCatching { mapper.readTree(valueJson) }.getOrElse { mapper.valueToTree(valueJson) }
+        }
 
-        val cleanPath = path.trim().removePrefix("$").removePrefix(".")
-        val segments = cleanPath.split(".").filter { it.isNotBlank() }
+        val cleanPath = path.trim()
+            .removePrefix("$")
+            .removePrefix("/")
+            .replace("[", ".")
+            .replace("]", "")
+            .removePrefix(".")
+        val segments = cleanPath.split(".", "/").filter { it.isNotBlank() }
 
         if (segments.isEmpty()) {
-            return mapper.writeValueAsString(parsedValue)
+            return if (parsedValue != null) mapper.writeValueAsString(parsedValue) else "{}"
         }
 
         if (rootNode is ObjectNode) {
-            var current: ObjectNode = rootNode
+            var current: com.fasterxml.jackson.databind.JsonNode = rootNode
             for (i in 0 until segments.size - 1) {
                 val seg = segments[i]
-                current = current.withObject(seg)
+                val nextSeg = segments[i + 1]
+                val nextIsIndex = nextSeg.toIntOrNull() != null
+
+                current = when (current) {
+                    is ObjectNode -> {
+                        if (!current.has(seg)) {
+                            if (nextIsIndex) {
+                                current.putArray(seg)
+                            } else {
+                                current.putObject(seg)
+                            }
+                        } else {
+                            current.get(seg)
+                        }
+                    }
+                    is com.fasterxml.jackson.databind.node.ArrayNode -> {
+                        val idx = seg.toIntOrNull() ?: 0
+                        while (current.size() <= idx) {
+                            current.addObject()
+                        }
+                        current.get(idx)
+                    }
+                    else -> current
+                }
             }
-            current.set<ObjectNode>(segments.last(), parsedValue)
+            val lastSeg = segments.last()
+            when (current) {
+                is ObjectNode -> {
+                    if (parsedValue == null) {
+                        current.remove(lastSeg)
+                    } else {
+                        current.set<com.fasterxml.jackson.databind.JsonNode>(lastSeg, parsedValue)
+                    }
+                }
+                is com.fasterxml.jackson.databind.node.ArrayNode -> {
+                    val idx = lastSeg.toIntOrNull() ?: 0
+                    if (parsedValue == null) {
+                        if (idx in 0 until current.size()) current.remove(idx)
+                    } else {
+                        while (current.size() <= idx) {
+                            current.addNull()
+                        }
+                        current.set(idx, parsedValue)
+                    }
+                }
+                else -> {}
+            }
             return mapper.writeValueAsString(rootNode)
         }
 

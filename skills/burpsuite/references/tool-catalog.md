@@ -48,14 +48,19 @@ Fields ending in `?` are optional. `{}` means no arguments.
 
 ---
 
-## 3. Compound Security Workflows (3 tools)
+## 3. Compound Security Workflows (9 tools)
 
 | Tool | Input | Purpose |
 |---|---|---|
 | `burp_verify_idor` | `{url, method?, body?, headers?, original_auth_header, victim_auth_header, auth_header_name?, match_pattern?}` | Automated IDOR verification across two user authorization contexts (User A vs User B). |
 | `burp_check_cors` | `{url, method?, test_origins?, headers?}` | Automated CORS vulnerability auditing with origin reflections, wildcard checks, and credentials evaluation. |
 | `burp_auth_matrix` | `{endpoints, method?, body?, roles}` | Automated role-based access control matrix across multiple endpoints. |
-
+| `burp_audit_jwt` | `{url, method?, headers?, jwt_token, auth_header_name?, public_key_pem?, tamper_claims?}` | Automated JWT vulnerability audit (None algorithm, RS256 -> HS256 key confusion, and claim tampering). |
+| `burp_verify_ssrf` | `{target_url, method?, headers?, body?, injection_points, wait_seconds?}` | Automated SSRF verification with Collaborator interaction polling and payload correlation. |
+| `burp_verify_sqli_blind` | `{url, method?, param_name, param_type?, sleep_seconds?}` | Differential boolean-based and timing statistical blind SQL injection verification. |
+| `burp_audit_graphql` | `{endpoint, headers?, test_batching?, test_introspection?, test_field_suggestions?}` | Automated GraphQL security audit (Introspection, Field Suggestions, and Query Batching). |
+| `burp_verify_csrf_samesite` | `{url, method?, body?, session_cookie_name}` | Automated CSRF risk audit, SameSite cookie evaluation, and auto-generated HTML PoC form. |
+| `burp_api_fuzz_orchestrator` | `{spec_content, target_base_url, auth_headers?, fuzz_categories?}` | Automated specification-driven API fuzzing from OpenAPI 2.0 / 3.0 or Swagger documents. |
 ---
 
 ## 4. Active UI & Desktop Editor Integration (3 tools)

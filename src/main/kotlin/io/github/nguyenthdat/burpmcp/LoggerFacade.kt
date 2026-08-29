@@ -88,7 +88,8 @@ internal class LoggerFacade(
             override fun handleHttpRequestToBeSent(requestToBeSent: HttpRequestToBeSent): RequestToBeSentAction {
                 val toolSource = resolveSource(requestToBeSent.toolSource().toolType())
                 val id = idCounter.getAndIncrement()
-                val reqBytes = runCatching { requestToBeSent.toByteArray().getBytes() }.getOrDefault(byteArrayOf())
+                val rawBytes = runCatching { requestToBeSent.toByteArray().getBytes() }.getOrDefault(byteArrayOf())
+                val reqBytes = if (rawBytes.size > MAX_STORED_EXCHANGE_BYTES) rawBytes.copyOf(MAX_STORED_EXCHANGE_BYTES) else rawBytes
                 val recorded = RecordedExchange(
                     id = id,
                     source = toolSource,
@@ -116,14 +117,15 @@ internal class LoggerFacade(
 
             override fun handleHttpResponseReceived(responseReceived: HttpResponseReceived): ResponseReceivedAction {
                 val recorded = inFlightRequests.remove(responseReceived.messageId())
-                val respBytes = runCatching { responseReceived.toByteArray().getBytes() }.getOrNull()
+                val rawRespBytes = runCatching { responseReceived.toByteArray().getBytes() }.getOrNull()
+                val respBytes = if (rawRespBytes != null && rawRespBytes.size > MAX_STORED_EXCHANGE_BYTES) rawRespBytes.copyOf(MAX_STORED_EXCHANGE_BYTES) else rawRespBytes
                 val statusCode = responseReceived.statusCode().toInt()
                 val mime = runCatching { responseReceived.statedMimeType().description() }.getOrNull().orEmpty()
                 
                 if (recorded != null) {
                     recorded.status = statusCode
-                    recorded.length = respBytes?.size?.toLong() ?: 0L
-                    recorded.hasResponse = respBytes != null
+                    recorded.length = rawRespBytes?.size?.toLong() ?: 0L
+                    recorded.hasResponse = rawRespBytes != null
                     recorded.response = respBytes
                     recorded.contentType = mime
                     if (recorded.notes.isNullOrBlank()) {
@@ -227,4 +229,8 @@ internal class LoggerFacade(
             ToolType.SUITE -> "suite"
             else -> "unknown"
         }
+
+    private companion object {
+        const val MAX_STORED_EXCHANGE_BYTES = 256 * 1024
+    }
 }

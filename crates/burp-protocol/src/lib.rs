@@ -452,6 +452,10 @@ enum Command {
         request: proto::EditorRenewLeaseRequest,
         response: oneshot::Sender<Result<proto::EditorRenewLeaseResponse, ClientError>>,
     },
+    StartPrecisionAudit {
+        request: proto::StartPrecisionAuditRequest,
+        response: oneshot::Sender<Result<proto::JobStatusResponse, ClientError>>,
+    },
 }
 
 #[derive(Clone)]
@@ -1271,6 +1275,13 @@ impl BurpClient {
         request: proto::EditorRenewLeaseRequest,
     ) -> Result<proto::EditorRenewLeaseResponse, ClientError> {
         self.send(|response| Command::EditorRenewLease { request, response })
+            .await
+    }
+    pub async fn start_precision_audit(
+        &self,
+        request: proto::StartPrecisionAuditRequest,
+    ) -> Result<proto::JobStatusResponse, ClientError> {
+        self.send(|response| Command::StartPrecisionAudit { request, response })
             .await
     }
     async fn send<T>(
@@ -2277,6 +2288,16 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::StartPrecisionAudit { request, response } => {
+            let result = client
+                .start_precision_audit(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
         Command::CancelJob { request, response } => {
             let result = client
                 .cancel_job(with_deadline(request, config.call_timeout))
@@ -2606,6 +2627,9 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::EditorRenewLease { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::StartPrecisionAudit { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::ListWebSockets { response, .. } => {

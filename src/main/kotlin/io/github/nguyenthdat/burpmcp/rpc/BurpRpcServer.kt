@@ -1515,6 +1515,78 @@ internal class BurpRpcService(
         )
         longOperationFacade.startAudit(spec).toStatusProto()
     }
+
+    override fun startPrecisionAudit(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.StartPrecisionAuditRequest,
+        responseObserver: StreamObserver<JobStatusResponse>,
+    ) = responseObserver.respond {
+        val spec = scanCatalogFacade.resolveAudit(
+            request.url,
+            "legacy-active-audit-checks",
+            request.scanConfigurationId,
+            request.resourcePoolId,
+            0,
+            0,
+            false,
+        )
+        longOperationFacade.startAudit(spec).toStatusProto()
+    }
+
+    override fun streamEvents(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.StreamEventsRequest,
+        responseObserver: StreamObserver<io.github.nguyenthdat.burpmcp.grpc.v1.BurpEvent>,
+    ) {
+        val page = resources.events.since(request.fromSequence, 100)
+        for (event in page.items) {
+            if (request.eventKindsList.isEmpty() || request.eventKindsList.contains(event.kind)) {
+                responseObserver.onNext(
+                    io.github.nguyenthdat.burpmcp.grpc.v1.BurpEvent.newBuilder()
+                        .setSequence(event.sequence)
+                        .setKind(event.kind)
+                        .setKey(event.key)
+                        .setReconcileRequired(event.reconcileRequired)
+                        .setObservedUnixMillis(event.observedUnixMillis)
+                        .build()
+                )
+            }
+        }
+        responseObserver.onCompleted()
+    }
+
+    override fun streamCollaboratorInteractions(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.StreamCollaboratorRequest,
+        responseObserver: StreamObserver<io.github.nguyenthdat.burpmcp.grpc.v1.CollaboratorInteractionEntry>,
+    ) {
+        val items = collaboratorFacade.interactions()
+        for (item in items) {
+            if (request.payloadIdsList.isEmpty() || request.payloadIdsList.contains(item.payload)) {
+                responseObserver.onNext(
+                    io.github.nguyenthdat.burpmcp.grpc.v1.CollaboratorInteractionEntry.newBuilder()
+                        .setId(item.id)
+                        .setType(item.type)
+                        .setClientIp(item.clientIp)
+                        .setClientPort(item.clientPort)
+                        .setTimestamp(item.timestamp)
+                        .setTargetUrl(item.targetUrl.orEmpty())
+                        .setInjectionPoint(item.injectionPoint.orEmpty())
+                        .setPayload(item.payload.orEmpty())
+                        .build()
+                )
+            }
+        }
+        responseObserver.onCompleted()
+    }
+
+    override fun streamJobProgress(
+        request: io.github.nguyenthdat.burpmcp.grpc.v1.StreamJobRequest,
+        responseObserver: StreamObserver<JobStatusResponse>,
+    ) {
+        val snapshot = jobFacade.status(request.jobId)
+        if (snapshot != null) {
+            responseObserver.onNext(snapshot.toStatusProto())
+        }
+        responseObserver.onCompleted()
+    }
     override fun stopAudit(
         request: CancelJobRequest,
         responseObserver: StreamObserver<JobStatusResponse>,

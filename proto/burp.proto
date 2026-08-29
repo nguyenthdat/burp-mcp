@@ -112,6 +112,10 @@ service BurpService {
   rpc SendToComparer(SendToComparerRequest) returns (ActionResponse);
   rpc UpdateScanIssueStatus(UpdateScanIssueStatusRequest) returns (UpdateScanIssueStatusResponse);
   rpc ServerInfo(ServerInfoRequest) returns (ServerInfoResponse);
+  rpc StartPrecisionAudit(StartPrecisionAuditRequest) returns (JobStatusResponse);
+  rpc StreamEvents(StreamEventsRequest) returns (stream BurpEvent);
+  rpc StreamCollaboratorInteractions(StreamCollaboratorRequest) returns (stream CollaboratorInteractionEntry);
+  rpc StreamJobProgress(StreamJobRequest) returns (stream JobStatusResponse);
 }
 
 message PingRequest { string client = 1; }
@@ -1092,4 +1096,30 @@ message UpdateScanIssueStatusResponse {
 message SendToComparerRequest {
   bytes first = 1;
   bytes second = 2;
+}
+
+message InsertionPointSpec {
+  string type = 1;
+  string name = 2;
+}
+
+message StartPrecisionAuditRequest {
+  string url = 1;
+  bytes base_request = 2;
+  repeated InsertionPointSpec insertion_points = 3;
+  string scan_configuration_id = 4;
+  string resource_pool_id = 5;
+}
+
+message StreamEventsRequest {
+  uint64 from_sequence = 1;
+  repeated string event_kinds = 2;
+}
+
+message StreamCollaboratorRequest {
+  repeated string payload_ids = 1;
+  uint32 poll_interval_millis = 2;
+}
+message StreamJobRequest {
+  string job_id = 1;
 }

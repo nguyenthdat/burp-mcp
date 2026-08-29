@@ -16,6 +16,9 @@ pub enum EdgeKind {
     HasTechnology,
     HasMessage,
     HasArtifact,
+    RequiresAuth,
+    AccessibleBy,
+    HasFinding,
 }
 
 impl EdgeKind {
@@ -34,6 +37,9 @@ impl EdgeKind {
             Self::DiscoversRoute => "discovers_route",
             Self::HasArtifact => "has_artifact",
             Self::HasMessage => "has_message",
+            Self::RequiresAuth => "requires_auth",
+            Self::AccessibleBy => "accessible_by",
+            Self::HasFinding => "has_finding",
         }
     }
 }

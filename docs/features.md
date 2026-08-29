@@ -12,13 +12,13 @@ This catalog is the definitive reference for Burp MCP tools, actions, and verifi
 
 ## Inventory
 
-Burp MCP registers **37 tools by default** (36 Burp tools + 1 offline Decoder tool), plus **1 SiteGraph tool** when SiteGraph is enabled with `--enable-sitegraph`.
+Burp MCP registers **43 tools by default** (42 Burp tools + 1 offline Decoder tool), plus **1 SiteGraph tool** when SiteGraph is enabled with `--enable-sitegraph`.
 
 | Feature group | Tools |
 |---|---:|
 | Connection and project configuration | 2 |
 | Core Pentesting Suite | 13 |
-| Compound Security Workflows (IDOR, CORS, Auth Matrix) | 3 |
+| Compound Security Workflows (IDOR, CORS, Auth Matrix, JWT, SSRF, SQLi, GraphQL, CSRF, API Fuzz) | 9 |
 | Active UI & Desktop Editor Integration | 3 |
 | Cookies & Findings | 3 |
 | Background Job Control | 3 |
@@ -26,8 +26,8 @@ Burp MCP registers **37 tools by default** (36 Burp tools + 1 offline Decoder to
 | MCP Interception Queues | 6 |
 | Offline Utility Decoder | 1 |
 | SiteGraph (Advanced Opt-in) | 1 |
-| **Total Default Tools** | **37** |
-| **Total with SiteGraph** | **38** |
+| **Total Default Tools** | **43** |
+| **Total with SiteGraph** | **44** |
 
 ## 1. Connection & Project Configuration (2 tools)
 
@@ -180,14 +180,23 @@ Response Comparer & Diff engine.
 
 ---
 
-## 3. Compound Security Workflows (3 tools)
+## 3. Compound Security Workflows (9 tools)
 
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
 | `burp_verify_idor` | Automated IDOR verification across two user authorization contexts (User A vs User B). | Send requests with original and victim auth headers, verify similarity and differential verdict. |
 | `burp_check_cors` | Automated CORS vulnerability auditing with origin reflections, wildcard checks, and credentials evaluation. | Pass target URL, review generated findings across test origins. |
-## 4. Active UI & Desktop Editor Integration (3 tools)
+| `burp_auth_matrix` | Automated role-based access control matrix across multiple endpoints and user roles. | Submit matrix of endpoints and role headers, evaluate access violations. |
+| `burp_audit_jwt` | Automated JWT vulnerability audit (None algorithm, RS256 -> HS256 key confusion, and claim tampering). | Provide target JWT, verify rejection of forged tokens. |
+| `burp_verify_ssrf` | Automated SSRF verification with Collaborator interaction polling and payload correlation. | Provide target URL and injection points, verify callback detection. |
+| `burp_verify_sqli_blind` | Differential boolean-based and timing statistical blind SQL injection verification. | Provide target parameter, verify cosine diff score and timing delays. |
+| `burp_audit_graphql` | Automated GraphQL security audit (Introspection, Field Suggestions, and Query Batching). | Provide GraphQL endpoint, review enabled introspection/batching. |
+| `burp_verify_csrf_samesite` | Automated CSRF risk audit, SameSite cookie evaluation, and auto-generated HTML PoC form. | Provide target endpoint, inspect cookie flags and generated HTML PoC. |
+| `burp_api_fuzz_orchestrator` | Automated specification-driven API fuzzing from OpenAPI 2.0 / 3.0 or Swagger documents. | Provide OpenAPI spec string, verify bounded batch mutations and anomaly detection. |
 
+---
+
+## 4. Active UI & Desktop Editor Integration (3 tools)
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
 | `burp_editor_get` | Capture the active or last-focused Burp editor tab (HTTP Request/Response or WebSocket) with rich metadata, selection offsets, and UTF-8 decoded text. | Focus a tab, test fallback to Last-Active or Staged Buffer, verify rich metadata. |

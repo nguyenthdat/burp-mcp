@@ -11,6 +11,9 @@ pub enum NodeKind {
     Technology,
     Issue,
     Artifact,
+    Role,
+    AuthContext,
+    Finding,
 }
 
 impl NodeKind {
@@ -24,6 +27,9 @@ impl NodeKind {
             Self::Technology => "technology",
             Self::Issue => "issue",
             Self::Artifact => "artifact",
+            Self::Role => "role",
+            Self::AuthContext => "auth_context",
+            Self::Finding => "finding",
         }
     }
 }

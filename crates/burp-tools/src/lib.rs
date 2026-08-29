@@ -3934,6 +3934,125 @@ impl BurpTools {
     }
 
     #[tool(
+        name = "burp_audit_jwt",
+        description = "High-level Compound Workflow to audit JWT security (None algorithm, Key Confusion HS256, and Claim Tampering)",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn audit_jwt(&self, Parameters(input): Parameters<workflows::AuditJwtInput>) -> String {
+        match workflows::run_audit_jwt(&self.client, input).await {
+            Ok(output) => serde_json::to_string(&output).expect("jwt audit output must serialize"),
+            Err(error) => serde_json::json!({"error": error}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_verify_ssrf",
+        description = "High-level Compound Workflow to verify Server-Side Request Forgery (SSRF) with Burp Collaborator callbacks",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn verify_ssrf(
+        &self,
+        Parameters(input): Parameters<workflows::VerifySsrfInput>,
+    ) -> String {
+        match workflows::run_verify_ssrf(&self.client, input).await {
+            Ok(output) => serde_json::to_string(&output).expect("ssrf output must serialize"),
+            Err(error) => serde_json::json!({"error": error}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_verify_sqli_blind",
+        description = "High-level Compound Workflow to verify Blind SQL Injection via differential response similarity and time delays",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn verify_sqli_blind(
+        &self,
+        Parameters(input): Parameters<workflows::VerifySqliBlindInput>,
+    ) -> String {
+        match workflows::run_verify_sqli_blind(&self.client, input).await {
+            Ok(output) => serde_json::to_string(&output).expect("sqli output must serialize"),
+            Err(error) => serde_json::json!({"error": error}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_audit_graphql",
+        description = "High-level Compound Workflow to audit GraphQL security (Introspection, Field Suggestions, and Query Batching)",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn audit_graphql(
+        &self,
+        Parameters(input): Parameters<workflows::AuditGraphqlInput>,
+    ) -> String {
+        match workflows::run_audit_graphql(&self.client, input).await {
+            Ok(output) => {
+                serde_json::to_string(&output).expect("graphql audit output must serialize")
+            }
+            Err(error) => serde_json::json!({"error": error}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_verify_csrf_samesite",
+        description = "High-level Compound Workflow to test CSRF vulnerability, check SameSite cookie flags, and generate an HTML exploit PoC",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn verify_csrf_samesite(
+        &self,
+        Parameters(input): Parameters<workflows::VerifyCsrfInput>,
+    ) -> String {
+        match workflows::run_verify_csrf_samesite(&self.client, input).await {
+            Ok(output) => serde_json::to_string(&output).expect("csrf output must serialize"),
+            Err(error) => serde_json::json!({"error": error}).to_string(),
+        }
+    }
+
+    #[tool(
+        name = "burp_api_fuzz_orchestrator",
+        description = "High-level Compound Workflow to automatically fuzz an entire API attack surface from an OpenAPI/Swagger spec",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn api_fuzz_orchestrator(
+        &self,
+        Parameters(input): Parameters<workflows::ApiFuzzOrchestratorInput>,
+    ) -> String {
+        match workflows::run_api_fuzz_orchestrator(&self.client, input).await {
+            Ok(output) => serde_json::to_string(&output).expect("api fuzz output must serialize"),
+            Err(error) => serde_json::json!({"error": error}).to_string(),
+        }
+    }
+
+    #[tool(
         name = "burp_bcheck_import",
         description = "Import a complete Burp BCheck definition with metadata and a given block; does not run it",
         annotations(
@@ -6257,6 +6376,12 @@ mod contract_tests {
             "burp_verify_idor",
             "burp_check_cors",
             "burp_auth_matrix",
+            "burp_audit_jwt",
+            "burp_verify_ssrf",
+            "burp_verify_sqli_blind",
+            "burp_audit_graphql",
+            "burp_verify_csrf_samesite",
+            "burp_api_fuzz_orchestrator",
             "burp_editor_get",
             "burp_editor_patch",
             "burp_editor_renew_lease",
