@@ -1005,27 +1005,29 @@ pub async fn run_api_fuzz_orchestrator(
                 })
                 .collect();
 
-            if let Ok(resp) = client
+            let send_result = client
                 .send_request(SendRequestRequest {
                     method: obs.method.clone(),
                     url: fuzz_url,
                     body: Vec::new(),
                     headers: proto_headers,
                 })
-                .await
+                .await;
+
+            if let Some(resp) = send_result
+                .ok()
+                .filter(|r| r.has_response && r.status >= 500)
             {
-                if resp.has_response && resp.status >= 500 {
-                    anomalies.push(ApiFuzzAnomaly {
-                        method: obs.method.clone(),
-                        endpoint: obs.url.clone(),
-                        status: resp.status,
-                        payload_category: cat.to_string(),
-                        description: format!(
-                            "Server returned HTTP {} (Internal Error) for {} mutation",
-                            resp.status, cat
-                        ),
-                    });
-                }
+                anomalies.push(ApiFuzzAnomaly {
+                    method: obs.method.clone(),
+                    endpoint: obs.url.clone(),
+                    status: resp.status,
+                    payload_category: cat.to_string(),
+                    description: format!(
+                        "Server returned HTTP {} (Internal Error) for {} mutation",
+                        resp.status, cat
+                    ),
+                });
             }
         }
     }

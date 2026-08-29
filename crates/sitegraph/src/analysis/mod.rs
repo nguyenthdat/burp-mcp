@@ -365,7 +365,7 @@ pub async fn security_view(
 pub fn format_as_mermaid(edges: &[(String, String, String)]) -> String {
     let mut mermaid = String::from("```mermaid\ngraph LR\n");
     for (from, to, kind) in edges {
-        mermaid.push_str(&format!("    \"{}\" -->|{}| \"{}\"\n", from, kind, to));
+        mermaid.push_str(&format!("    \"{from}\" -->|{kind}| \"{to}\"\n"));
     }
     mermaid.push_str("```\n");
     mermaid
@@ -375,7 +375,7 @@ pub fn format_as_mermaid(edges: &[(String, String, String)]) -> String {
 pub fn format_as_ascii_tree(paths: &[String]) -> String {
     let mut tree = String::from(".\n");
     for p in paths {
-        tree.push_str(&format!("├── {}\n", p));
+        tree.push_str(&format!("├── {p}\n"));
     }
     tree
 }
