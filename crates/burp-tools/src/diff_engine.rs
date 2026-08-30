@@ -56,12 +56,10 @@ fn parse_http_message(raw: &str) -> (BTreeMap<String, String>, String, Option<u3
     let mut status = None;
     let mut lines = head.lines();
 
-    if let Some(first_line) = lines.next() {
-        if first_line.starts_with("HTTP/") {
-            let parts: Vec<&str> = first_line.split_whitespace().collect();
-            if parts.len() >= 2 {
-                status = parts[1].parse::<u32>().ok();
-            }
+    if let Some(first_line) = lines.next().filter(|l| l.starts_with("HTTP/")) {
+        let parts: Vec<&str> = first_line.split_whitespace().collect();
+        if parts.len() >= 2 {
+            status = parts[1].parse::<u32>().ok();
         }
     }
 

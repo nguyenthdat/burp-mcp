@@ -75,7 +75,11 @@ internal class LongOperationFacade(
                     executor.submit<HttpJobItem> {
                         try {
                             val socket = if (https) {
-                                javax.net.ssl.SSLSocketFactory.getDefault().createSocket(host, port) as javax.net.ssl.SSLSocket
+                                (javax.net.ssl.SSLSocketFactory.getDefault().createSocket(host, port) as javax.net.ssl.SSLSocket).apply {
+                                    val params = sslParameters
+                                    params.endpointIdentificationAlgorithm = "HTTPS"
+                                    sslParameters = params
+                                }
                             } else {
                                 java.net.Socket(host, port)
                             }

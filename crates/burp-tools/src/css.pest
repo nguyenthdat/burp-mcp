@@ -1,10 +1,25 @@
 css_query = { SOI ~ selector_step+ ~ EOI }
-selector_step = { (tag_name ~ (id_selector | class_selector | attr_selector)*) | (id_selector | class_selector | attr_selector)+ }
+
+selector_step = { combinator? ~ compound_selector }
+
+combinator = { ">" | "+" | "~" }
+
+compound_selector = {
+    (tag_name ~ (id_selector | class_selector | attr_selector | pseudo_selector)*)
+    | (id_selector | class_selector | attr_selector | pseudo_selector)+
+}
+
 tag_name = @{ (ASCII_ALPHANUMERIC | "-" | "_")+ | "*" }
 id_selector = { "#" ~ ident }
 class_selector = { "." ~ ident }
 attr_selector = { "[" ~ ident ~ (attr_op ~ (string_lit | ident))? ~ "]" }
 attr_op = { "=" | "~=" | "|=" | "^=" | "$=" | "*=" }
+pseudo_selector = { ":" ~ pseudo_name ~ ("(" ~ (string_lit | pseudo_arg | number | ident) ~ ")")? }
+pseudo_name = @{ (ASCII_ALPHANUMERIC | "-" | "_")+ }
+pseudo_arg = @{ (ASCII_ALPHANUMERIC | "-" | "_" | " " | "\t")+ }
+
 ident = @{ (ASCII_ALPHANUMERIC | "_" | "-")+ }
-string_lit = @{ ("\"" ~ (!"\"" ~ ANY)* ~ "\"") | ("'" ~ (!"'" ~ ANY)* ~ "'") }
+number = @{ ASCII_DIGIT+ }
+string_lit = @{ ("\"" ~ (!"\"" ~ ("\\\"" | ANY))* ~ "\"") | ("'" ~ (!"'" ~ ("\\'" | ANY))* ~ "'") }
+
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }

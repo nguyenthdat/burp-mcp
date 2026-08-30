@@ -1,10 +1,45 @@
 json_path = { SOI ~ ("$" | "@")? ~ segment* ~ EOI }
-segment = _{ dot_segment | bracket_segment | root_ident }
+
+segment = _{
+    recursive_segment
+    | dot_segment
+    | bracket_segment
+    | root_ident
+}
+
+recursive_segment = { ".." ~ (bracket_segment | wildcard | ident) }
+
 dot_segment = { "." ~ (wildcard | ident) }
+
 root_ident = { ident }
-bracket_segment = { "[" ~ (wildcard | number | string_lit | ident) ~ "]" }
+
+bracket_segment = {
+    "[" ~ (
+        filter_expr
+        | slice
+        | union_segment
+        | wildcard
+        | number
+        | string_lit
+        | ident
+    ) ~ "]"
+}
+
+slice = { number? ~ ":" ~ number? ~ (":" ~ number?)? }
+
+union_segment = { union_item ~ ("," ~ union_item)+ }
+union_item = { number | string_lit | ident }
+
+filter_expr = { "?" ~ "(" ~ filter_condition ~ ")" }
+filter_condition = { filter_path ~ (filter_op ~ filter_val)? }
+filter_path = { ("@" | "$")? ~ ("." ~ ident)+ | ident }
+filter_op = { "==" | "!=" | "<=" | ">=" | "<" | ">" | "=~" }
+filter_val = { string_lit | number | boolean | "null" }
+
+boolean = { "true" | "false" }
 wildcard = { "*" }
 ident = @{ (ASCII_ALPHANUMERIC | "_" | "-")+ }
 number = @{ "-"? ~ ASCII_DIGIT+ }
-string_lit = @{ ("\"" ~ (!"\"" ~ ANY)* ~ "\"") | ("'" ~ (!"'" ~ ANY)* ~ "'") }
-WHITESPACE = _{ " " | "\t" }
+string_lit = @{ ("\"" ~ (!"\"" ~ ("\\\"" | ANY))* ~ "\"") | ("'" ~ (!"'" ~ ("\\'" | ANY))* ~ "'") }
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
