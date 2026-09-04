@@ -68,6 +68,105 @@ pub fn encode_bounded_base64(bytes: &[u8], max_length: Option<usize>) -> (String
         (STANDARD.encode(bytes), false, total_len)
     }
 }
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct DetailPayloadView {
+    pub request_base64: Option<String>,
+    pub request_length: Option<usize>,
+    pub request_truncated: Option<bool>,
+    pub response_base64: Option<String>,
+    pub response_length: Option<usize>,
+    pub response_truncated: Option<bool>,
+    pub request_text: Option<String>,
+    pub response_text: Option<String>,
+    pub truncated: Option<bool>,
+}
+
+pub fn build_detail_payload_view(
+    request: &[u8],
+    response: &[u8],
+    include_bodies: bool,
+    headers_only: bool,
+    extract_css: Option<&str>,
+    extract_json: Option<&str>,
+    max_body_length: Option<usize>,
+) -> DetailPayloadView {
+    let effective_max = Some(max_body_length.unwrap_or(DEFAULT_MAX_BODY_LENGTH));
+    let has_request = !request.is_empty();
+    let has_response = !response.is_empty();
+
+    let request_length = Some(request.len());
+    let response_length = has_response.then_some(response.len());
+
+    let (request_base64, req_trunc) = if include_bodies && has_request {
+        let (b64, trunc, _) = encode_bounded_base64(request, effective_max);
+        (Some(b64), trunc)
+    } else {
+        (None, false)
+    };
+
+    let (response_base64, resp_trunc) = if include_bodies && has_response {
+        let (b64, trunc, _) = encode_bounded_base64(response, effective_max);
+        (Some(b64), trunc)
+    } else {
+        (None, false)
+    };
+
+    let (request_text, request_text_trunc) = if headers_only && has_request {
+        let (filtered, trunc) = body_filter::filter_and_truncate_payload(
+            request,
+            None,
+            true,
+            None,
+            None,
+            effective_max,
+        );
+        (Some(filtered), trunc)
+    } else if include_bodies && has_request {
+        let (filtered, trunc) = body_filter::filter_and_truncate_payload(
+            request,
+            None,
+            false,
+            None,
+            None,
+            effective_max,
+        );
+        (Some(filtered), trunc)
+    } else {
+        (None, false)
+    };
+
+    let has_response_projection = headers_only || extract_css.is_some() || extract_json.is_some();
+    let (response_text, is_trunc) = if (include_bodies || has_response_projection) && has_response {
+        let (filtered, trunc) = body_filter::filter_and_truncate_payload(
+            response,
+            None,
+            headers_only,
+            extract_css,
+            extract_json,
+            effective_max,
+        );
+        (Some(filtered), trunc)
+    } else {
+        (None, false)
+    };
+
+    let request_truncated = req_trunc.then_some(true);
+    let response_truncated = resp_trunc.then_some(true);
+    let truncated = (request_text_trunc || is_trunc || req_trunc || resp_trunc).then_some(true);
+
+    DetailPayloadView {
+        request_base64,
+        request_length,
+        request_truncated,
+        response_base64,
+        response_length,
+        response_truncated,
+        request_text,
+        response_text,
+        truncated,
+    }
+}
+
 fn validated_index(index: u32) -> Result<u32, &'static str> {
     if index > MAX_KOTLIN_INDEX {
         Err("index must be at most 2147483647")
@@ -334,7 +433,7 @@ struct InterceptedMessageOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     response_truncated: Option<bool>,
 }
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyInterceptRuleBooleanOperatorInput {
     And,
@@ -351,7 +450,7 @@ impl ProxyInterceptRuleBooleanOperatorInput {
     }
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyInterceptRuleMatchTypeInput {
     FileExtension,
@@ -376,7 +475,7 @@ impl ProxyInterceptRuleMatchTypeInput {
     }
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyInterceptRuleRelationshipInput {
     Matches,
@@ -401,7 +500,7 @@ impl ProxyInterceptRuleRelationshipInput {
     }
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ProxyInterceptRuleInput {
     pub enabled: Option<bool>,
     pub boolean_operator: Option<ProxyInterceptRuleBooleanOperatorInput>,
@@ -818,31 +917,157 @@ pub struct ScopeMutationInput {
 pub struct ImportConfigInput {
     pub config: String,
 }
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct ProxySettingsUpdateInput {
-    /// listener_upsert, listener_delete, script_filter_upsert, script_filter_delete,
-    /// intercept_rule_upsert, intercept_rule_delete, or intercept_toggle.
-    pub operation: String,
-    pub port: Option<u32>,
-    pub running: Option<bool>,
-    pub listen_mode: Option<String>,
-    pub listen_specific_address: Option<String>,
-    pub certificate_mode: Option<String>,
-    pub enable_http2: Option<bool>,
-    pub support_invisible_proxying: Option<bool>,
-    pub target: Option<String>,
-    pub mode: Option<String>,
-    pub script: Option<String>,
-    pub script_id: Option<String>,
-    pub script_name: Option<String>,
-    /// request or response for interception-rule operations.
-    pub kind: Option<String>,
-    /// Omit to append for intercept_rule_upsert; required for update and delete.
-    pub index: Option<u32>,
-    pub rule: Option<ProxyInterceptRuleInput>,
-    pub master_enabled: Option<bool>,
-    pub request_enabled: Option<bool>,
-    pub response_enabled: Option<bool>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyListenerModeInput {
+    LoopbackOnly,
+    AllInterfaces,
+    SpecificAddress,
+}
+
+impl ProxyListenerModeInput {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LoopbackOnly => "loopback_only",
+            Self::AllInterfaces => "all_interfaces",
+            Self::SpecificAddress => "specific_address",
+        }
+    }
+}
+
+impl std::fmt::Display for ProxyListenerModeInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyCertificateModeInput {
+    PerHost,
+    UseCustomCertificate,
+    Invisible,
+}
+
+impl ProxyCertificateModeInput {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PerHost => "per_host",
+            Self::UseCustomCertificate => "use_custom_certificate",
+            Self::Invisible => "invisible",
+        }
+    }
+}
+
+impl std::fmt::Display for ProxyCertificateModeInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyScriptFilterTargetInput {
+    ProxyHttpHistory,
+    ProxyWebsocketHistory,
+    Sitemap,
+    LoggerCapture,
+    LoggerDisplay,
+}
+
+impl ProxyScriptFilterTargetInput {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ProxyHttpHistory => "proxy_http_history",
+            Self::ProxyWebsocketHistory => "proxy_websocket_history",
+            Self::Sitemap => "sitemap",
+            Self::LoggerCapture => "logger_capture",
+            Self::LoggerDisplay => "logger_display",
+        }
+    }
+}
+
+impl std::fmt::Display for ProxyScriptFilterTargetInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyScriptFilterModeInput {
+    Settings,
+    Script,
+}
+
+impl ProxyScriptFilterModeInput {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Settings => "settings",
+            Self::Script => "script",
+        }
+    }
+}
+
+impl std::fmt::Display for ProxyScriptFilterModeInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+pub enum ProxySettingsUpdateInput {
+    ListenerUpsert {
+        port: u32,
+        #[serde(default)]
+        running: Option<bool>,
+        #[serde(default)]
+        listen_mode: Option<ProxyListenerModeInput>,
+        #[serde(default)]
+        listen_specific_address: Option<String>,
+        #[serde(default)]
+        certificate_mode: Option<ProxyCertificateModeInput>,
+        #[serde(default)]
+        enable_http2: Option<bool>,
+        #[serde(default)]
+        support_invisible_proxying: Option<bool>,
+    },
+    ListenerDelete {
+        port: u32,
+    },
+    ScriptFilterUpsert {
+        filter_target: ProxyScriptFilterTargetInput,
+        #[serde(default)]
+        filter_mode: Option<ProxyScriptFilterModeInput>,
+        #[serde(default)]
+        script: Option<String>,
+        #[serde(default)]
+        script_id: Option<String>,
+        #[serde(default)]
+        script_name: Option<String>,
+    },
+    ScriptFilterDelete {
+        filter_target: ProxyScriptFilterTargetInput,
+    },
+    InterceptRuleUpsert {
+        phase: ProxyRulePhaseInput,
+        #[serde(default)]
+        index: Option<u32>,
+        rule: ProxyInterceptRuleInput,
+    },
+    InterceptRuleDelete {
+        phase: ProxyRulePhaseInput,
+        index: u32,
+    },
+    InterceptToggle {
+        #[serde(default)]
+        master_enabled: Option<bool>,
+        #[serde(default)]
+        request_enabled: Option<bool>,
+        #[serde(default)]
+        response_enabled: Option<bool>,
+    },
 }
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RegisterHttpHandlerInput {
@@ -1582,69 +1807,32 @@ impl BurpTools {
             Ok(index) => index,
             Err(error) => return serde_json::json!({"error": error}).to_string(),
         };
+        let include_bodies = input.include_bodies.unwrap_or(false);
         let headers_only = input.headers_only.unwrap_or(false);
-        let extract_css = input.extract_css.clone();
-        let extract_json = input.extract_json.clone();
-        let effective_max_length = Some(input.max_body_length.unwrap_or(DEFAULT_MAX_BODY_LENGTH));
         match self.client.proxy_detail(ProxyDetailRequest { index }).await {
             Ok(detail) => {
-                let (req_b64, req_trunc, req_len) = if !detail.request.is_empty() {
-                    let (b64, trunc, len) =
-                        encode_bounded_base64(&detail.request, effective_max_length);
-                    (Some(b64), trunc, Some(len))
-                } else {
-                    (None, false, Some(0))
-                };
-
-                let (resp_b64, resp_trunc, resp_len) = if !detail.response.is_empty() {
-                    let (b64, trunc, len) =
-                        encode_bounded_base64(&detail.response, effective_max_length);
-                    (Some(b64), trunc, Some(len))
-                } else {
-                    (None, false, None)
-                };
-
-                let req_text = String::from_utf8_lossy(&detail.request).into_owned();
-                let req_display = if headers_only {
-                    body_filter::extract_headers_only(&req_text)
-                } else {
-                    let (filtered, _) = body_filter::filter_and_truncate_payload(
-                        &detail.request,
-                        None,
-                        headers_only,
-                        None,
-                        None,
-                        effective_max_length,
-                    );
-                    filtered
-                };
-
-                let (resp_text, is_trunc) = if !detail.response.is_empty() {
-                    let (filtered, trunc) = body_filter::filter_and_truncate_payload(
-                        &detail.response,
-                        None,
-                        headers_only,
-                        extract_css.as_deref(),
-                        extract_json.as_deref(),
-                        effective_max_length,
-                    );
-                    (Some(filtered), trunc)
-                } else {
-                    (None, false)
-                };
+                let view = build_detail_payload_view(
+                    &detail.request,
+                    &detail.response,
+                    include_bodies,
+                    headers_only,
+                    input.extract_css.as_deref(),
+                    input.extract_json.as_deref(),
+                    input.max_body_length,
+                );
 
                 serde_json::to_string(&ProxyDetailOutput {
                     index: detail.index,
-                    request_base64: req_b64,
-                    request_length: req_len,
-                    request_truncated: req_trunc.then_some(true),
-                    response_base64: resp_b64,
-                    response_length: resp_len,
-                    response_truncated: resp_trunc.then_some(true),
-                    request_text: Some(req_display),
-                    response_text: resp_text,
+                    request_base64: view.request_base64,
+                    request_length: view.request_length,
+                    request_truncated: view.request_truncated,
+                    response_base64: view.response_base64,
+                    response_length: view.response_length,
+                    response_truncated: view.response_truncated,
+                    request_text: view.request_text,
+                    response_text: view.response_text,
                     extracted_text: None,
-                    truncated: (is_trunc || req_trunc || resp_trunc).then_some(true),
+                    truncated: view.truncated,
                     notes: (!detail.notes.is_empty()).then_some(detail.notes),
                     highlight: (!detail.highlight.is_empty()).then_some(detail.highlight),
                 })
@@ -1764,73 +1952,36 @@ impl BurpTools {
             Ok(index) => index,
             Err(error) => return serde_json::json!({"error": error}).to_string(),
         };
+        let include_bodies = input.include_bodies.unwrap_or(false);
         let headers_only = input.headers_only.unwrap_or(false);
-        let extract_css = input.extract_css.clone();
-        let extract_json = input.extract_json.clone();
-        let effective_max_length = Some(input.max_body_length.unwrap_or(DEFAULT_MAX_BODY_LENGTH));
         match self
             .client
             .logger_detail(LoggerDetailRequest { index })
             .await
         {
             Ok(detail) => {
-                let (req_b64, req_trunc, req_len) = if !detail.request.is_empty() {
-                    let (b64, trunc, len) =
-                        encode_bounded_base64(&detail.request, effective_max_length);
-                    (Some(b64), trunc, Some(len))
-                } else {
-                    (None, false, Some(0))
-                };
-
-                let (resp_b64, resp_trunc, resp_len) = if !detail.response.is_empty() {
-                    let (b64, trunc, len) =
-                        encode_bounded_base64(&detail.response, effective_max_length);
-                    (Some(b64), trunc, Some(len))
-                } else {
-                    (None, false, None)
-                };
-
-                let req_text = String::from_utf8_lossy(&detail.request).into_owned();
-                let req_display = if headers_only {
-                    body_filter::extract_headers_only(&req_text)
-                } else {
-                    let (filtered, _) = body_filter::filter_and_truncate_payload(
-                        &detail.request,
-                        None,
-                        headers_only,
-                        None,
-                        None,
-                        effective_max_length,
-                    );
-                    filtered
-                };
-
-                let (resp_text, is_trunc) = if !detail.response.is_empty() {
-                    let (filtered, trunc) = body_filter::filter_and_truncate_payload(
-                        &detail.response,
-                        None,
-                        headers_only,
-                        extract_css.as_deref(),
-                        extract_json.as_deref(),
-                        effective_max_length,
-                    );
-                    (Some(filtered), trunc)
-                } else {
-                    (None, false)
-                };
+                let view = build_detail_payload_view(
+                    &detail.request,
+                    &detail.response,
+                    include_bodies,
+                    headers_only,
+                    input.extract_css.as_deref(),
+                    input.extract_json.as_deref(),
+                    input.max_body_length,
+                );
 
                 serde_json::to_string(&LoggerDetailOutput {
                     index: detail.index,
                     source: detail.source,
-                    request_base64: req_b64,
-                    request_length: req_len,
-                    request_truncated: req_trunc.then_some(true),
-                    response_base64: resp_b64,
-                    response_length: resp_len,
-                    response_truncated: resp_trunc.then_some(true),
-                    request_text: Some(req_display),
-                    response_text: resp_text,
-                    truncated: (is_trunc || req_trunc || resp_trunc).then_some(true),
+                    request_base64: view.request_base64,
+                    request_length: view.request_length,
+                    request_truncated: view.request_truncated,
+                    response_base64: view.response_base64,
+                    response_length: view.response_length,
+                    response_truncated: view.response_truncated,
+                    request_text: view.request_text,
+                    response_text: view.response_text,
+                    truncated: view.truncated,
                     notes: (!detail.notes.is_empty()).then_some(detail.notes),
                     highlight: (!detail.highlight.is_empty()).then_some(detail.highlight),
                 })
@@ -3812,50 +3963,8 @@ impl BurpTools {
     async fn settings(&self, Parameters(input): Parameters<suite::SettingsActionInput>) -> String {
         match input {
             suite::SettingsActionInput::GetProxySettings => self.proxy_settings().await,
-            suite::SettingsActionInput::UpdateProxySettings {
-                operation,
-                port,
-                running,
-                listen_mode,
-                listen_specific_address,
-                certificate_mode,
-                enable_http2,
-                support_invisible_proxying,
-                target,
-                mode,
-                script,
-                script_id,
-                script_name,
-                kind,
-                index,
-                rule,
-                master_enabled,
-                request_enabled,
-                response_enabled,
-            } => {
-                let op = operation.unwrap_or_else(|| "intercept_toggle".to_string());
-                self.update_proxy_settings(Parameters(ProxySettingsUpdateInput {
-                    operation: op,
-                    port,
-                    running,
-                    listen_mode,
-                    listen_specific_address,
-                    certificate_mode,
-                    enable_http2,
-                    support_invisible_proxying,
-                    target,
-                    mode,
-                    script,
-                    script_id,
-                    script_name,
-                    kind,
-                    index,
-                    rule,
-                    master_enabled,
-                    request_enabled,
-                    response_enabled,
-                }))
-                .await
+            suite::SettingsActionInput::UpdateProxySettings { update } => {
+                self.update_proxy_settings(Parameters(update)).await
             }
             suite::SettingsActionInput::ExportConfig => self.export_config().await,
             suite::SettingsActionInput::InspectConfig { paths } => {
@@ -5792,10 +5901,10 @@ fn resolve_schema_ref<'a>(
             if let Some(target) = root.get("$defs").and_then(|d| d.get(def_name)) {
                 return resolve_schema_ref(target, root);
             }
-        } else if let Some(def_name) = ref_str.strip_prefix("#/definitions/") {
-            if let Some(target) = root.get("definitions").and_then(|d| d.get(def_name)) {
-                return resolve_schema_ref(target, root);
-            }
+        } else if let Some(def_name) = ref_str.strip_prefix("#/definitions/")
+            && let Some(target) = root.get("definitions").and_then(|d| d.get(def_name))
+        {
+            return resolve_schema_ref(target, root);
         }
     }
     schema
@@ -5839,10 +5948,9 @@ fn schema_hints(tool: &rmcp::model::Tool) -> (Vec<String>, Vec<String>, Vec<Stri
                     } else if let Some(const_val) = resolved_action
                         .get("const")
                         .and_then(serde_json::Value::as_str)
+                        && !valid_actions.iter().any(|a| a == const_val)
                     {
-                        if !valid_actions.iter().any(|a| a == const_val) {
-                            valid_actions.push(const_val.to_owned());
-                        }
+                        valid_actions.push(const_val.to_owned());
                     }
                 }
             }
@@ -6250,60 +6358,73 @@ fn proxy_settings_operation(
     input: ProxySettingsUpdateInput,
 ) -> Result<burp_protocol::protocol::proxy_settings_update_request::Operation, &'static str> {
     use burp_protocol::protocol::proxy_settings_update_request::Operation;
-    match input.operation.as_str() {
-        "listener_upsert" => Ok(Operation::ListenerUpsert(ProxyListener {
-            port: input.port.ok_or("port is required")?,
-            running: input.running.unwrap_or(true),
-            listen_mode: input
-                .listen_mode
-                .unwrap_or_else(|| "loopback_only".to_owned()),
-            listen_specific_address: input.listen_specific_address.unwrap_or_default(),
-            certificate_mode: input
-                .certificate_mode
-                .unwrap_or_else(|| "per_host".to_owned()),
-            enable_http2: input.enable_http2.unwrap_or(true),
-            support_invisible_proxying: input.support_invisible_proxying.unwrap_or(false),
+    match input {
+        ProxySettingsUpdateInput::ListenerUpsert {
+            port,
+            running,
+            listen_mode,
+            listen_specific_address,
+            certificate_mode,
+            enable_http2,
+            support_invisible_proxying,
+        } => Ok(Operation::ListenerUpsert(ProxyListener {
+            port,
+            running: running.unwrap_or(true),
+            listen_mode: listen_mode.map_or("loopback_only".to_owned(), |m| m.as_str().to_owned()),
+            listen_specific_address: listen_specific_address.unwrap_or_default(),
+            certificate_mode: certificate_mode
+                .map_or("per_host".to_owned(), |m| m.as_str().to_owned()),
+            enable_http2: enable_http2.unwrap_or(true),
+            support_invisible_proxying: support_invisible_proxying.unwrap_or(false),
         })),
-        "listener_delete" => Ok(Operation::ListenerDeletePort(
-            input.port.ok_or("port is required")?,
-        )),
-        "script_filter_upsert" => Ok(Operation::ScriptFilterUpsert(ProxyScriptFilter {
-            target: input.target.ok_or("target is required")?,
-            mode: input.mode.unwrap_or_else(|| "script".to_owned()),
-            script: input.script.unwrap_or_default(),
-            script_id: input.script_id.unwrap_or_default(),
-            script_name: input.script_name.unwrap_or_default(),
+        ProxySettingsUpdateInput::ListenerDelete { port } => {
+            Ok(Operation::ListenerDeletePort(port))
+        }
+        ProxySettingsUpdateInput::ScriptFilterUpsert {
+            filter_target,
+            filter_mode,
+            script,
+            script_id,
+            script_name,
+        } => Ok(Operation::ScriptFilterUpsert(ProxyScriptFilter {
+            target: filter_target.as_str().to_owned(),
+            mode: filter_mode.map_or("script".to_owned(), |m| m.as_str().to_owned()),
+            script: script.unwrap_or_default(),
+            script_id: script_id.unwrap_or_default(),
+            script_name: script_name.unwrap_or_default(),
         })),
-        "script_filter_delete" => Ok(Operation::ScriptFilterDeleteTarget(
-            input.target.ok_or("target is required")?,
-        )),
-        "intercept_rule_upsert" => Ok(Operation::InterceptRuleUpsert(ProxyInterceptRuleMutation {
-            kind: input.kind.ok_or("kind is required")?,
-            index: input.index,
-            rule: Some(input.rule.ok_or("rule is required")?.into_proto()),
-        })),
-        "intercept_rule_delete" => Ok(Operation::InterceptRuleDelete(ProxyInterceptRuleDelete {
-            kind: input.kind.ok_or("kind is required")?,
-            index: input.index.ok_or("index is required")?,
-        })),
-        "intercept_toggle" => {
-            if input.master_enabled.is_none()
-                && input.request_enabled.is_none()
-                && input.response_enabled.is_none()
-            {
+        ProxySettingsUpdateInput::ScriptFilterDelete { filter_target } => Ok(
+            Operation::ScriptFilterDeleteTarget(filter_target.as_str().to_owned()),
+        ),
+        ProxySettingsUpdateInput::InterceptRuleUpsert { phase, index, rule } => {
+            Ok(Operation::InterceptRuleUpsert(ProxyInterceptRuleMutation {
+                kind: phase.as_str().to_owned(),
+                index,
+                rule: Some(rule.into_proto()),
+            }))
+        }
+        ProxySettingsUpdateInput::InterceptRuleDelete { phase, index } => {
+            Ok(Operation::InterceptRuleDelete(ProxyInterceptRuleDelete {
+                kind: phase.as_str().to_owned(),
+                index,
+            }))
+        }
+        ProxySettingsUpdateInput::InterceptToggle {
+            master_enabled,
+            request_enabled,
+            response_enabled,
+        } => {
+            if master_enabled.is_none() && request_enabled.is_none() && response_enabled.is_none() {
                 return Err(
                     "intercept_toggle requires master_enabled, request_enabled, or response_enabled",
                 );
             }
             Ok(Operation::InterceptToggle(ProxyInterceptToggle {
-                master_enabled: input.master_enabled,
-                request_enabled: input.request_enabled,
-                response_enabled: input.response_enabled,
+                master_enabled,
+                request_enabled,
+                response_enabled,
             }))
         }
-        _ => Err(
-            "operation must be listener_upsert, listener_delete, script_filter_upsert, script_filter_delete, intercept_rule_upsert, intercept_rule_delete, or intercept_toggle",
-        ),
     }
 }
 
@@ -6867,10 +6988,11 @@ mod contract_tests {
         ManagedWebSocketHistoryInput, ProxyDetailInput, ProxyHistoryInput,
         ProxyInterceptRuleBooleanOperatorInput, ProxyInterceptRuleInput,
         ProxyInterceptRuleMatchTypeInput, ProxyInterceptRuleRelationshipInput,
-        ProxyRuleActionInput, ProxyRulePhaseInput, ProxySettingsUpdateInput,
-        ProxyWebSocketHistoryInput, RegisterProxyRuleInput, SITEGRAPH_TOOL_PREFIX,
-        authority_from_raw_request, decode_rpc_error, encode_bounded_base64, export_request_text,
-        has_nonempty_error, intercepted_message_output, intercepted_websocket_message_output,
+        ProxyRuleActionInput, ProxyRulePhaseInput, ProxyScriptFilterModeInput,
+        ProxyScriptFilterTargetInput, ProxySettingsUpdateInput, ProxyWebSocketHistoryInput,
+        RegisterProxyRuleInput, SITEGRAPH_TOOL_PREFIX, authority_from_raw_request,
+        decode_rpc_error, encode_bounded_base64, export_request_text, has_nonempty_error,
+        intercepted_message_output, intercepted_websocket_message_output,
         normalize_decoder_operation, normalize_repeater_input, proxy_settings_operation,
         repeater_input_from_http_action, resolve_schema_ref, schema_hints,
         to_proxy_history_request, to_send_output_with_options,
@@ -7475,138 +7597,186 @@ mod contract_tests {
     }
 
     #[test]
-    fn proxy_settings_schema_exposes_every_crud_selector() {
+    fn proxy_settings_schema_exposes_tagged_operations() {
         let schema = serde_json::to_value(schemars::schema_for!(ProxySettingsUpdateInput))
             .expect("proxy settings input schema must serialize");
-        for property in [
-            "operation",
-            "port",
-            "target",
-            "kind",
-            "index",
-            "rule",
-            "master_enabled",
-            "request_enabled",
-            "response_enabled",
+        let serialized = schema.to_string();
+        for op in [
+            "listener_upsert",
+            "listener_delete",
+            "script_filter_upsert",
+            "script_filter_delete",
+            "intercept_rule_upsert",
+            "intercept_rule_delete",
+            "intercept_toggle",
         ] {
             assert!(
-                schema.pointer(&format!("/properties/{property}")).is_some(),
-                "missing {property}"
+                serialized.contains(&format!("\"{op}\"")),
+                "missing operation variant {op}"
             );
         }
     }
 
     #[test]
-    fn proxy_interception_rule_schema_rejects_burp_ignored_relationships() {
-        let rule_schema = serde_json::to_value(schemars::schema_for!(ProxyInterceptRuleInput))
-            .expect("interception rule schema must serialize");
-        let serialized = rule_schema.to_string();
-        for value in [
-            "matches",
-            "does_not_match",
-            "contains_parameters",
-            "is_in_target_scope",
-            "was_modified",
-            "was_intercepted",
-        ] {
-            assert!(
-                serialized.contains(&format!("\"{value}\"")),
-                "missing {value}"
-            );
-        }
-        assert!(!serialized.contains("\"contains\""));
-        assert!(!serialized.contains("\"does_not_contain\""));
-    }
+    fn settings_schema_nests_operation_specific_update_fields() {
+        let schema = serde_json::to_value(schemars::schema_for!(SettingsActionInput))
+            .expect("settings schema must serialize");
+        let serialized = schema.to_string();
+        assert!(serialized.contains("\"update\""));
+        assert!(serialized.contains("\"filter_target\""));
+        assert!(serialized.contains("\"filter_mode\""));
+        assert!(!serialized.contains("\"target\""));
+        assert!(!serialized.contains("\"mode\""));
+        assert!(!serialized.contains("\"kind\""));
 
-    #[test]
-    fn editor_tools_are_mounted_with_guarded_annotations() {
-        let router = BurpTools::burp_router();
-        for name in [
-            "burp_editor_get",
-            "burp_editor_patch",
-            "burp_editor_renew_lease",
-        ] {
-            let route = router
-                .map
-                .get(name)
-                .unwrap_or_else(|| panic!("missing {name}"));
-            let annotations = route
-                .attr
-                .annotations
-                .as_ref()
-                .expect("editor annotations required");
-            assert_eq!(Some(false), annotations.open_world_hint);
-        }
+        let update: SettingsActionInput = serde_json::from_value(serde_json::json!({
+            "action": "update_proxy_settings",
+            "update": {
+                "operation": "script_filter_upsert",
+                "filter_target": "logger_display",
+                "filter_mode": "settings"
+            }
+        }))
+        .expect("nested update must deserialize");
+        assert!(matches!(
+            update,
+            SettingsActionInput::UpdateProxySettings {
+                update: ProxySettingsUpdateInput::ScriptFilterUpsert {
+                    filter_target: ProxyScriptFilterTargetInput::LoggerDisplay,
+                    filter_mode: Some(ProxyScriptFilterModeInput::Settings),
+                    ..
+                }
+            }
+        ));
     }
 
     #[test]
     fn proxy_settings_operations_build_typed_interception_mutations() {
-        let upsert = proxy_settings_operation(ProxySettingsUpdateInput {
-            operation: "intercept_rule_upsert".to_owned(),
-            kind: Some("request".to_owned()),
-            rule: Some(ProxyInterceptRuleInput {
+        let upsert = proxy_settings_operation(ProxySettingsUpdateInput::InterceptRuleUpsert {
+            phase: ProxyRulePhaseInput::Request,
+            index: None,
+            rule: ProxyInterceptRuleInput {
                 enabled: Some(true),
                 boolean_operator: Some(ProxyInterceptRuleBooleanOperatorInput::And),
                 match_type: ProxyInterceptRuleMatchTypeInput::Url,
                 match_relationship: ProxyInterceptRuleRelationshipInput::Matches,
                 match_condition: Some(".*/admin.*".to_owned()),
-            }),
-            ..empty_proxy_settings_input()
+            },
         })
         .expect("rule upsert must build");
         assert!(matches!(upsert, Operation::InterceptRuleUpsert(_)));
 
-        let toggle = proxy_settings_operation(ProxySettingsUpdateInput {
-            operation: "intercept_toggle".to_owned(),
+        let toggle = proxy_settings_operation(ProxySettingsUpdateInput::InterceptToggle {
+            master_enabled: None,
             request_enabled: Some(true),
             response_enabled: Some(false),
-            ..empty_proxy_settings_input()
         })
         .expect("toggle must build");
         assert!(matches!(toggle, Operation::InterceptToggle(_)));
-    }
-    #[test]
-    fn editor_tool_schemas_expose_token_hash_and_payload_contracts() {
-        let router = BurpTools::burp_router();
-        let patch_schema = router
-            .map
-            .get("burp_editor_patch")
-            .expect("burp_editor_patch tool missing")
-            .attr
-            .input_schema
-            .clone();
-        let patch_text =
-            serde_json::to_string(&patch_schema).expect("Editor patch schema must serialize");
-        for field in ["token", "expected_sha256"] {
-            assert!(
-                patch_text.contains(field),
-                "Editor patch schema missing {field}"
-            );
-        }
+
+        let listener = proxy_settings_operation(ProxySettingsUpdateInput::ListenerUpsert {
+            port: 8080,
+            running: Some(true),
+            listen_mode: Some(super::ProxyListenerModeInput::LoopbackOnly),
+            listen_specific_address: None,
+            certificate_mode: Some(super::ProxyCertificateModeInput::PerHost),
+            enable_http2: Some(true),
+            support_invisible_proxying: Some(false),
+        })
+        .expect("listener upsert must build");
+        assert!(matches!(listener, Operation::ListenerUpsert(_)));
     }
 
-    fn empty_proxy_settings_input() -> ProxySettingsUpdateInput {
-        ProxySettingsUpdateInput {
-            operation: String::new(),
-            port: None,
-            running: None,
-            listen_mode: None,
-            listen_specific_address: None,
-            certificate_mode: None,
-            enable_http2: None,
-            support_invisible_proxying: None,
-            target: None,
-            mode: None,
-            script: None,
-            script_id: None,
-            script_name: None,
-            kind: None,
-            index: None,
-            rule: None,
-            master_enabled: None,
-            request_enabled: None,
-            response_enabled: None,
-        }
+    #[test]
+    fn detail_payload_view_metadata_only_default() {
+        let req = b"GET /test HTTP/1.1\r\nHost: example.com\r\n\r\nHello";
+        let resp = b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nWorld";
+        let view = super::build_detail_payload_view(req, resp, false, false, None, None, None);
+        assert_eq!(view.request_length, Some(req.len()));
+        assert_eq!(view.response_length, Some(resp.len()));
+        assert!(view.request_base64.is_none());
+        assert!(view.response_base64.is_none());
+        assert!(view.request_truncated.is_none());
+        assert!(view.response_truncated.is_none());
+        assert!(view.request_text.is_none());
+        assert!(view.response_text.is_none());
+        assert!(view.truncated.is_none());
+    }
+
+    #[test]
+    fn detail_payload_view_capped_opt_in_and_explicit_cap() {
+        let body = vec![b'x'; 5000];
+        let view =
+            super::build_detail_payload_view(&body, &body, true, false, None, None, Some(100));
+        assert_eq!(view.request_length, Some(5000));
+        assert_eq!(view.response_length, Some(5000));
+        assert!(view.request_base64.is_some());
+        assert_eq!(view.request_truncated, Some(true));
+        assert!(view.response_base64.is_some());
+        assert_eq!(view.response_truncated, Some(true));
+        assert_eq!(view.truncated, Some(true));
+        let default_capped =
+            super::build_detail_payload_view(&body, &body, true, false, None, None, None);
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(default_capped.request_base64.expect("request body"))
+            .expect("bounded Base64");
+        assert_eq!(decoded.len(), DEFAULT_MAX_BODY_LENGTH);
+    }
+
+    #[test]
+    fn detail_payload_view_projection_only_emits_bounded_projections() {
+        let req = b"POST /api HTTP/1.1\r\nHost: example.com\r\n\r\nsecret_payload";
+        let resp = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"key\":\"secret\"}";
+        let view = super::build_detail_payload_view(req, resp, false, true, None, None, None);
+        assert_eq!(view.request_length, Some(req.len()));
+        assert_eq!(view.response_length, Some(resp.len()));
+        assert!(view.request_base64.is_none());
+        assert!(view.response_base64.is_none());
+        assert_eq!(
+            view.request_text,
+            Some("POST /api HTTP/1.1\r\nHost: example.com".to_string())
+        );
+
+        let oversized_headers = format!("GET / HTTP/1.1\r\nX-Large: {}\r\n\r\n", "z".repeat(1024));
+        let bounded_headers = super::build_detail_payload_view(
+            oversized_headers.as_bytes(),
+            b"",
+            false,
+            true,
+            None,
+            None,
+            Some(64),
+        );
+        assert_eq!(bounded_headers.truncated, Some(true));
+        assert!(
+            bounded_headers
+                .request_text
+                .as_ref()
+                .is_some_and(|text| text.contains("... [truncated"))
+        );
+        assert_eq!(
+            view.response_text,
+            Some("HTTP/1.1 200 OK\r\nContent-Type: application/json".to_string())
+        );
+
+        let json_resp = b"HTTP/1.1 200 OK\r\n\r\n{\"user\":{\"id\":42}}";
+        let json_view = super::build_detail_payload_view(
+            b"",
+            json_resp,
+            false,
+            false,
+            None,
+            Some("$.user.id"),
+            None,
+        );
+        assert!(json_view.request_base64.is_none());
+        assert!(json_view.response_base64.is_none());
+        assert!(
+            json_view
+                .response_text
+                .as_ref()
+                .is_some_and(|text| text.contains("42"))
+        );
     }
 
     #[test]

@@ -1,6 +1,10 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
+fn require_object_schema(schema: &mut schemars::Schema) {
+    schema.insert("type".to_owned(), "object".into());
+}
+
 // ==========================================
 // Action Enums
 // ==========================================
@@ -356,29 +360,12 @@ pub struct SessionActionInput {
 // 10. burp_settings
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[schemars(transform = require_object_schema)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum SettingsActionInput {
     GetProxySettings,
     UpdateProxySettings {
-        operation: Option<String>,
-        port: Option<u32>,
-        running: Option<bool>,
-        listen_mode: Option<String>,
-        listen_specific_address: Option<String>,
-        certificate_mode: Option<String>,
-        enable_http2: Option<bool>,
-        support_invisible_proxying: Option<bool>,
-        target: Option<String>,
-        mode: Option<String>,
-        script: Option<String>,
-        script_id: Option<String>,
-        script_name: Option<String>,
-        kind: Option<String>,
-        index: Option<u32>,
-        rule: Option<crate::ProxyInterceptRuleInput>,
-        master_enabled: Option<bool>,
-        request_enabled: Option<bool>,
-        response_enabled: Option<bool>,
+        update: crate::ProxySettingsUpdateInput,
     },
     ExportConfig,
     InspectConfig {

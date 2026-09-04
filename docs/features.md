@@ -12,7 +12,7 @@ This catalog is the definitive reference for Burp MCP tools, actions, and verifi
 
 ## Inventory
 
-Burp MCP registers **43 tools by default** (42 Burp tools + 1 offline Decoder tool), plus **1 SiteGraph tool** when SiteGraph is enabled with `--enable-sitegraph`.
+Burp MCP registers **42 tools by default** (41 Burp tools + 1 offline Decoder tool), plus **1 SiteGraph tool** when SiteGraph is enabled with `--enable-sitegraph`.
 
 | Feature group | Tools |
 |---|---:|
@@ -26,8 +26,8 @@ Burp MCP registers **43 tools by default** (42 Burp tools + 1 offline Decoder to
 | MCP Interception Queues | 6 |
 | Offline Utility Decoder | 1 |
 | SiteGraph (Advanced Opt-in) | 1 |
-| **Total Default Tools** | **43** |
-| **Total with SiteGraph** | **44** |
+| **Total Default Tools** | **42** |
+| **Total with SiteGraph** | **43** |
 
 ## 1. Connection & Project Configuration (2 tools)
 
@@ -44,7 +44,7 @@ Burp MCP registers **43 tools by default** (42 Burp tools + 1 offline Decoder to
 Burp Proxy tool.
 - **Actions**:
   - `history`: Page and filter Proxy HTTP history with compact metadata (`include_bodies: false` by default, `max_body_length: 4096` default), `headers_only`, `extract_css`, `extract_json`. Emits original byte length and truncation/omission state.
-  - `detail`: Get full request/response details for a specific Proxy history index with optional projection (`max_body_length: 4096` default).
+  - `detail`: Get request/response details for a specific Proxy history index. Metadata-only by default (`include_bodies: false`); `include_bodies: true` includes raw Base64 and body text capped at `max_body_length` (default 4096 bytes). Projection options (`headers_only`, `extract_css`, `extract_json`) return bounded projections without raw bodies. Emits original byte lengths.
   - `annotate`: Add/edit notes on a Proxy history entry.
   - `highlight`: Set/clear color highlight on a Proxy history entry.
   - `extract`: Extract regex matches from a Proxy history response.
@@ -142,7 +142,7 @@ Session Handling Rules & Macros manager.
 Proxy Settings & Configuration manager.
 - **Actions**:
   - `get_proxy_settings`: Read listeners, script filters, and intercept settings.
-  - `update_proxy_settings`: Mutate listeners, filters, or rules (`operation`: `listener_upsert`, `listener_delete`, `script_filter_upsert`, `script_filter_delete`, `intercept_rule_upsert`, `intercept_rule_delete`, `intercept_toggle`).
+  - `update_proxy_settings`: Mutate listeners, filters, or rules using nested `update` object (`operation`: `listener_upsert`, `listener_delete`, `script_filter_upsert`, `script_filter_delete`, `intercept_rule_upsert`, `intercept_rule_delete`, `intercept_toggle`).
   - `export_config`: Export project configuration as JSON.
   - `inspect_config`: Inspect selected project options before import (`paths`).
   - `import_config`: Import project configuration JSON (`config`).
@@ -159,7 +159,7 @@ Proxy Settings & Configuration manager.
 Burp Logger traffic inspector.
 - **Actions**:
   - `query`: Page HTTP traffic across all tools (`proxy`, `repeater`, `scanner`, `intruder`, `extension`) with compact metadata by default (`include_bodies: false`, `max_body_length: 4096` default), truncation state, and extraction.
-  - `detail`: Read full request/response for one Logger index (`max_body_length: 4096` default).
+  - `detail`: Read request/response details for one Logger index. Metadata-only by default (`include_bodies: false`); `include_bodies: true` includes raw Base64 and body text capped at `max_body_length` (default 4096 bytes). Projection options (`headers_only`, `extract_css`, `extract_json`) return bounded projections without raw bodies. Emits original byte lengths.
   - `clear`: Clear in-memory Logger traffic buffer.
 ### `burp_organizer`
 Burp Organizer interface.

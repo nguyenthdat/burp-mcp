@@ -40,7 +40,7 @@ Load supporting reference files only when the task enters a specific domain:
 ## Safety Contract & Testing Discipline
 
 1. **Verify Authorization**: Identify the exact target scheme, host, port, and allowed path boundaries before sending active traffic, fuzzing, crawling, polling Collaborator, or modifying Burp state. Scope is a routing boundary, not legal authorization.
-2. **Token Efficiency First**: Prefer compact metadata history (`burp_proxy` / `burp_logger` default `include_bodies: false`, `max_body_length: 4096` default). Use server-side projection (`headers_only`, `extract_json: "$.data..."`, `extract_css: "form#login"`) or fetch single entries (`burp_proxy` action `detail`, `burp_logger` action `detail`) to preserve client context window. Original byte lengths and truncation state are emitted.
+2. **Token Efficiency First**: Prefer compact metadata history and details (`burp_proxy` / `burp_logger` default `include_bodies: false`, `max_body_length: 4096` default). Use server-side projection (`headers_only`, `extract_json: "$.data..."`, `extract_css: "form#login"`) or explicit capped bodies (`include_bodies: true`) to preserve client context window. Original byte lengths and truncation state are emitted.
 3. **Start Read-Only**: Prefer Proxy history (`burp_proxy` action `history`), Logger traffic (`burp_logger` action `query`), Target site map (`burp_target` action `sitemap`), target info (`burp_target` action `info`), Scanner issues (`burp_scanner` action `list_issues`), sitegraph queries (`sitegraph` action `search`), and offline decoder operations (`decoder`) before generating active traffic.
 4. **Preserve Operator State**: Record every temporary scope addition, intercept state change, HTTP handler, proxy rule, session rule, macro, cookie, background job, and managed WebSocket connection. Restore or remove it during cleanup.
 5. **Interception Discipline**: Do not enable proxy interception in unattended flows. The MCP HTTP controller requires a narrow `url_filter` or `in_scope_only: true`; set a bounded timeout, resolve pending messages, disable it, and restore original state upon completion.
@@ -60,8 +60,8 @@ Load supporting reference files only when the task enters a specific domain:
 3. When SiteGraph is active (`--enable-sitegraph`), run `sitegraph` action `sync` with `url_prefix`, inspect `sitegraph` action `stats`, cluster endpoints with `sitegraph` action `clusters`, and search parameter names with `sitegraph` action `search`.
 
 ### 3. Traffic Analysis & Evidence Extraction
-1. Search Proxy HTTP history with `burp_proxy` action `history` (compact metadata by default, `max_body_length: 4096`). Inspect full request/response or extract patterns via `burp_proxy` action `detail`.
-2. Monitor overall Burp traffic across all tools (Repeater, Scanner, Intruder, Extensions) with `burp_logger` action `query` and `burp_logger` action `detail`.
+1. Search Proxy HTTP history with `burp_proxy` action `history` (compact metadata by default, `max_body_length: 4096`). Inspect request/response metadata, bounded projections, or opt into capped bodies (`include_bodies: true`) via `burp_proxy` action `detail`.
+2. Monitor overall Burp traffic across all tools (Repeater, Scanner, Intruder, Extensions) with `burp_logger` action `query` and `burp_logger` action `detail` (metadata-only by default, opt into capped bodies via `include_bodies: true` or projections).
 3. Store critical pentest findings in Burp Organizer via `burp_organizer` action `add`, and list saved items with `burp_organizer` action `list`.
 4. Compare HTTP response variations or verify authorization discrepancies with `burp_diff` action `diff_responses` (similarity score, header diffs, line diffs) or send to UI Comparer via `burp_diff` action `compare_exchanges`.
 5. Review WebSocket frame history with `burp_proxy` action `websocket_history`.

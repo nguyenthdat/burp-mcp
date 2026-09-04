@@ -149,8 +149,8 @@ To eliminate multi-turn round-trip latency for standard penetration testing patt
 - **Explicit Error Domains**:
   - Standardized error classification (`NO_ACTIVE_EDITOR`, `READ_ONLY`, `STALE_EDITOR`, `UNSUPPORTED_COMPONENT`, `LEASE_EXPIRED`).
 - **Standardized Tool Footprint**:
-  - **43 Tools by default** (2 Connection + 13 Core Suite + 9 Compound Workflows + 3 Editor + 3 Cookies/Findings + 3 Jobs + 2 Scripts + 6 Intercept + 1 Offline Utility Decoder).
-  - **44 Tools with SiteGraph** (`--enable-sitegraph`).
+  - **42 Tools by default** (2 Connection + 13 Core Suite + 9 Compound Workflows + 3 Editor + 3 Cookies/Findings + 3 Jobs + 2 Scripts + 6 Intercept + 1 Offline Utility Decoder).
+  - **43 Tools with SiteGraph** (`--enable-sitegraph`).
 
 ---
 
