@@ -938,11 +938,15 @@ internal class BurpRpcService(
         val state = webSocketInterceptController.configure(
             request.enabled.takeIf { request.hasEnabled() },
             request.timeoutSeconds.toInt().takeIf { request.hasTimeoutSeconds() },
+            request.urlFilter.takeIf { request.hasUrlFilter() },
+            request.inScopeOnly.takeIf { request.hasInScopeOnly() },
         )
         WebSocketInterceptControllerConfigResponse.newBuilder()
             .setEnabled(state.enabled)
             .setTimeoutSeconds(state.timeoutSeconds)
             .setPending(state.pending)
+            .setUrlFilter(state.urlFilter)
+            .setInScopeOnly(state.inScopeOnly)
             .build()
     }
 

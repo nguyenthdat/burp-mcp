@@ -469,35 +469,76 @@ pub struct DiffActionInput {
 // ==========================================
 // 14. burp_editor
 // ==========================================
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EditorParamType {
+    Query,
+    Body,
+}
+
+impl EditorParamType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Query => "query",
+            Self::Body => "body",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct EditorGetInput {
+    /// Optional editor target hint (e.g. 'request' / 'req', 'response' / 'resp', 'websocket' / 'ws', or tab name substring). If omitted, resolves to currently focused or last-active editor.
     pub target_hint: Option<String>,
+    /// Optional lease time-to-live in seconds (defaults to extension configuration if omitted).
     pub ttl_seconds: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum EditorPatchOperation {
+    ReplaceSelection {
+        text: String,
+    },
+    SetHeader {
+        name: String,
+        #[serde(default)]
+        value: String,
+        #[serde(default)]
+        remove: bool,
+    },
+    JsonPatch {
+        json_path: String,
+        value_json: String,
+    },
+    SetParam {
+        name: String,
+        #[serde(default)]
+        value: String,
+        #[serde(default)]
+        remove: bool,
+        param_type: Option<EditorParamType>,
+    },
+    Regex {
+        pattern: String,
+        replacement: String,
+        #[serde(default)]
+        replace_all: bool,
+        #[serde(default)]
+        case_insensitive: bool,
+    },
+    ReplaceAll {
+        text: Option<String>,
+        payload_base64: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct EditorPatchInput {
     pub token: String,
     pub expected_sha256: String,
-    pub mode: Option<String>, // "replace_selection", "regex", "set_header", "json_patch", "set_param", "replace_all"
-    pub text: Option<String>,
-    pub payload_base64: Option<String>,
-    pub selection_replacement: Option<String>,
-    pub header_name: Option<String>,
-    pub header_value: Option<String>,
-    pub header_remove: Option<bool>,
-    pub regex_pattern: Option<String>,
-    pub regex_replacement: Option<String>,
-    pub regex_replace_all: Option<bool>,
-    pub regex_case_insensitive: Option<bool>,
-    pub json_path: Option<String>,
-    pub json_value: Option<String>,
-    pub param_name: Option<String>,
-    pub param_value: Option<String>,
-    pub param_remove: Option<bool>,
-    pub param_type: Option<String>,
+    #[serde(flatten)]
+    pub operation: EditorPatchOperation,
 }
-
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct EditorRenewInput {
     pub token: String,
@@ -524,4 +565,308 @@ pub struct SiteGraphActionInput {
     pub snapshot_id: Option<String>,
     pub spec_content: Option<String>,
     pub view_name: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_editor_patch_input_deserialization_all_modes() {
+        // 1. replace_selection
+        let json_data = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "replace_selection",
+            "text": "new selected text"
+        });
+        let patch: EditorPatchInput =
+            serde_json::from_value(json_data).expect("replace_selection deserializes");
+        assert_eq!(patch.token, "lease-123");
+        assert_eq!(patch.expected_sha256, "abc123hash");
+        assert_eq!(
+            patch.operation,
+            EditorPatchOperation::ReplaceSelection {
+                text: "new selected text".to_string()
+            }
+        );
+
+        // 2. set_header
+        let json_data = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "set_header",
+            "name": "Authorization",
+            "value": "Bearer token123"
+        });
+        let patch: EditorPatchInput =
+            serde_json::from_value(json_data).expect("set_header deserializes");
+        assert_eq!(
+            patch.operation,
+            EditorPatchOperation::SetHeader {
+                name: "Authorization".to_string(),
+                value: "Bearer token123".to_string(),
+                remove: false,
+            }
+        );
+
+        // set_header with remove
+        let json_data = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "set_header",
+            "name": "X-Old-Header",
+            "remove": true
+        });
+        let patch: EditorPatchInput =
+            serde_json::from_value(json_data).expect("set_header remove deserializes");
+        assert_eq!(
+            patch.operation,
+            EditorPatchOperation::SetHeader {
+                name: "X-Old-Header".to_string(),
+                value: "".to_string(),
+                remove: true,
+            }
+        );
+
+        // 3. json_patch
+        let json_data = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "json_patch",
+            "json_path": "user.roles[0]",
+            "value_json": "\"admin\""
+        });
+        let patch: EditorPatchInput =
+            serde_json::from_value(json_data).expect("json_patch deserializes");
+        assert_eq!(
+            patch.operation,
+            EditorPatchOperation::JsonPatch {
+                json_path: "user.roles[0]".to_string(),
+                value_json: "\"admin\"".to_string(),
+            }
+        );
+
+        // 4. set_param (query)
+        let json_data = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "set_param",
+            "name": "search",
+            "value": "term",
+            "param_type": "query"
+        });
+        let patch: EditorPatchInput =
+            serde_json::from_value(json_data).expect("set_param query deserializes");
+        assert_eq!(
+            patch.operation,
+            EditorPatchOperation::SetParam {
+                name: "search".to_string(),
+                value: "term".to_string(),
+                remove: false,
+                param_type: Some(EditorParamType::Query),
+            }
+        );
+
+        // 4. set_param (body)
+        let json_data = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "set_param",
+            "name": "csrf",
+            "value": "xyz",
+            "param_type": "body"
+        });
+        let patch: EditorPatchInput =
+            serde_json::from_value(json_data).expect("set_param body deserializes");
+        assert_eq!(
+            patch.operation,
+            EditorPatchOperation::SetParam {
+                name: "csrf".to_string(),
+                value: "xyz".to_string(),
+                remove: false,
+                param_type: Some(EditorParamType::Body),
+            }
+        );
+
+        // 5. regex
+        let json_data = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "regex",
+            "pattern": "User: \\w+",
+            "replacement": "User: admin",
+            "replace_all": true,
+            "case_insensitive": false
+        });
+        let patch: EditorPatchInput =
+            serde_json::from_value(json_data).expect("regex deserializes");
+        assert_eq!(
+            patch.operation,
+            EditorPatchOperation::Regex {
+                pattern: "User: \\w+".to_string(),
+                replacement: "User: admin".to_string(),
+                replace_all: true,
+                case_insensitive: false,
+            }
+        );
+
+        // 6. replace_all text
+        let json_data = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "replace_all",
+            "text": "full content"
+        });
+        let patch: EditorPatchInput =
+            serde_json::from_value(json_data).expect("replace_all text deserializes");
+        assert_eq!(
+            patch.operation,
+            EditorPatchOperation::ReplaceAll {
+                text: Some("full content".to_string()),
+                payload_base64: None,
+            }
+        );
+
+        // 6. replace_all payload_base64
+        let json_data = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "replace_all",
+            "payload_base64": "SGVsbG8="
+        });
+        let patch: EditorPatchInput =
+            serde_json::from_value(json_data).expect("replace_all payload_base64 deserializes");
+        assert_eq!(
+            patch.operation,
+            EditorPatchOperation::ReplaceAll {
+                text: None,
+                payload_base64: Some("SGVsbG8=".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_editor_patch_input_rejects_invalid_inputs_and_removed_aliases() {
+        // 1. regex_replace alias must be rejected
+        let alias_data = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "regex_replace",
+            "pattern": "foo",
+            "replacement": "bar"
+        });
+        let err = serde_json::from_value::<EditorPatchInput>(alias_data).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown variant"),
+            "error was: {err}"
+        );
+
+        // 2. Unknown mode must be rejected
+        let unknown_mode = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "unknown_action"
+        });
+        let err = serde_json::from_value::<EditorPatchInput>(unknown_mode).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown variant"),
+            "error was: {err}"
+        );
+
+        // 3. Missing required field in replace_selection (missing text)
+        let missing_text = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "replace_selection"
+        });
+        let err = serde_json::from_value::<EditorPatchInput>(missing_text).unwrap_err();
+        assert!(
+            err.to_string().contains("missing field"),
+            "error was: {err}"
+        );
+
+        // 4. Missing required field in set_header (missing name)
+        let missing_name = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "set_header",
+            "value": "bar"
+        });
+        let err = serde_json::from_value::<EditorPatchInput>(missing_name).unwrap_err();
+        assert!(
+            err.to_string().contains("missing field"),
+            "error was: {err}"
+        );
+
+        // 5. Missing required field in json_patch (missing value_json)
+        let missing_val = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "json_patch",
+            "json_path": "path"
+        });
+        let err = serde_json::from_value::<EditorPatchInput>(missing_val).unwrap_err();
+        assert!(
+            err.to_string().contains("missing field"),
+            "error was: {err}"
+        );
+
+        // 6. Invalid param_type
+        let invalid_param_type = json!({
+            "token": "lease-123",
+            "expected_sha256": "abc123hash",
+            "mode": "set_param",
+            "name": "id",
+            "param_type": "cookie"
+        });
+        let err = serde_json::from_value::<EditorPatchInput>(invalid_param_type).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown variant"),
+            "error was: {err}"
+        );
+    }
+
+    #[test]
+    fn test_editor_patch_schema_discriminated_by_mode() {
+        let schema = serde_json::to_value(schemars::schema_for!(EditorPatchInput))
+            .expect("EditorPatchInput schema must serialize");
+        let schema_text = schema.to_string();
+
+        // Must contain mode as property or discriminator
+        assert!(schema_text.contains("\"mode\""), "schema must contain mode");
+        // Must contain all valid modes
+        for mode in [
+            "replace_selection",
+            "set_header",
+            "json_patch",
+            "set_param",
+            "regex",
+            "replace_all",
+        ] {
+            assert!(
+                schema_text.contains(&format!("\"{mode}\"")),
+                "missing mode '{mode}' in schema"
+            );
+        }
+        // Must NOT contain old alias regex_replace
+        assert!(
+            !schema_text.contains("\"regex_replace\""),
+            "schema must not contain removed alias 'regex_replace'"
+        );
+
+        // Verify EditorGetInput target_hint description
+        let get_schema = serde_json::to_value(schemars::schema_for!(EditorGetInput))
+            .expect("EditorGetInput schema must serialize");
+        let get_schema_text = get_schema.to_string();
+        assert!(
+            get_schema_text.contains("target_hint"),
+            "EditorGetInput schema must contain target_hint"
+        );
+        assert!(
+            get_schema_text.contains("hint"),
+            "EditorGetInput schema must contain description for target_hint"
+        );
+    }
 }

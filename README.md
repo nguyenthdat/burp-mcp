@@ -121,7 +121,7 @@ Burp MCP registers **42 tools by default** (41 Burp tools + 1 offline Decoder to
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
 | `burp_editor_get` | `{target_hint?, ttl_seconds?}` | Capture active or last-focused editor tab with rich metadata, selection offsets, and UTF-8 decoded text. | Yes |
-| `burp_editor_patch` | `{token, expected_sha256, mode?, text?, ...}` | Surgically modify active Burp editor contents (`replace_selection`, `set_header`, `json_patch`, `set_param`, `regex`, `replace_all`) with automatic Content-Length and CRLF calculation. | No |
+| `burp_editor_patch` | `{token, expected_sha256, mode, ...}` | Surgically modify active Burp editor contents using typed mode operations (`replace_selection{text}`, `set_header{name, value?, remove?}`, `json_patch{json_path, value_json}`, `set_param{name, value?, remove?, param_type?}`, `regex{pattern, replacement, replace_all?, case_insensitive?}`, `replace_all{text? | payload_base64?}`) with automatic Content-Length calculation and CRLF normalization. | No |
 | `burp_editor_renew_lease` | `{token, extend_seconds?}` | Extend the lifetime of an active Burp editor lease token. | No |
 ### 5. Cookies & Findings (3 tools)
 
@@ -150,10 +150,10 @@ Burp MCP registers **42 tools by default** (41 Burp tools + 1 offline Decoder to
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
-| `burp_intercept_controller` | `{enabled?, timeout_seconds?, url_filter?, in_scope_only?}` | Read or configure the MCP-owned HTTP interception queue. Enabling requires `url_filter` or `in_scope_only: true`; non-matching traffic continues normally and pending messages auto-forward on timeout. | No |
+| `burp_intercept_controller` | `{enabled?, timeout_seconds?, url_filter?, in_scope_only?}` | Read or configure the MCP-owned HTTP interception queue. Enabling requires `url_filter` or `in_scope_only: true`; defaults to RECEIVED-only pauses (preventing duplicate TO_BE_SENT pauses); non-matching traffic continues normally and pending messages auto-forward on timeout. | No |
 | `burp_intercepted_messages` | `{limit?, cursor?, include_bodies?, max_body_length?}` | Page pending HTTP requests and responses. Defaults to metadata-only; explicit bodies are capped at 4096 bytes and report original length/truncation. | Yes |
 | `burp_control_intercepted_message` | `{id, action, message_base64?, max_body_length?}` | Forward, drop, or send one paused HTTP message to Burp's manual Intercept tab; optionally replace the full message. Returned bodies are capped at 4096 bytes by default. | No |
-| `burp_websocket_intercept_controller` | `{enabled?, timeout_seconds?}` | Read or configure MCP-owned WebSocket interception. | No |
+| `burp_websocket_intercept_controller` | `{enabled?, timeout_seconds?, url_filter?, in_scope_only?}` | Read or configure the MCP-owned WebSocket interception queue. Enabling requires `url_filter` or `in_scope_only: true`; defaults to RECEIVED-only pauses; non-matching traffic continues normally and pending messages auto-forward on timeout. | No |
 | `burp_intercepted_websocket_messages` | `{limit?, cursor?, include_bodies?, max_body_length?}` | Page pending intercepted WebSocket messages. Defaults to metadata-only; explicit payloads are capped at 4096 bytes and report original length/truncation. | Yes |
 | `burp_control_intercepted_websocket_message` | `{id, action, payload_base64?, max_body_length?}` | Forward, drop, or send one paused WebSocket message to Burp's manual Intercept tab; optionally replace its payload. Returned payloads are capped at 4096 bytes by default. | No |
 

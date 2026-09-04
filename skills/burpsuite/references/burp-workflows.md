@@ -23,34 +23,32 @@ extension-provided **MCP** tabs across HTTP requests/responses and WebSocket mes
 through `burp_editor_get` and `burp_editor_patch`.
 
 The `burp_editor_get` tool leverages multi-tier target discovery:
-1. Direct Swing focus on editable editors / extension-provided tabs.
-2. Explicit `target_hint` targeting (`"repeater"`, `"request"`, `"websocket"`).
+1. Direct Swing focus on editable editors / extension-provided tabs (e.g. Repeater request/response, manual Intercept tab).
+2. Explicit `target_hint` targeting (`"request"`, `"response"`, `"repeater"`, `"websocket"`).
 3. Last-Active Editor cache (retained across window switching).
 4. Staged buffer from the desktop context menu (**"Send to MCP Active Buffer"**).
 
-The `burp_editor_patch` tool performs surgical mutations without transmitting full payloads:
-- `replace_selection`: Replaces only the currently highlighted text slice.
-- `set_header`: Adds, updates, or deletes headers with automatic `Content-Length` recomputation.
-- `json_patch`: Modifies nested JSON fields via dot-notation.
-- `set_param`: Updates query or body parameters.
-- `regex`: Regular expression search and replacement.
+The `burp_editor_patch` tool performs surgical mutations without transmitting full payloads using typed `mode` operations flattened alongside `token` and `expected_sha256`:
+- `replace_selection`: `{mode: "replace_selection", text: "..."}` — Replaces only the currently highlighted text slice.
+- `set_header`: `{mode: "set_header", name: "...", value?: "...", remove?: false}` — Adds, updates, or deletes headers with automatic `Content-Length` recomputation.
+- `json_patch`: `{mode: "json_patch", json_path: "...", value_json: "..."}` — Modifies nested JSON fields via path and valid JSON value.
+- `set_param`: `{mode: "set_param", name: "...", value?: "...", remove?: false, param_type?: "query"|"body"}` — Updates query or body parameters.
+- `regex`: `{mode: "regex", pattern: "...", replacement: "...", replace_all?: false, case_insensitive?: false}` — Regular expression search and replacement.
+- `replace_all`: `{mode: "replace_all", text?: "...", payload_base64?: "..."}` — Replaces complete editor content with exactly one content kind (`text` or `payload_base64`).
 - Automatic CRLF (`\r\n`) header normalization.
-- Adaptive leases with configurable TTL (default 120s) and renewal via `burp_editor_renew_lease`.
+- Adaptive leases with configurable TTL (default 120s), stale-concurrency protection via `expected_sha256`, and renewal via `burp_editor_renew_lease`.
+
 ## MCP-owned interception queues
 
 The MCP queues are separate from master Proxy Intercept state and Proxy history.
 Use them only for a narrow authorized fixture:
 
-1. Configure `burp_intercept_controller` with a bounded timeout and either a
-   narrow case-insensitive `url_filter` or `in_scope_only: true`. Unscoped HTTP
-   interception is rejected; non-matching traffic bypasses the MCP queue.
-2. Generate one scoped message.
-3. Page the matching pending queue; retain one stable ID.
-4. Forward, drop, or send that ID to manual Intercept. Replace complete HTTP
-   messages or WebSocket payload bytes only from reviewed base64.
-5. Confirm `pending` is zero and disable the controller. Messages auto-forward
-   on timeout, but timeout is a failsafe rather than cleanup.
-
+1. Configure `burp_intercept_controller` (for HTTP) or `burp_websocket_intercept_controller` (for WebSocket) with a bounded timeout and either a narrow case-insensitive `url_filter` or `in_scope_only: true`. Unscoped interception is rejected for both HTTP and WebSocket; non-matching traffic bypasses the MCP queue. Both controllers default to RECEIVED-only pauses, avoiding duplicate TO_BE_SENT pauses.
+2. Generate one scoped transaction.
+3. Note that one logical HTTP exchange may yield both request and response items at the RECEIVED phase, and one bidirectional WebSocket exchange yields both outbound and inbound message items at the RECEIVED phase.
+4. Page the matching pending queue (`burp_intercepted_messages` or `burp_intercepted_websocket_messages`); retain stable IDs.
+5. Forward, drop, or send each paused ID to manual Intercept via `burp_control_intercepted_message` or `burp_control_intercepted_websocket_message`. Replace complete HTTP messages or WebSocket payload bytes only from reviewed base64.
+6. Clients must resolve all intended items for the exchange, confirm `pending` is zero, and disable the controller. Messages auto-forward on timeout, but timeout is a failsafe rather than cleanup.
 ## Scope and logging
 
 Use [Target scope](https://portswigger.net/burp/documentation/desktop/tools/target/scope) to include exact authorized protocols, hosts, ports, and paths and exclude unsafe or irrelevant areas. PortSwigger's [test-scope workflow](https://portswigger.net/burp/documentation/desktop/testing-workflow/test-scope) recommends excluding unauthorized, unsafe, and irrelevant URLs before testing.

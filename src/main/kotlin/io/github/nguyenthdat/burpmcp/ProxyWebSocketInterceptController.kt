@@ -32,6 +32,7 @@ internal data class PendingWebSocketIntercept(
 
 internal class ProxyWebSocketInterceptController(private val api: MontoyaApi) : AutoCloseable {
     private data class Resolution(val decision: InterceptDecision, val payload: ByteArray?)
+    private data class InterceptFilter(val urlContains: String, val inScopeOnly: Boolean)
     private class Pending(val snapshot: PendingWebSocketIntercept) {
         val latch = CountDownLatch(1)
         @Volatile var resolution: Resolution? = null
@@ -43,24 +44,53 @@ internal class ProxyWebSocketInterceptController(private val api: MontoyaApi) : 
     private val registration: Registration
     @Volatile private var enabled = false
     @Volatile private var timeoutSeconds = DEFAULT_TIMEOUT_SECONDS
-
+    @Volatile private var filter = InterceptFilter("", false)
     init {
         registration = api.proxy().registerWebSocketCreationHandler(object : ProxyWebSocketCreationHandler {
             override fun handleWebSocketCreation(creation: ProxyWebSocketCreation) {
                 val socket = creation.proxyWebSocket()
                 val webSocketId = System.identityHashCode(socket)
-                val upgradeUrl = runCatching { creation.upgradeRequest().url() }.getOrDefault("")
-                sockets[webSocketId] = socket.registerProxyMessageHandler(messageHandler(webSocketId, upgradeUrl))
+                val upgradeRequest = runCatching { creation.upgradeRequest() }.getOrNull()
+                val upgradeUrl = runCatching { upgradeRequest?.url() }.getOrNull().orEmpty()
+                val isInScope = upgradeRequest?.let { runCatching { it.isInScope }.getOrDefault(false) } ?: false
+                sockets[webSocketId] = socket.registerProxyMessageHandler(messageHandler(webSocketId, upgradeUrl, isInScope))
             }
         })
     }
 
-    fun configure(enabled: Boolean?, timeoutSeconds: Int?): InterceptControllerState {
+    fun configure(
+        enabled: Boolean?,
+        timeoutSeconds: Int?,
+        urlFilter: String?,
+        inScopeOnly: Boolean?,
+    ): InterceptControllerState {
+        val currentFilter = filter
+        val nextFilter =
+            InterceptFilter(
+                urlContains = urlFilter?.trim() ?: currentFilter.urlContains,
+                inScopeOnly = inScopeOnly ?: currentFilter.inScopeOnly,
+            )
+        val nextEnabled = enabled ?: this.enabled
+        require(!nextEnabled || nextFilter.urlContains.isNotEmpty() || nextFilter.inScopeOnly) {
+            "refusing unscoped interception; set url_filter or in_scope_only=true before enabling"
+        }
         timeoutSeconds?.let { require(it in 1..MAX_TIMEOUT_SECONDS) { "timeout_seconds must be between 1 and $MAX_TIMEOUT_SECONDS" } }
         if (timeoutSeconds != null) this.timeoutSeconds = timeoutSeconds
-        if (enabled != null) this.enabled = enabled
-        if (enabled == false) releaseAll()
-        return InterceptControllerState(this.enabled, this.timeoutSeconds, pending.size)
+        filter = nextFilter
+        this.enabled = nextEnabled
+        if (!nextEnabled) releaseAll()
+        return state()
+    }
+
+    fun state(): InterceptControllerState {
+        val currentFilter = filter
+        return InterceptControllerState(
+            enabled,
+            timeoutSeconds,
+            pending.size,
+            currentFilter.urlContains,
+            currentFilter.inScopeOnly,
+        )
     }
 
     fun list(offset: Int, limit: Int): Pair<List<PendingWebSocketIntercept>, Int> {
@@ -81,9 +111,9 @@ internal class ProxyWebSocketInterceptController(private val api: MontoyaApi) : 
         return item.snapshot
     }
 
-    private fun messageHandler(webSocketId: Int, upgradeUrl: String) = object : ProxyMessageHandler {
+    private fun messageHandler(webSocketId: Int, upgradeUrl: String, isInScope: Boolean) = object : ProxyMessageHandler {
         override fun handleTextMessageReceived(message: InterceptedTextMessage): TextMessageReceivedAction {
-            if (!enabled) return TextMessageReceivedAction.continueWith(message)
+            if (!shouldPause(upgradeUrl, isInScope)) return TextMessageReceivedAction.continueWith(message)
             val resolution = await(snapshot(webSocketId, upgradeUrl, message.direction().name, WebSocketMessageType.TEXT, InterceptPhase.RECEIVED, message.payload().toByteArray(StandardCharsets.UTF_8)))
             val payload = resolution.payload?.toString(StandardCharsets.UTF_8) ?: message.payload()
             return when (resolution.decision) {
@@ -93,18 +123,11 @@ internal class ProxyWebSocketInterceptController(private val api: MontoyaApi) : 
             }
         }
 
-        override fun handleTextMessageToBeSent(message: InterceptedTextMessage): TextMessageToBeSentAction {
-            if (!enabled) return TextMessageToBeSentAction.continueWith(message)
-            val resolution = await(snapshot(webSocketId, upgradeUrl, message.direction().name, WebSocketMessageType.TEXT, InterceptPhase.TO_BE_SENT, message.payload().toByteArray(StandardCharsets.UTF_8)))
-            val payload = resolution.payload?.toString(StandardCharsets.UTF_8) ?: message.payload()
-            return when (resolution.decision) {
-                InterceptDecision.DROP -> TextMessageToBeSentAction.drop()
-                InterceptDecision.FORWARD, InterceptDecision.INTERCEPT -> TextMessageToBeSentAction.continueWith(payload)
-            }
-        }
+        override fun handleTextMessageToBeSent(message: InterceptedTextMessage): TextMessageToBeSentAction =
+            TextMessageToBeSentAction.continueWith(message)
 
         override fun handleBinaryMessageReceived(message: InterceptedBinaryMessage): BinaryMessageReceivedAction {
-            if (!enabled) return BinaryMessageReceivedAction.continueWith(message)
+            if (!shouldPause(upgradeUrl, isInScope)) return BinaryMessageReceivedAction.continueWith(message)
             val resolution = await(snapshot(webSocketId, upgradeUrl, message.direction().name, WebSocketMessageType.BINARY, InterceptPhase.RECEIVED, message.payload().getBytes()))
             val payload = resolution.payload ?: message.payload().getBytes()
             return when (resolution.decision) {
@@ -114,19 +137,19 @@ internal class ProxyWebSocketInterceptController(private val api: MontoyaApi) : 
             }
         }
 
-        override fun handleBinaryMessageToBeSent(message: InterceptedBinaryMessage): BinaryMessageToBeSentAction {
-            if (!enabled) return BinaryMessageToBeSentAction.continueWith(message)
-            val resolution = await(snapshot(webSocketId, upgradeUrl, message.direction().name, WebSocketMessageType.BINARY, InterceptPhase.TO_BE_SENT, message.payload().getBytes()))
-            val payload = resolution.payload ?: message.payload().getBytes()
-            return when (resolution.decision) {
-                InterceptDecision.DROP -> BinaryMessageToBeSentAction.drop()
-                InterceptDecision.FORWARD, InterceptDecision.INTERCEPT -> BinaryMessageToBeSentAction.continueWith(MontoyaByteArray.byteArray(*payload))
-            }
-        }
+        override fun handleBinaryMessageToBeSent(message: InterceptedBinaryMessage): BinaryMessageToBeSentAction =
+            BinaryMessageToBeSentAction.continueWith(message)
 
         override fun onClose() {
             sockets.remove(webSocketId)?.deregister()
         }
+    }
+
+    internal fun shouldPause(upgradeUrl: String, isInScope: Boolean): Boolean {
+        if (!enabled) return false
+        val currentFilter = filter
+        return (!currentFilter.inScopeOnly || isInScope) &&
+            (currentFilter.urlContains.isEmpty() || upgradeUrl.contains(currentFilter.urlContains, ignoreCase = true))
     }
 
     private fun snapshot(webSocketId: Int, upgradeUrl: String, direction: String, type: WebSocketMessageType, phase: InterceptPhase, payload: ByteArray) =

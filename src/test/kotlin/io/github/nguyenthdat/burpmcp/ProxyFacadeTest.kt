@@ -70,6 +70,26 @@ class ProxyFacadeTest {
         assertFalse(controller.shouldPause(pendingIntercept("https://example.test/api/users", false)))
         controller.close()
     }
+    @Test
+    fun `WebSocket intercept controller requires and applies a narrow scope`() {
+        val registration = fake<Registration>(mapOf("deregister" to {}))
+        val proxy = fake<Proxy>(mapOf("registerWebSocketCreationHandler" to { registration }))
+        val controller = ProxyWebSocketInterceptController(fake(mapOf("proxy" to { proxy })))
+
+        assertFailsWith<IllegalArgumentException> { controller.configure(true, 5, null, null) }
+
+        val state = controller.configure(true, 5, "Example.Test/ws", false)
+        assertEquals("Example.Test/ws", state.urlFilter)
+        assertEquals(false, state.inScopeOnly)
+        assertTrue(controller.shouldPause("wss://example.test/ws/live", false))
+        assertFalse(controller.shouldPause("wss://other.test/ws/live", true))
+
+        controller.configure(null, null, "", true)
+        assertTrue(controller.shouldPause("wss://other.test/ws/live", true))
+        assertFalse(controller.shouldPause("wss://example.test/ws/live", false))
+        controller.close()
+    }
+
 
 
     @Test

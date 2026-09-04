@@ -43,7 +43,7 @@ Load supporting reference files only when the task enters a specific domain:
 2. **Token Efficiency First**: Prefer compact metadata history and details (`burp_proxy` / `burp_logger` default `include_bodies: false`, `max_body_length: 4096` default). Use server-side projection (`headers_only`, `extract_json: "$.data..."`, `extract_css: "form#login"`) or explicit capped bodies (`include_bodies: true`) to preserve client context window. Original byte lengths and truncation state are emitted.
 3. **Start Read-Only**: Prefer Proxy history (`burp_proxy` action `history`), Logger traffic (`burp_logger` action `query`), Target site map (`burp_target` action `sitemap`), target info (`burp_target` action `info`), Scanner issues (`burp_scanner` action `list_issues`), sitegraph queries (`sitegraph` action `search`), and offline decoder operations (`decoder`) before generating active traffic.
 4. **Preserve Operator State**: Record every temporary scope addition, intercept state change, HTTP handler, proxy rule, session rule, macro, cookie, background job, and managed WebSocket connection. Restore or remove it during cleanup.
-5. **Interception Discipline**: Do not enable proxy interception in unattended flows. The MCP HTTP controller requires a narrow `url_filter` or `in_scope_only: true`; set a bounded timeout, resolve pending messages, disable it, and restore original state upon completion.
+5. **Interception Discipline**: Do not enable proxy interception in unattended flows. Both MCP HTTP (`burp_intercept_controller`) and WebSocket (`burp_websocket_intercept_controller`) controllers require a narrow `url_filter` or `in_scope_only: true`; both default to RECEIVED-only pauses (preventing duplicate TO_BE_SENT pauses). One logical HTTP exchange may yield request and response items, and one bidirectional WebSocket exchange yields outbound and inbound messages; clients must resolve all intended items, verify pending is zero, and disable the controller. Restore original operator state upon completion.
 6. **Rate & Concurrency Bounds**: Limit parallel requests (at most 32 via `burp_http` action `send_batch`), cap scan concurrency via custom resource pools (`burp_scan_config` action `upsert_pool`), and pace background job polling.
 7. **Protect Secrets & Redact Evidence**: Never log or disclose private keys, session cookies, auth tokens, or Collaborator secrets in reports.
 ## Procedural Security Assessment Workflow
@@ -74,6 +74,10 @@ Follow specific vulnerability methodologies in [`references/appsec-testing-guide
   - **IDOR Verification**: Use `burp_verify_idor` to test authorization bypass between two user tokens/headers with automated response diffing.
   - **CORS Audit**: Use `burp_check_cors` to audit origin reflection, wildcard allowances, and credentials trust.
   - **Access Control Matrix**: Use `burp_auth_matrix` to evaluate role-based access control across multiple endpoints.
+- **Active UI & Desktop Editor Integration**:
+  - Capture active or last-focused editor tabs across HTTP requests/responses and WebSocket messages using `burp_editor_get` (discovering targets via direct Swing focus, explicit `target_hint`, last-active editor cache, or staged buffer).
+  - Surgically modify editor contents with `burp_editor_patch` using typed mode operations (`replace_selection{text}`, `set_header{name, value?, remove?}`, `json_patch{json_path, value_json}`, `set_param{name, value?, remove?, param_type?}`, `regex{pattern, replacement, replace_all?, case_insensitive?}`, `replace_all{text? | payload_base64?}`) with automatic Content-Length calculation and CRLF normalization.
+  - Renew active editor leases with `burp_editor_renew_lease`.
 - **Manual Request Crafting**:
   - Replay modified requests via `burp_http` action `send`.
   - Send requests to Repeater UI with `burp_http` action `send_to_repeater`, using either an absolute `url` plus optional method/body/headers or a raw `request` (authority derives from `Host` when omitted).
@@ -134,6 +138,8 @@ Optionally persist verified custom issues into Burp's site map using `burp_add_i
 ## Mandatory Cleanup Protocol
 
 Before completing any task, execute cleanup and report restored state:
+- [ ] Confirm zero pending and disable MCP HTTP interception (`burp_intercept_controller`).
+- [ ] Confirm zero pending and disable MCP WebSocket interception (`burp_websocket_intercept_controller`).
 - [ ] Reset proxy interception state (`burp_settings` action `set_intercept_state`).
 - [ ] Remove temporary HTTP handlers (`burp_settings` action `remove_http_handler`).
 - [ ] Remove temporary proxy rules (`burp_settings` action `remove_proxy_rule`).

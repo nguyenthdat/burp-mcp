@@ -558,6 +558,12 @@ pub struct ProxyWebSocketHistoryInput {
 pub struct WebSocketInterceptControllerInput {
     pub enabled: Option<bool>,
     pub timeout_seconds: Option<u32>,
+    #[schemars(
+        description = "Case-insensitive URL substring. Set to an empty string to clear; enabling requires this or in_scope_only=true"
+    )]
+    pub url_filter: Option<String>,
+    #[schemars(description = "Pause only messages that Burp Target currently marks in scope")]
+    pub in_scope_only: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -5079,7 +5085,7 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_editor_get",
-        description = "Capture the active or last-focused Burp editor tab (HTTP Request/Response or WebSocket) with rich metadata, selection offsets, and UTF-8 decoded text",
+        description = "Capture the active or last-focused Burp editor tab (HTTP Request/Response or WebSocket) with rich metadata, selection offsets, and UTF-8 decoded text (optional target_hint resolves specific tab or message type)",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -5122,7 +5128,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_editor_patch",
-        description = "Surgically modify the active Burp editor contents (replace selection, update header, patch JSON, or regex replace) without transmitting full text payloads",
+        description = "Surgically modify the active Burp editor contents (replace selection, update header, patch JSON, set parameter, regex replace, or replace all) without transmitting full text payloads",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -5131,87 +5137,99 @@ impl BurpTools {
         )
     )]
     async fn editor_patch(&self, Parameters(input): Parameters<suite::EditorPatchInput>) -> String {
-        let mode = input.mode.as_deref().unwrap_or("replace_all");
-        let patch_operation = match mode {
-            "replace_selection" => {
-                let text = input
-                    .selection_replacement
-                    .or(input.text)
-                    .unwrap_or_default();
+        let patch_operation = match input.operation {
+            suite::EditorPatchOperation::ReplaceSelection { text } => {
                 burp_protocol::protocol::editor_patch_request::PatchOperation::ReplaceSelection(
                     text,
                 )
             }
-            "set_header" => {
-                let name = input.header_name.unwrap_or_default();
-                let value = input.header_value.unwrap_or_default();
-                let remove = input.header_remove.unwrap_or(false);
-                burp_protocol::protocol::editor_patch_request::PatchOperation::HeaderPatch(
-                    HeaderPatch {
-                        name,
-                        value,
-                        remove,
-                    },
-                )
-            }
-            "json_patch" => {
-                let json_path = input.json_path.unwrap_or_default();
-                let value_json = input.json_value.or(input.text).unwrap_or_default();
-                burp_protocol::protocol::editor_patch_request::PatchOperation::JsonPatch(
-                    JsonPatch {
-                        json_path,
-                        value_json,
-                    },
-                )
-            }
-            "set_param" => {
-                let name = input.param_name.unwrap_or_default();
-                let value = input.param_value.unwrap_or_default();
-                let remove = input.param_remove.unwrap_or(false);
-                burp_protocol::protocol::editor_patch_request::PatchOperation::ParamPatch(
-                    ParamPatch {
-                        name,
-                        value,
-                        remove,
-                        param_type: input.param_type,
-                    },
-                )
-            }
-            "regex" | "regex_replace" => {
-                let pattern = input.regex_pattern.unwrap_or_default();
-                let replacement = input.regex_replacement.unwrap_or_default();
-                let replace_all = input.regex_replace_all.unwrap_or(false);
-                let case_insensitive = input.regex_case_insensitive.unwrap_or(false);
-                burp_protocol::protocol::editor_patch_request::PatchOperation::RegexPatch(
-                    RegexPatch {
-                        pattern,
-                        replacement,
-                        replace_all,
-                        case_insensitive,
-                    },
-                )
-            }
-            _ => {
-                if let Some(b64) = input.payload_base64 {
+            suite::EditorPatchOperation::SetHeader {
+                name,
+                value,
+                remove,
+            } => burp_protocol::protocol::editor_patch_request::PatchOperation::HeaderPatch(
+                HeaderPatch {
+                    name,
+                    value,
+                    remove,
+                },
+            ),
+            suite::EditorPatchOperation::JsonPatch {
+                json_path,
+                value_json,
+            } => burp_protocol::protocol::editor_patch_request::PatchOperation::JsonPatch(
+                JsonPatch {
+                    json_path,
+                    value_json,
+                },
+            ),
+            suite::EditorPatchOperation::SetParam {
+                name,
+                value,
+                remove,
+                param_type,
+            } => burp_protocol::protocol::editor_patch_request::PatchOperation::ParamPatch(
+                ParamPatch {
+                    name,
+                    value,
+                    remove,
+                    param_type: param_type.map(|pt| pt.as_str().to_string()),
+                },
+            ),
+            suite::EditorPatchOperation::Regex {
+                pattern,
+                replacement,
+                replace_all,
+                case_insensitive,
+            } => burp_protocol::protocol::editor_patch_request::PatchOperation::RegexPatch(
+                RegexPatch {
+                    pattern,
+                    replacement,
+                    replace_all,
+                    case_insensitive,
+                },
+            ),
+            suite::EditorPatchOperation::ReplaceAll {
+                text,
+                payload_base64,
+            } => match (text, payload_base64) {
+                (Some(text), None) => {
+                    burp_protocol::protocol::editor_patch_request::PatchOperation::ReplaceAllText(
+                        text,
+                    )
+                }
+                (None, Some(b64)) => {
                     let bytes = match STANDARD.decode(&b64) {
                         Ok(b) => b,
                         Err(e) => {
-                            return serde_json::json!({"error": format!("invalid base64: {e}")})
-                                .to_string();
+                            return serde_json::json!({
+                                "error": format!("invalid base64 payload: {e}"),
+                                "field": "payload_base64",
+                                "action": "Provide valid Base64 encoded bytes for payload_base64, or use text instead"
+                            })
+                            .to_string();
                         }
                     };
                     burp_protocol::protocol::editor_patch_request::PatchOperation::ReplaceAllPayload(
                         bytes,
                     )
-                } else {
-                    let text = input.text.unwrap_or_default();
-                    burp_protocol::protocol::editor_patch_request::PatchOperation::ReplaceAllText(
-                        text,
-                    )
                 }
-            }
+                (Some(_), Some(_)) => {
+                    return serde_json::json!({
+                        "error": "replace_all requires exactly one content kind: provide either 'text' or 'payload_base64', not both",
+                        "action": "Specify 'text' for UTF-8 string content or 'payload_base64' for raw bytes"
+                    })
+                    .to_string();
+                }
+                (None, None) => {
+                    return serde_json::json!({
+                        "error": "replace_all requires exactly one content kind: specify 'text' or 'payload_base64'",
+                        "action": "Specify 'text' for UTF-8 string content or 'payload_base64' for raw bytes"
+                    })
+                    .to_string();
+                }
+            },
         };
-
         match self
             .client
             .editor_patch(EditorPatchRequest {
@@ -5307,7 +5325,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_intercept_controller",
-        description = "Read or configure MCP-controlled Burp Proxy request/response interception. Enabling requires url_filter or in_scope_only=true; non-matching traffic continues without entering the queue; pending messages forward when timeout expires.",
+        description = "Read or configure MCP-controlled Burp Proxy request/response interception. Interception defaults to RECEIVED-only pauses (pausing inbound requests from clients and inbound responses from servers, avoiding redundant TO_BE_SENT pauses). Enabling requires url_filter or in_scope_only=true; non-matching traffic continues without entering the queue. One logical HTTP exchange may yield both request and response items; resolve all intended items then disable when done. Pending messages forward when timeout expires.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -5343,7 +5361,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_intercepted_messages",
-        description = "List HTTP requests and responses currently paused by the MCP intercept controller, including lossless Base64 raw messages",
+        description = "List HTTP requests and responses currently paused by the MCP intercept controller in RECEIVED-only phases, including lossless Base64 raw messages. A single HTTP exchange may yield separate request and response items; resolve all intended items before disabling.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -5386,7 +5404,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_control_intercepted_message",
-        description = "Forward, drop, or send an MCP-paused HTTP message to Burp's manual Intercept tab; optionally replace the complete raw request/response from standard Base64 before acting",
+        description = "Forward, drop, or send an MCP-paused HTTP message to Burp's manual Intercept tab; optionally replace the complete raw request/response from standard Base64 before acting. Operates on a single paused item; resolve all items before disabling interception.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -5435,7 +5453,7 @@ impl BurpTools {
     }
     #[tool(
         name = "burp_websocket_intercept_controller",
-        description = "Read or configure MCP-controlled Burp Proxy WebSocket interception for text and binary messages",
+        description = "Read or configure MCP-controlled Burp Proxy WebSocket interception for text and binary messages. Interception defaults to RECEIVED-only pauses. Enabling requires url_filter or in_scope_only=true; non-matching traffic continues without entering the queue. One bidirectional WebSocket exchange may yield both outbound and inbound messages; resolve all intended items then disable when done. Pending messages forward when timeout expires.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -5447,18 +5465,31 @@ impl BurpTools {
         &self,
         Parameters(input): Parameters<WebSocketInterceptControllerInput>,
     ) -> String {
-        match self.client.websocket_intercept_controller_config(WebSocketInterceptControllerConfigRequest {
-            enabled: input.enabled,
-            timeout_seconds: input.timeout_seconds,
-        }).await {
-            Ok(state) => serde_json::json!({"enabled": state.enabled, "timeout_seconds": state.timeout_seconds, "pending": state.pending}).to_string(),
-            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        match self
+            .client
+            .websocket_intercept_controller_config(WebSocketInterceptControllerConfigRequest {
+                enabled: input.enabled,
+                timeout_seconds: input.timeout_seconds,
+                url_filter: input.url_filter,
+                in_scope_only: input.in_scope_only,
+            })
+            .await
+        {
+            Ok(state) => serde_json::json!({
+                "enabled": state.enabled,
+                "timeout_seconds": state.timeout_seconds,
+                "pending": state.pending,
+                "url_filter": state.url_filter,
+                "in_scope_only": state.in_scope_only,
+            })
+            .to_string(),
+            Err(error) => rpc_error_json(error),
         }
     }
 
     #[tool(
         name = "burp_intercepted_websocket_messages",
-        description = "List text and binary WebSocket messages currently paused by the MCP intercept controller",
+        description = "List text and binary WebSocket messages currently paused by the MCP intercept controller in RECEIVED-only phases. A bidirectional WebSocket exchange yields separate outbound and inbound messages; resolve all intended items before disabling.",
         annotations(
             read_only_hint = true,
             destructive_hint = false,
@@ -5501,7 +5532,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_control_intercepted_websocket_message",
-        description = "Forward, drop, or send a paused text/binary WebSocket message to Burp's manual Intercept tab; optionally replace its raw payload from standard Base64",
+        description = "Forward, drop, or send a paused text/binary WebSocket message to Burp's manual Intercept tab; optionally replace its raw payload from standard Base64. Operates on a single paused item; resolve all items before disabling interception.",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -7376,6 +7407,38 @@ mod contract_tests {
         assert!(!props.contains_key("script"));
         assert!(!props.contains_key("script_id"));
         assert!(!props.contains_key("script_name"));
+    }
+
+    #[test]
+    fn editor_patch_tool_schema_contract() {
+        let router = BurpTools::burp_router();
+        let tool = router
+            .map
+            .get("burp_editor_patch")
+            .expect("burp_editor_patch tool registered");
+        let schema_text = serde_json::to_string(&tool.attr.input_schema)
+            .expect("burp_editor_patch schema serializes");
+        assert!(
+            schema_text.contains("\"mode\""),
+            "tool schema must contain mode"
+        );
+        for mode in [
+            "replace_selection",
+            "set_header",
+            "json_patch",
+            "set_param",
+            "regex",
+            "replace_all",
+        ] {
+            assert!(
+                schema_text.contains(&format!("\"{mode}\"")),
+                "missing mode '{mode}' in tool schema"
+            );
+        }
+        assert!(
+            !schema_text.contains("\"regex_replace\""),
+            "tool schema must not contain removed alias 'regex_replace'"
+        );
     }
 
     #[test]

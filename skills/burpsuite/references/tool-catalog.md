@@ -68,7 +68,7 @@ Fields ending in `?` are optional. `{}` means no arguments.
 | Tool | Input | Purpose |
 |---|---|---|
 | `burp_editor_get` | `{target_hint?, ttl_seconds?}` | Capture active or last-focused editor tab with rich metadata, selection offsets, and UTF-8 decoded text. |
-| `burp_editor_patch` | `{token, expected_sha256, mode?, text?, payload_base64?, selection_replacement?, header_name?, header_value?, header_remove?, regex_pattern?, regex_replacement?, regex_replace_all?, regex_case_insensitive?, json_path?, json_value?, param_name?, param_value?, param_remove?, param_type?}` | Surgically modify active Burp editor contents (`replace_selection`, `set_header`, `json_patch`, `set_param`, `regex`, `replace_all`) with automatic Content-Length and CRLF calculation. |
+| `burp_editor_patch` | `{token, expected_sha256, mode, ...}` | Surgically modify active Burp editor contents using typed mode operations (`replace_selection{text}`, `set_header{name, value?, remove?}`, `json_patch{json_path, value_json}`, `set_param{name, value?, remove?, param_type?}`, `regex{pattern, replacement, replace_all?, case_insensitive?}`, `replace_all{text? | payload_base64?}`) with automatic Content-Length and CRLF calculation. |
 | `burp_editor_renew_lease` | `{token, extend_seconds?}` | Extend the lifetime of an active Burp editor lease token. |
 
 ---
@@ -106,11 +106,11 @@ Fields ending in `?` are optional. `{}` means no arguments.
 
 | Tool | Input | Purpose |
 |---|---|---|
-| `burp_intercept_controller` | `{enabled?, timeout_seconds?, url_filter?, in_scope_only?}` | Configure scoped HTTP interception. Enabling requires `url_filter` or `in_scope_only: true`; non-matching traffic bypasses the queue. |
-| `burp_intercepted_messages` | `{limit?, cursor?, include_bodies?, max_body_length?}` | List HTTP messages currently paused by MCP intercept controller. Defaults to metadata-only; explicit bodies are capped at 4096 bytes and report original length/truncation. |
+| `burp_intercept_controller` | `{enabled?, timeout_seconds?, url_filter?, in_scope_only?}` | Configure scoped HTTP interception. Enabling requires `url_filter` or `in_scope_only: true`; defaults to RECEIVED-only pauses (avoiding duplicate TO_BE_SENT pauses); non-matching traffic bypasses the queue. |
+| `burp_intercepted_messages` | `{limit?, cursor?, include_bodies?, max_body_length?}` | List HTTP messages currently paused by MCP intercept controller. Defaults to metadata-only; explicit bodies are capped at 4096 bytes and report original length/truncation. One logical HTTP exchange may yield request and response items at RECEIVED phase; clients resolve all items and disable. |
 | `burp_control_intercepted_message` | `{id, action, message_base64?, max_body_length?}` | Forward, drop, or send an MCP-paused HTTP message to manual Intercept; optionally replace the complete raw message. The returned message is capped at 4096 bytes by default. |
-| `burp_websocket_intercept_controller` | `{enabled?, timeout_seconds?}` | Read or configure MCP-controlled WebSocket interception queue. |
-| `burp_intercepted_websocket_messages` | `{limit?, cursor?, include_bodies?, max_body_length?}` | List WebSocket messages currently paused by MCP controller. Defaults to metadata-only; explicit payloads are capped at 4096 bytes and report original length/truncation. |
+| `burp_websocket_intercept_controller` | `{enabled?, timeout_seconds?, url_filter?, in_scope_only?}` | Read or configure MCP-controlled WebSocket interception queue. Enabling requires `url_filter` or `in_scope_only: true`; defaults to RECEIVED-only pauses; non-matching traffic bypasses the queue. |
+| `burp_intercepted_websocket_messages` | `{limit?, cursor?, include_bodies?, max_body_length?}` | List WebSocket messages currently paused by MCP controller. Defaults to metadata-only; explicit payloads are capped at 4096 bytes and report original length/truncation. One bidirectional exchange yields outbound and inbound messages at RECEIVED phase; clients resolve all items and disable. |
 | `burp_control_intercepted_websocket_message` | `{id, action, payload_base64?, max_body_length?}` | Forward, drop, or send a paused WebSocket frame to manual Intercept; optionally replace its payload. The returned payload is capped at 4096 bytes by default. |
 
 ---

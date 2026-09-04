@@ -73,17 +73,8 @@ internal class ProxyInterceptController(private val api: MontoyaApi) : AutoClose
                 }
             }
 
-            override fun handleRequestToBeSent(request: InterceptedRequest): ProxyRequestToBeSentAction {
-                if (!enabled) return ProxyRequestToBeSentAction.continueWith(request)
-                val snapshot = requestSnapshot(request, InterceptPhase.TO_BE_SENT)
-                if (!shouldPause(snapshot)) return ProxyRequestToBeSentAction.continueWith(request)
-                val resolution = await(snapshot)
-                return when (resolution.decision) {
-                    InterceptDecision.DROP -> ProxyRequestToBeSentAction.drop()
-                    InterceptDecision.FORWARD, InterceptDecision.INTERCEPT ->
-                        ProxyRequestToBeSentAction.continueWith(requestMessage(request, resolution.message))
-                }
-            }
+            override fun handleRequestToBeSent(request: InterceptedRequest): ProxyRequestToBeSentAction =
+                ProxyRequestToBeSentAction.continueWith(request)
         })
         responseRegistration = api.proxy().registerResponseHandler(object : ProxyResponseHandler {
             override fun handleResponseReceived(response: InterceptedResponse): ProxyResponseReceivedAction {
@@ -98,17 +89,8 @@ internal class ProxyInterceptController(private val api: MontoyaApi) : AutoClose
                 }
             }
 
-            override fun handleResponseToBeSent(response: InterceptedResponse): ProxyResponseToBeSentAction {
-                if (!enabled) return ProxyResponseToBeSentAction.continueWith(response)
-                val snapshot = responseSnapshot(response, InterceptPhase.TO_BE_SENT)
-                if (!shouldPause(snapshot)) return ProxyResponseToBeSentAction.continueWith(response)
-                val resolution = await(snapshot)
-                return when (resolution.decision) {
-                    InterceptDecision.DROP -> ProxyResponseToBeSentAction.drop()
-                    InterceptDecision.FORWARD, InterceptDecision.INTERCEPT ->
-                        ProxyResponseToBeSentAction.continueWith(responseMessage(response, resolution.message))
-                }
-            }
+            override fun handleResponseToBeSent(response: InterceptedResponse): ProxyResponseToBeSentAction =
+                ProxyResponseToBeSentAction.continueWith(response)
         })
     }
 

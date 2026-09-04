@@ -193,8 +193,8 @@ Response Comparer & Diff engine.
 ## 4. Active UI & Desktop Editor Integration (3 tools)
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
-| `burp_editor_get` | Capture the active or last-focused Burp editor tab (HTTP Request/Response or WebSocket) with rich metadata, selection offsets, and UTF-8 decoded text. | Focus a tab, test fallback to Last-Active or Staged Buffer, verify rich metadata. |
-| `burp_editor_patch` | Surgically modify the active Burp editor contents (`replace_selection`, `set_header`, `json_patch`, `set_param`, `regex`, `replace_all`) with automatic Content-Length calculation and CRLF normalization. | Apply a surgical patch, verify zero formatting corruption and 90% token reduction. |
+| `burp_editor_get` | Capture the active or last-focused Burp editor tab (HTTP Request/Response or WebSocket) with rich metadata, selection offsets, and UTF-8 decoded text. Discovers targets via direct Swing focus, explicit `target_hint` (`"request"`, `"response"`, `"repeater"`, `"websocket"`), last-active editor fallback, or context-menu staged buffer. | Focus a tab, test fallback to Last-Active or Staged Buffer, verify rich metadata. |
+| `burp_editor_patch` | Surgically modify active Burp editor contents using typed mode operations (`replace_selection{text}`, `set_header{name, value?, remove?}`, `json_patch{json_path, value_json}`, `set_param{name, value?, remove?, param_type?}`, `regex{pattern, replacement, replace_all?, case_insensitive?}`, `replace_all{text? | payload_base64?}`) with automatic Content-Length calculation and CRLF normalization. | Apply a surgical patch, verify zero formatting corruption and 90% token reduction. |
 | `burp_editor_renew_lease` | Extend the lifetime of an active Burp editor lease token. | Renew active token, verify extended expiry timestamp. |
 ## 5. Cookies & Findings (3 tools)
 
@@ -229,11 +229,11 @@ Response Comparer & Diff engine.
 
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
-| `burp_intercept_controller` | Read or configure MCP-controlled HTTP request/response interception. Enabling requires `url_filter` or `in_scope_only: true`; non-matching traffic bypasses the queue. | Configure a bounded timeout and narrow scope filter. |
-| `burp_intercepted_messages` | List HTTP messages currently paused by MCP intercept controller. `include_bodies` defaults to false; `max_body_length` defaults to 4096 bytes and outputs report original length/truncation. | Inspect paused requests/responses. |
+| `burp_intercept_controller` | Read or configure MCP-controlled HTTP request/response interception. Enabling requires `url_filter` or `in_scope_only: true`; defaults to RECEIVED-only pauses (avoiding duplicate TO_BE_SENT pauses); non-matching traffic bypasses the queue. | Configure a bounded timeout and narrow scope filter. |
+| `burp_intercepted_messages` | List HTTP messages currently paused by MCP intercept controller. Defaults to metadata-only (`include_bodies: false`); capped at `max_body_length` (default 4096 bytes). One logical HTTP exchange may yield request and response items at RECEIVED phase; clients resolve all items and disable. | Inspect paused requests/responses. |
 | `burp_control_intercepted_message` | Forward, drop, or edit an MCP-paused HTTP message. `max_body_length` caps the returned message at 4096 bytes by default. | Resolve paused message. |
-| `burp_websocket_intercept_controller` | Read or configure MCP-controlled WebSocket interception queue. | Configure WebSocket intercept queue. |
-| `burp_intercepted_websocket_messages` | List WebSocket messages currently paused by MCP controller. `include_bodies` defaults to false; `max_body_length` defaults to 4096 bytes and outputs report original length/truncation. | Inspect paused text/binary frames. |
+| `burp_websocket_intercept_controller` | Read or configure MCP-controlled WebSocket interception queue. Enabling requires `url_filter` or `in_scope_only: true`; defaults to RECEIVED-only pauses; non-matching traffic bypasses the queue. | Configure WebSocket intercept queue with url_filter or in_scope_only. |
+| `burp_intercepted_websocket_messages` | List WebSocket messages currently paused by MCP controller. Defaults to metadata-only (`include_bodies: false`); capped at `max_body_length` (default 4096 bytes). One bidirectional exchange yields outbound and inbound messages; clients resolve all items and disable. | Inspect paused text/binary frames. |
 | `burp_control_intercepted_websocket_message` | Forward, drop, or edit a paused WebSocket frame. `max_body_length` caps the returned payload at 4096 bytes by default. | Resolve paused WebSocket frame. |
 
 ---
