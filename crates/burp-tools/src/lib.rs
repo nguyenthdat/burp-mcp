@@ -54,10 +54,20 @@ use std::path::Path;
 use std::sync::Arc;
 use utility_engine::{self as utility_engine_api, DataValue};
 
+pub const DEFAULT_MAX_BODY_LENGTH: usize = 4096;
 const MAX_PAGE_SIZE: u32 = 500;
 const MAX_KOTLIN_INDEX: u32 = i32::MAX as u32;
 const MAX_TRAVERSAL_DEPTH: u32 = 8;
 
+pub fn encode_bounded_base64(bytes: &[u8], max_length: Option<usize>) -> (String, bool, usize) {
+    let total_len = bytes.len();
+    let cap = max_length.unwrap_or(DEFAULT_MAX_BODY_LENGTH);
+    if bytes.len() > cap {
+        (STANDARD.encode(&bytes[..cap]), true, total_len)
+    } else {
+        (STANDARD.encode(bytes), false, total_len)
+    }
+}
 fn validated_index(index: u32) -> Result<u32, &'static str> {
     if index > MAX_KOTLIN_INDEX {
         Err("index must be at most 2147483647")
@@ -103,7 +113,15 @@ struct ProxyHistoryItemOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     request_base64: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    request_length: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_truncated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     response_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_length: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_truncated: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     notes: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,6 +146,7 @@ struct ProxyHistoryOutput {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ProxyDetailInput {
     pub index: u32,
+    pub include_bodies: Option<bool>,
     pub headers_only: Option<bool>,
     pub extract_css: Option<String>,
     pub extract_json: Option<String>,
@@ -140,7 +159,15 @@ struct ProxyDetailOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     request_base64: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    request_length: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_truncated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     response_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_length: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_truncated: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     request_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -262,6 +289,8 @@ pub struct InterceptControllerInput {
 pub struct InterceptedMessagesInput {
     pub limit: Option<u32>,
     pub cursor: Option<String>,
+    pub include_bodies: Option<bool>,
+    pub max_body_length: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -280,6 +309,7 @@ pub struct ControlInterceptedMessageInput {
         description = "Optional complete replacement HTTP message encoded as standard Base64"
     )]
     pub message_base64: Option<String>,
+    pub max_body_length: Option<usize>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -291,8 +321,18 @@ struct InterceptedMessageOutput {
     method: String,
     status: u32,
     is_in_scope: bool,
-    request_base64: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_length: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_truncated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     response_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_length: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_truncated: Option<bool>,
 }
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -411,6 +451,8 @@ impl ProxyInterceptRuleInput {
 pub struct ProxyWebSocketHistoryInput {
     pub limit: Option<u32>,
     pub cursor: Option<String>,
+    pub include_bodies: Option<bool>,
+    pub max_body_length: Option<usize>,
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -423,6 +465,8 @@ pub struct WebSocketInterceptControllerInput {
 pub struct InterceptedWebSocketMessagesInput {
     pub limit: Option<u32>,
     pub cursor: Option<String>,
+    pub include_bodies: Option<bool>,
+    pub max_body_length: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -433,6 +477,7 @@ pub struct ControlInterceptedWebSocketMessageInput {
         description = "Optional replacement payload encoded as standard Base64; empty Base64 replaces with an empty payload"
     )]
     pub payload_base64: Option<String>,
+    pub max_body_length: Option<usize>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -443,7 +488,40 @@ struct InterceptedWebSocketMessageOutput {
     direction: String,
     message_type: String,
     phase: String,
-    payload_base64: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload_length: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload_truncated: Option<bool>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct ProxyWebSocketHistoryItemOutput {
+    index: u32,
+    id: u32,
+    websocket_id: u32,
+    direction: String,
+    payload_length: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload_truncated: Option<bool>,
+    edited_payload_length: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edited_payload_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edited_payload_truncated: Option<bool>,
+    time: String,
+    listener_port: u32,
+    upgrade_url: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct ProxyWebSocketHistoryOutput {
+    items: Vec<ProxyWebSocketHistoryItemOutput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    page: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -578,7 +656,15 @@ struct LoggerHistoryItemOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     request_base64: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    request_length: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_truncated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     response_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_length: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_truncated: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     notes: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -605,6 +691,7 @@ struct LoggerHistoryOutput {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LoggerDetailInput {
     pub index: u32,
+    pub include_bodies: Option<bool>,
     pub headers_only: Option<bool>,
     pub extract_css: Option<String>,
     pub extract_json: Option<String>,
@@ -618,7 +705,15 @@ struct LoggerDetailOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     request_base64: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    request_length: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_truncated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     response_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_length: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_truncated: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     request_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -763,12 +858,72 @@ pub struct InspectConfigInput {
     pub paths: Option<Vec<String>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyRulePhaseInput {
+    Request,
+    Response,
+}
+
+impl ProxyRulePhaseInput {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Request => "request",
+            Self::Response => "response",
+        }
+    }
+}
+
+impl From<ProxyRulePhaseInput> for String {
+    fn from(phase: ProxyRulePhaseInput) -> Self {
+        phase.as_str().to_owned()
+    }
+}
+
+impl std::fmt::Display for ProxyRulePhaseInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyRuleActionInput {
+    Forward,
+    Intercept,
+    Drop,
+    Edit,
+}
+
+impl ProxyRuleActionInput {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Forward => "forward",
+            Self::Intercept => "intercept",
+            Self::Drop => "drop",
+            Self::Edit => "edit",
+        }
+    }
+}
+
+impl From<ProxyRuleActionInput> for String {
+    fn from(action: ProxyRuleActionInput) -> Self {
+        action.as_str().to_owned()
+    }
+}
+
+impl std::fmt::Display for ProxyRuleActionInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RegisterProxyRuleInput {
     pub id: Option<String>,
     pub url_contains: String,
-    pub phase: Option<String>,
-    pub action: Option<String>,
+    pub phase: Option<ProxyRulePhaseInput>,
+    pub rule_action: Option<ProxyRuleActionInput>,
     #[serde(rename = "match")]
     pub match_text: Option<String>,
     pub replace: Option<String>,
@@ -776,7 +931,6 @@ pub struct RegisterProxyRuleInput {
     pub header_value: Option<String>,
     pub enabled: Option<bool>,
 }
-
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RemoveProxyRuleInput {
     pub id: Option<String>,
@@ -1023,6 +1177,30 @@ pub struct ManagedWebSocketHistoryInput {
     pub id: Option<String>,
     pub limit: Option<u32>,
     pub cursor: Option<String>,
+    pub include_bodies: Option<bool>,
+    pub max_body_length: Option<usize>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct ManagedWebSocketHistoryItemOutput {
+    index: u64,
+    websocket_id: String,
+    direction: String,
+    r#type: String,
+    length: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    payload_truncated: Option<bool>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct ManagedWebSocketHistoryOutput {
+    items: Vec<ManagedWebSocketHistoryItemOutput>,
+    total: u32,
+    truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1331,7 +1509,7 @@ impl BurpTools {
         let headers_only = input.headers_only.unwrap_or(false);
         let extract_css = input.extract_css.clone();
         let extract_json = input.extract_json.clone();
-        let max_body_length = input.max_body_length;
+        let effective_max_length = Some(input.max_body_length.unwrap_or(DEFAULT_MAX_BODY_LENGTH));
         match self
             .client
             .proxy_history(to_proxy_history_request(input, limit))
@@ -1344,41 +1522,49 @@ impl BurpTools {
                         .items
                         .into_iter()
                         .map(|item| {
-                            let (resp_b64, resp_text, is_trunc) = if include_bodies && item.has_response {
+                            let req_len = item.request.len();
+                            let (req_b64, req_trunc) = if include_bodies && !item.request.is_empty() {
+                                let (b64, trunc, _) = encode_bounded_base64(&item.request, effective_max_length);
+                                (Some(b64), trunc.then_some(true))
+                            } else {
+                                (None, None)
+                            };
+
+                            let resp_len = item.has_response.then_some(item.response.len());
+                            let (resp_b64, resp_text, is_trunc, resp_trunc) = if include_bodies && item.has_response {
                                 let (filtered, trunc) = body_filter::filter_and_truncate_payload(
                                     &item.response,
                                     (!item.content_type.is_empty()).then_some(&item.content_type),
                                     headers_only,
                                     extract_css.as_deref(),
                                     extract_json.as_deref(),
-                                    max_body_length,
+                                    effective_max_length,
                                 );
-                                (Some(STANDARD.encode(&item.response)), Some(filtered), trunc)
+                                let (b64, b64_trunc, _) = encode_bounded_base64(&item.response, effective_max_length);
+                                (Some(b64), Some(filtered), trunc || b64_trunc, b64_trunc.then_some(true))
                             } else {
-                                (None, None, false)
-                            };
-
-                            let req_b64 = if include_bodies {
-                                Some(STANDARD.encode(&item.request))
-                            } else {
-                                None
+                                (None, None, false, None)
                             };
 
                             ProxyHistoryItemOutput {
                                 index: item.index,
-                                 method: item.method,
-                                 url: item.url,
-                                 status: item.status,
-                                 length: item.length,
-                                 has_response: item.has_response,
-                                 request_base64: req_b64,
-                                 response_base64: resp_b64,
-                                 notes: (!item.notes.is_empty()).then_some(item.notes),
-                                 highlight: (!item.highlight.is_empty()).then_some(item.highlight),
-                                 time: (!item.time.is_empty()).then_some(item.time),
-                                 content_type: (!item.content_type.is_empty()).then_some(item.content_type),
-                                 extracted_text: resp_text,
-                                 body_truncated: is_trunc.then_some(true),
+                                method: item.method,
+                                url: item.url,
+                                status: item.status,
+                                length: item.length,
+                                has_response: item.has_response,
+                                request_base64: req_b64,
+                                request_length: Some(req_len),
+                                request_truncated: req_trunc,
+                                response_base64: resp_b64,
+                                response_length: resp_len,
+                                response_truncated: resp_trunc,
+                                notes: (!item.notes.is_empty()).then_some(item.notes),
+                                highlight: (!item.highlight.is_empty()).then_some(item.highlight),
+                                time: (!item.time.is_empty()).then_some(item.time),
+                                content_type: (!item.content_type.is_empty()).then_some(item.content_type),
+                                extracted_text: resp_text,
+                                body_truncated: is_trunc.then_some(true),
                             }
                         })
                         .collect(),
@@ -1399,14 +1585,38 @@ impl BurpTools {
         let headers_only = input.headers_only.unwrap_or(false);
         let extract_css = input.extract_css.clone();
         let extract_json = input.extract_json.clone();
-        let max_body_length = input.max_body_length;
+        let effective_max_length = Some(input.max_body_length.unwrap_or(DEFAULT_MAX_BODY_LENGTH));
         match self.client.proxy_detail(ProxyDetailRequest { index }).await {
             Ok(detail) => {
+                let (req_b64, req_trunc, req_len) = if !detail.request.is_empty() {
+                    let (b64, trunc, len) =
+                        encode_bounded_base64(&detail.request, effective_max_length);
+                    (Some(b64), trunc, Some(len))
+                } else {
+                    (None, false, Some(0))
+                };
+
+                let (resp_b64, resp_trunc, resp_len) = if !detail.response.is_empty() {
+                    let (b64, trunc, len) =
+                        encode_bounded_base64(&detail.response, effective_max_length);
+                    (Some(b64), trunc, Some(len))
+                } else {
+                    (None, false, None)
+                };
+
                 let req_text = String::from_utf8_lossy(&detail.request).into_owned();
                 let req_display = if headers_only {
                     body_filter::extract_headers_only(&req_text)
                 } else {
-                    req_text
+                    let (filtered, _) = body_filter::filter_and_truncate_payload(
+                        &detail.request,
+                        None,
+                        headers_only,
+                        None,
+                        None,
+                        effective_max_length,
+                    );
+                    filtered
                 };
 
                 let (resp_text, is_trunc) = if !detail.response.is_empty() {
@@ -1416,7 +1626,7 @@ impl BurpTools {
                         headers_only,
                         extract_css.as_deref(),
                         extract_json.as_deref(),
-                        max_body_length,
+                        effective_max_length,
                     );
                     (Some(filtered), trunc)
                 } else {
@@ -1425,13 +1635,16 @@ impl BurpTools {
 
                 serde_json::to_string(&ProxyDetailOutput {
                     index: detail.index,
-                    request_base64: Some(STANDARD.encode(&detail.request)),
-                    response_base64: (!detail.response.is_empty())
-                        .then(|| STANDARD.encode(&detail.response)),
+                    request_base64: req_b64,
+                    request_length: req_len,
+                    request_truncated: req_trunc.then_some(true),
+                    response_base64: resp_b64,
+                    response_length: resp_len,
+                    response_truncated: resp_trunc.then_some(true),
                     request_text: Some(req_display),
                     response_text: resp_text,
                     extracted_text: None,
-                    truncated: is_trunc.then_some(true),
+                    truncated: (is_trunc || req_trunc || resp_trunc).then_some(true),
                     notes: (!detail.notes.is_empty()).then_some(detail.notes),
                     highlight: (!detail.highlight.is_empty()).then_some(detail.highlight),
                 })
@@ -1450,7 +1663,7 @@ impl BurpTools {
         let headers_only = input.headers_only.unwrap_or(false);
         let extract_css = input.extract_css.clone();
         let extract_json = input.extract_json.clone();
-        let max_body_length = input.max_body_length;
+        let effective_max_length = Some(input.max_body_length.unwrap_or(DEFAULT_MAX_BODY_LENGTH));
         match self
             .client
             .logger_history(LoggerHistoryRequest {
@@ -1477,7 +1690,18 @@ impl BurpTools {
                         .items
                         .into_iter()
                         .map(|item| {
-                            let (resp_b64, resp_text, is_trunc) = if include_bodies
+                            let req_len = item.request.len();
+                            let (req_b64, req_trunc) = if include_bodies && !item.request.is_empty()
+                            {
+                                let (b64, trunc, _) =
+                                    encode_bounded_base64(&item.request, effective_max_length);
+                                (Some(b64), trunc.then_some(true))
+                            } else {
+                                (None, None)
+                            };
+
+                            let resp_len = item.has_response.then_some(item.response.len());
+                            let (resp_b64, resp_text, is_trunc, resp_trunc) = if include_bodies
                                 && item.has_response
                             {
                                 let (filtered, trunc) = body_filter::filter_and_truncate_payload(
@@ -1486,17 +1710,18 @@ impl BurpTools {
                                     headers_only,
                                     extract_css.as_deref(),
                                     extract_json.as_deref(),
-                                    max_body_length,
+                                    effective_max_length,
                                 );
-                                (Some(STANDARD.encode(&item.response)), Some(filtered), trunc)
+                                let (b64, b64_trunc, _) =
+                                    encode_bounded_base64(&item.response, effective_max_length);
+                                (
+                                    Some(b64),
+                                    Some(filtered),
+                                    trunc || b64_trunc,
+                                    b64_trunc.then_some(true),
+                                )
                             } else {
-                                (None, None, false)
-                            };
-
-                            let req_b64 = if include_bodies {
-                                Some(STANDARD.encode(&item.request))
-                            } else {
-                                None
+                                (None, None, false, None)
                             };
 
                             LoggerHistoryItemOutput {
@@ -1509,7 +1734,11 @@ impl BurpTools {
                                 length: item.length,
                                 has_response: item.has_response,
                                 request_base64: req_b64,
+                                request_length: Some(req_len),
+                                request_truncated: req_trunc,
                                 response_base64: resp_b64,
+                                response_length: resp_len,
+                                response_truncated: resp_trunc,
                                 notes: (!item.notes.is_empty()).then_some(item.notes),
                                 highlight: (!item.highlight.is_empty()).then_some(item.highlight),
                                 time: (!item.time.is_empty()).then_some(item.time),
@@ -1538,18 +1767,42 @@ impl BurpTools {
         let headers_only = input.headers_only.unwrap_or(false);
         let extract_css = input.extract_css.clone();
         let extract_json = input.extract_json.clone();
-        let max_body_length = input.max_body_length;
+        let effective_max_length = Some(input.max_body_length.unwrap_or(DEFAULT_MAX_BODY_LENGTH));
         match self
             .client
             .logger_detail(LoggerDetailRequest { index })
             .await
         {
             Ok(detail) => {
+                let (req_b64, req_trunc, req_len) = if !detail.request.is_empty() {
+                    let (b64, trunc, len) =
+                        encode_bounded_base64(&detail.request, effective_max_length);
+                    (Some(b64), trunc, Some(len))
+                } else {
+                    (None, false, Some(0))
+                };
+
+                let (resp_b64, resp_trunc, resp_len) = if !detail.response.is_empty() {
+                    let (b64, trunc, len) =
+                        encode_bounded_base64(&detail.response, effective_max_length);
+                    (Some(b64), trunc, Some(len))
+                } else {
+                    (None, false, None)
+                };
+
                 let req_text = String::from_utf8_lossy(&detail.request).into_owned();
                 let req_display = if headers_only {
                     body_filter::extract_headers_only(&req_text)
                 } else {
-                    req_text
+                    let (filtered, _) = body_filter::filter_and_truncate_payload(
+                        &detail.request,
+                        None,
+                        headers_only,
+                        None,
+                        None,
+                        effective_max_length,
+                    );
+                    filtered
                 };
 
                 let (resp_text, is_trunc) = if !detail.response.is_empty() {
@@ -1559,7 +1812,7 @@ impl BurpTools {
                         headers_only,
                         extract_css.as_deref(),
                         extract_json.as_deref(),
-                        max_body_length,
+                        effective_max_length,
                     );
                     (Some(filtered), trunc)
                 } else {
@@ -1569,12 +1822,15 @@ impl BurpTools {
                 serde_json::to_string(&LoggerDetailOutput {
                     index: detail.index,
                     source: detail.source,
-                    request_base64: Some(STANDARD.encode(&detail.request)),
-                    response_base64: (!detail.response.is_empty())
-                        .then(|| STANDARD.encode(&detail.response)),
+                    request_base64: req_b64,
+                    request_length: req_len,
+                    request_truncated: req_trunc.then_some(true),
+                    response_base64: resp_b64,
+                    response_length: resp_len,
+                    response_truncated: resp_trunc.then_some(true),
                     request_text: Some(req_display),
                     response_text: resp_text,
-                    truncated: is_trunc.then_some(true),
+                    truncated: (is_trunc || req_trunc || resp_trunc).then_some(true),
                     notes: (!detail.notes.is_empty()).then_some(detail.notes),
                     highlight: (!detail.highlight.is_empty()).then_some(detail.highlight),
                 })
@@ -1993,13 +2249,24 @@ impl BurpTools {
         &self,
         Parameters(input): Parameters<RegisterProxyRuleInput>,
     ) -> String {
-        let action = input.action.unwrap_or_else(|| "forward".to_owned());
+        if input.url_contains.trim().is_empty() {
+            return tool_input_error(
+                "burp_settings",
+                "register_proxy_rule",
+                "`url_contains` is required and must not be empty",
+            );
+        }
+        let action = input
+            .rule_action
+            .map_or("forward", |a| a.as_str())
+            .to_owned();
+        let phase = input.phase.map_or("request", |p| p.as_str()).to_owned();
         action_json(
             self.client
                 .register_proxy_rule(RegisterProxyRuleRequest {
                     id: input.id.unwrap_or_else(|| "default".to_owned()),
                     url_contains: input.url_contains,
-                    phase: input.phase.unwrap_or_else(|| "request".to_owned()),
+                    phase,
                     action,
                     r#match: input.match_text.unwrap_or_default(),
                     replacement: input.replace.unwrap_or_default(),
@@ -2611,6 +2878,8 @@ impl BurpTools {
         if limit > MAX_PAGE_SIZE {
             return serde_json::json!({"error": "limit must be at most 500"}).to_string();
         }
+        let include_bodies = input.include_bodies.unwrap_or(false);
+        let effective_max_length = Some(input.max_body_length.unwrap_or(DEFAULT_MAX_BODY_LENGTH));
         match self
             .client
             .managed_websocket_history(ManagedWebSocketHistoryRequest {
@@ -2624,18 +2893,36 @@ impl BurpTools {
         {
             Ok(response) => {
                 let page = response.page.unwrap_or_default();
-                serde_json::json!({
-                    "items": response.items.into_iter().map(|item| serde_json::json!({
-                        "index": item.index,
-                        "websocket_id": item.websocket_id,
-                        "direction": item.direction,
-                        "type": item.r#type,
-                        "payload": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, item.payload),
-                    })).collect::<Vec<_>>(),
-                    "total": page.total,
-                    "truncated": page.truncated,
-                    "next_cursor": (!page.next_cursor.is_empty()).then_some(page.next_cursor),
-                }).to_string()
+                serde_json::to_string(&ManagedWebSocketHistoryOutput {
+                    items: response
+                        .items
+                        .into_iter()
+                        .map(|item| {
+                            let payload_len = item.payload.len();
+                            let (payload_b64, payload_trunc) =
+                                if include_bodies && !item.payload.is_empty() {
+                                    let (b64, trunc, _) =
+                                        encode_bounded_base64(&item.payload, effective_max_length);
+                                    (Some(b64), trunc.then_some(true))
+                                } else {
+                                    (None, None)
+                                };
+                            ManagedWebSocketHistoryItemOutput {
+                                index: item.index,
+                                websocket_id: item.websocket_id,
+                                direction: item.direction,
+                                r#type: item.r#type,
+                                length: payload_len,
+                                payload: payload_b64,
+                                payload_truncated: payload_trunc,
+                            }
+                        })
+                        .collect(),
+                    total: page.total,
+                    truncated: page.truncated,
+                    next_cursor: (!page.next_cursor.is_empty()).then_some(page.next_cursor),
+                })
+                .expect("managed websocket history must serialize")
             }
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
@@ -2824,8 +3111,8 @@ impl BurpTools {
         )
     )]
     async fn proxy(&self, Parameters(input): Parameters<suite::ProxyActionInput>) -> String {
-        match input.action.to_lowercase().as_str() {
-            "history" => {
+        match input.action {
+            suite::ProxyAction::History => {
                 self.proxy_history(Parameters(ProxyHistoryInput {
                     limit: input.limit,
                     offset: input.offset,
@@ -2843,10 +3130,11 @@ impl BurpTools {
                 }))
                 .await
             }
-            "detail" => {
+            suite::ProxyAction::Detail => {
                 let index = input.index.unwrap_or(0);
                 self.proxy_detail(Parameters(ProxyDetailInput {
                     index,
+                    include_bodies: input.include_bodies,
                     headers_only: input.headers_only,
                     extract_css: input.extract_css,
                     extract_json: input.extract_json,
@@ -2854,13 +3142,13 @@ impl BurpTools {
                 }))
                 .await
             }
-            "annotate" => {
+            suite::ProxyAction::Annotate => {
                 let index = input.index.unwrap_or(0);
                 let note = input.notes.unwrap_or_default();
                 self.annotate(Parameters(AnnotateInput { index, note }))
                     .await
             }
-            "highlight" => {
+            suite::ProxyAction::Highlight => {
                 let index = input.index.unwrap_or(0);
                 self.highlight(Parameters(HighlightInput {
                     index,
@@ -2868,7 +3156,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "extract" => {
+            suite::ProxyAction::Extract => {
                 let index = input.index.unwrap_or(0);
                 let regex = input.regex.unwrap_or_default();
                 self.extract_from_response(Parameters(ExtractResponseInput {
@@ -2878,15 +3166,14 @@ impl BurpTools {
                 }))
                 .await
             }
-            "websocket_history" => {
+            suite::ProxyAction::WebsocketHistory => {
                 self.proxy_websocket_history(Parameters(ProxyWebSocketHistoryInput {
                     limit: input.limit,
                     cursor: input.cursor,
+                    include_bodies: input.include_bodies,
+                    max_body_length: input.max_body_length,
                 }))
                 .await
-            }
-            other => {
-                serde_json::json!({"error": format!("unknown proxy action: {other}")}).to_string()
             }
         }
     }
@@ -2971,38 +3258,35 @@ impl BurpTools {
         )
     )]
     async fn target(&self, Parameters(input): Parameters<suite::TargetActionInput>) -> String {
-        match input.action.to_lowercase().as_str() {
-            "get_scope" | "scope_check" => {
+        match input.action {
+            suite::TargetAction::GetScope => {
                 let url = input.url.unwrap_or_default();
                 self.scope_check(Parameters(ScopeCheckInput { url })).await
             }
-            "add_scope" => {
+            suite::TargetAction::AddScope => {
                 let url = input.url.unwrap_or_default();
                 self.add_to_scope(Parameters(ScopeMutationInput { url }))
                     .await
             }
-            "remove_scope" => {
+            suite::TargetAction::RemoveScope => {
                 let url = input.url.unwrap_or_default();
                 self.remove_from_scope(Parameters(ScopeMutationInput { url }))
                     .await
             }
-            "info" => {
+            suite::TargetAction::Info => {
                 self.target_info(Parameters(TargetInfoInput {
                     url: input.url_prefix,
                     limit: input.limit,
                 }))
                 .await
             }
-            "sitemap" => {
+            suite::TargetAction::Sitemap => {
                 self.sitemap(Parameters(SitemapInput {
                     url_prefix: input.url_prefix,
                     limit: input.limit,
                     cursor: input.cursor,
                 }))
                 .await
-            }
-            other => {
-                serde_json::json!({"error": format!("unknown target action: {other}")}).to_string()
             }
         }
     }
@@ -3018,8 +3302,8 @@ impl BurpTools {
         )
     )]
     async fn scanner(&self, Parameters(input): Parameters<suite::ScannerActionInput>) -> String {
-        match input.action.to_lowercase().as_str() {
-            "start_audit" => {
+        match input.action {
+            suite::ScannerAction::StartAudit => {
                 let url = input.url.unwrap_or_default();
                 self.scan_start(Parameters(AuditInput {
                     url,
@@ -3032,7 +3316,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "start_crawl" => {
+            suite::ScannerAction::StartCrawl => {
                 let seed_urls = input.seed_urls.unwrap_or_default();
                 self.crawl(Parameters(CrawlInput {
                     seed_urls,
@@ -3044,23 +3328,23 @@ impl BurpTools {
                 }))
                 .await
             }
-            "stop" => {
+            suite::ScannerAction::Stop => {
                 let job_id = input.job_id.unwrap_or_default();
                 self.scan_stop(Parameters(JobInput { job_id })).await
             }
-            "list_issues" => {
+            suite::ScannerAction::ListIssues => {
                 self.scan_issues(Parameters(ScanIssuesInput {
                     limit: input.limit,
                     cursor: input.cursor,
                 }))
                 .await
             }
-            "issue_detail" => {
+            suite::ScannerAction::IssueDetail => {
                 let index = input.index.unwrap_or(0);
                 self.scan_issue_detail(Parameters(ScanIssueDetailInput { index }))
                     .await
             }
-            "update_issue" => {
+            suite::ScannerAction::UpdateIssue => {
                 let index = input.index.unwrap_or(0);
                 let status = input.status.unwrap_or_else(|| "confirmed".to_string());
                 self.update_scan_issue_status(Parameters(ScanIssueUpdateInput {
@@ -3072,7 +3356,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "report" => {
+            suite::ScannerAction::Report => {
                 let format = input.format.unwrap_or_else(|| "html".to_string());
                 let path = input.path.unwrap_or_default();
                 self.scanner_generate_report(Parameters(GenerateScannerReportInput {
@@ -3082,11 +3366,11 @@ impl BurpTools {
                 }))
                 .await
             }
-            "remove" => {
+            suite::ScannerAction::Remove => {
                 let job_id = input.job_id.unwrap_or_default();
                 self.scan_remove(Parameters(JobInput { job_id })).await
             }
-            "test_bcheck" | "dry_run" => {
+            suite::ScannerAction::TestBcheck => {
                 self.test_bcheck(Parameters(BCheckTestInput {
                     script: input.script.unwrap_or_default(),
                     request: input.request.unwrap_or_default(),
@@ -3096,9 +3380,6 @@ impl BurpTools {
                     https: input.https,
                 }))
                 .await
-            }
-            other => {
-                serde_json::json!({"error": format!("unknown scanner action: {other}")}).to_string()
             }
         }
     }
@@ -3114,8 +3395,8 @@ impl BurpTools {
         )
     )]
     async fn fuzzer(&self, Parameters(input): Parameters<suite::FuzzerActionInput>) -> String {
-        match input.action.to_lowercase().as_str() {
-            "fuzz" => {
+        match input.action {
+            suite::FuzzerAction::Fuzz => {
                 let template = input.template.unwrap_or_default();
                 let host = input.host.unwrap_or_default();
                 self.inline_fuzzer(Parameters(BoundedInputMatrixInput {
@@ -3132,7 +3413,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "race" => {
+            suite::FuzzerAction::Race => {
                 let request = input.request.unwrap_or_default();
                 let host = input.host.unwrap_or_default();
                 self.race_condition(Parameters(ConcurrentRequestCheckInput {
@@ -3145,7 +3426,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "send_to_intruder" => {
+            suite::FuzzerAction::SendToIntruder => {
                 let request = input.request.unwrap_or_default();
                 let host = input.host.unwrap_or_default();
                 self.send_to_intruder(Parameters(SendToIntruderInput {
@@ -3157,8 +3438,8 @@ impl BurpTools {
                 }))
                 .await
             }
-            "list_payloads" => self.payload_list_list().await,
-            "get_payloads" | "get_payload_list" => {
+            suite::FuzzerAction::ListPayloads => self.payload_list_list().await,
+            suite::FuzzerAction::GetPayloadList => {
                 let id = input.id.unwrap_or_default();
                 self.payload_list_get(Parameters(GetPayloadListInput {
                     id,
@@ -3167,7 +3448,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "create_payload_list" => {
+            suite::FuzzerAction::CreatePayloadList => {
                 let id = input.id.unwrap_or_else(|| "default".to_string());
                 let display_name = input.name.unwrap_or_else(|| id.clone());
                 let payloads = input.payloads.unwrap_or_default();
@@ -3178,7 +3459,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "import_payload_list" => {
+            suite::FuzzerAction::ImportPayloadList => {
                 let id = input.id.unwrap_or_else(|| "imported".to_string());
                 let display_name = input.name.unwrap_or_else(|| id.clone());
                 let content = input.template.unwrap_or_default();
@@ -3191,12 +3472,12 @@ impl BurpTools {
                 }))
                 .await
             }
-            "delete_payload_list" | "delete_payloads" => {
+            suite::FuzzerAction::DeletePayloadList => {
                 let id = input.id.unwrap_or_default();
                 self.payload_list_delete(Parameters(PayloadListIdInput { id }))
                     .await
             }
-            "upsert_payloads" => {
+            suite::FuzzerAction::UpsertPayloads => {
                 let id = input.id.unwrap_or_default();
                 let name = input.name.unwrap_or_else(|| id.clone());
                 let payloads = input.payloads.unwrap_or_default();
@@ -3210,7 +3491,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "register_payload_processor" => {
+            suite::FuzzerAction::RegisterPayloadProcessor => {
                 let id = input.id.unwrap_or_default();
                 let display_name = input.name.unwrap_or_else(|| id.clone());
                 let operation = input.attack_mode.unwrap_or_else(|| "prefix".to_string());
@@ -3225,13 +3506,15 @@ impl BurpTools {
                 ))
                 .await
             }
-            "list_payload_processors" => self.intruder_payload_processor_list().await,
-            "remove_payload_processor" => {
+            suite::FuzzerAction::ListPayloadProcessors => {
+                self.intruder_payload_processor_list().await
+            }
+            suite::FuzzerAction::RemovePayloadProcessor => {
                 let id = input.id.unwrap_or_default();
                 self.intruder_payload_processor_remove(Parameters(PayloadRegistrationInput { id }))
                     .await
             }
-            "register_payload_generator" => {
+            suite::FuzzerAction::RegisterPayloadGenerator => {
                 let id = input.id.unwrap_or_default();
                 let display_name = input.name.unwrap_or_else(|| id.clone());
                 let payloads = input.payloads.unwrap_or_default();
@@ -3247,18 +3530,16 @@ impl BurpTools {
                 ))
                 .await
             }
-            "list_payload_generators" => self.intruder_payload_generator_list().await,
-            "remove_payload_generator" => {
+            suite::FuzzerAction::ListPayloadGenerators => {
+                self.intruder_payload_generator_list().await
+            }
+            suite::FuzzerAction::RemovePayloadGenerator => {
                 let id = input.id.unwrap_or_default();
                 self.intruder_payload_generator_remove(Parameters(PayloadRegistrationInput { id }))
                     .await
             }
-            other => {
-                serde_json::json!({"error": format!("unknown fuzzer action: {other}")}).to_string()
-            }
         }
     }
-
     #[tool(
         name = "burp_collaborator",
         description = "Burp Collaborator tool (actions: generate, poll, correlate)",
@@ -3273,8 +3554,8 @@ impl BurpTools {
         &self,
         Parameters(input): Parameters<suite::CollaboratorActionInput>,
     ) -> String {
-        match input.action.to_lowercase().as_str() {
-            "generate" | "correlate" => {
+        match input.action {
+            suite::CollaboratorAction::Generate | suite::CollaboratorAction::Correlate => {
                 self.collaborator_generate(Parameters(CollaboratorGenerateInput {
                     count: input.count,
                     target_url: input.target_url,
@@ -3282,15 +3563,13 @@ impl BurpTools {
                 }))
                 .await
             }
-            "poll" => {
+            suite::CollaboratorAction::Poll => {
                 self.collaborator_poll(Parameters(CollaboratorPollInput {
                     limit: input.limit,
                     cursor: input.cursor,
                 }))
                 .await
             }
-            other => serde_json::json!({"error": format!("unknown collaborator action: {other}")})
-                .to_string(),
         }
     }
 
@@ -3305,8 +3584,8 @@ impl BurpTools {
         )
     )]
     async fn diff(&self, Parameters(input): Parameters<suite::DiffActionInput>) -> String {
-        match input.action.to_lowercase().as_str() {
-            "diff_responses" => {
+        match input.action {
+            suite::DiffAction::DiffResponses => {
                 self.diff_responses(Parameters(DiffResponsesInput {
                     response_a: input.response_a,
                     response_b: input.response_b,
@@ -3315,14 +3594,11 @@ impl BurpTools {
                 }))
                 .await
             }
-            "compare_exchanges" => {
+            suite::DiffAction::CompareExchanges => {
                 let first = input.first.or(input.response_a).unwrap_or_default();
                 let second = input.second.or(input.response_b).unwrap_or_default();
                 self.send_to_comparer(Parameters(SendToComparerInput { first, second }))
                     .await
-            }
-            other => {
-                serde_json::json!({"error": format!("unknown diff action: {other}")}).to_string()
             }
         }
     }
@@ -3341,14 +3617,14 @@ impl BurpTools {
         &self,
         Parameters(input): Parameters<suite::ScanConfigActionInput>,
     ) -> String {
-        match input.action.to_lowercase().as_str() {
-            "list_configs" => self.scan_config_list().await,
-            "get_config" => {
+        match input.action {
+            suite::ScanConfigAction::ListConfigs => self.scan_config_list().await,
+            suite::ScanConfigAction::GetConfig => {
                 let id = input.id.unwrap_or_default();
                 self.scan_config_get(Parameters(ScanConfigurationIdInput { id }))
                     .await
             }
-            "upsert_config" => {
+            suite::ScanConfigAction::UpsertConfig => {
                 let upsert = ScanConfigurationUpsertInput {
                     id: input.id,
                     name: input.name.unwrap_or_default(),
@@ -3365,18 +3641,18 @@ impl BurpTools {
                     self.scan_config_create(Parameters(upsert)).await
                 }
             }
-            "delete_config" => {
+            suite::ScanConfigAction::DeleteConfig => {
                 let id = input.id.unwrap_or_default();
                 self.scan_config_delete(Parameters(ScanConfigurationIdInput { id }))
                     .await
             }
-            "list_pools" => self.scan_pool_list().await,
-            "get_pool" => {
+            suite::ScanConfigAction::ListPools => self.scan_pool_list().await,
+            suite::ScanConfigAction::GetPool => {
                 let id = input.id.unwrap_or_default();
                 self.scan_pool_get(Parameters(ScanResourcePoolIdInput { id }))
                     .await
             }
-            "upsert_pool" => {
+            suite::ScanConfigAction::UpsertPool => {
                 let upsert = ScanResourcePoolUpsertInput {
                     id: input.id,
                     name: input.name.unwrap_or_default(),
@@ -3392,13 +3668,11 @@ impl BurpTools {
                     self.scan_pool_create(Parameters(upsert)).await
                 }
             }
-            "delete_pool" => {
+            suite::ScanConfigAction::DeletePool => {
                 let id = input.id.unwrap_or_default();
                 self.scan_pool_delete(Parameters(ScanResourcePoolIdInput { id }))
                     .await
             }
-            other => serde_json::json!({"error": format!("unknown scan_config action: {other}")})
-                .to_string(),
         }
     }
 
@@ -3416,8 +3690,8 @@ impl BurpTools {
         &self,
         Parameters(input): Parameters<suite::WebSocketActionInput>,
     ) -> String {
-        match input.action.to_lowercase().as_str() {
-            "create" => {
+        match input.action {
+            suite::WebSocketAction::Create => {
                 let host = input.host.unwrap_or_default();
                 self.websocket_create(Parameters(WebSocketCreateInput {
                     host,
@@ -3427,34 +3701,34 @@ impl BurpTools {
                 }))
                 .await
             }
-            "send_text" => {
+            suite::WebSocketAction::SendText => {
                 let id = input.id.unwrap_or_default();
                 let text = input.text.unwrap_or_default();
                 self.websocket_send_text(Parameters(WebSocketTextInput { id, text }))
                     .await
             }
-            "send_binary" => {
+            suite::WebSocketAction::SendBinary => {
                 let id = input.id.unwrap_or_default();
                 let data = input.data.unwrap_or_default();
                 self.websocket_send_binary(Parameters(WebSocketBinaryInput { id, data }))
                     .await
             }
-            "history" => {
+            suite::WebSocketAction::History => {
                 self.websocket_history(Parameters(ManagedWebSocketHistoryInput {
                     id: input.id,
                     limit: input.limit,
                     cursor: input.cursor,
+                    include_bodies: input.include_bodies,
+                    max_body_length: input.max_body_length,
                 }))
                 .await
             }
-            "close" => {
+            suite::WebSocketAction::Close => {
                 let id = input.id.unwrap_or_default();
                 self.websocket_close(Parameters(WebSocketIdInput { id }))
                     .await
             }
-            "list" => self.websocket_list().await,
-            other => serde_json::json!({"error": format!("unknown websocket action: {other}")})
-                .to_string(),
+            suite::WebSocketAction::List => self.websocket_list().await,
         }
     }
 
@@ -3469,14 +3743,14 @@ impl BurpTools {
         )
     )]
     async fn session(&self, Parameters(input): Parameters<suite::SessionActionInput>) -> String {
-        match input.action.to_lowercase().as_str() {
-            "list_rules" => self.session_list_rules().await,
-            "get_rule" => {
+        match input.action {
+            suite::SessionAction::ListRules => self.session_list_rules().await,
+            suite::SessionAction::GetRule => {
                 let id = input.id.unwrap_or_default();
                 self.session_get_rule(Parameters(SessionRuleIdInput { id }))
                     .await
             }
-            "upsert_rule" => {
+            suite::SessionAction::UpsertRule => {
                 let upsert = SessionRuleUpsertInput {
                     id: input.id,
                     description: input.description,
@@ -3496,17 +3770,17 @@ impl BurpTools {
                     self.session_create_rule(Parameters(upsert)).await
                 }
             }
-            "delete_rule" => {
+            suite::SessionAction::DeleteRule => {
                 let id = input.id.unwrap_or_default();
                 self.session_delete_rule(Parameters(SessionRuleIdInput { id }))
                     .await
             }
-            "run_macro" => {
+            suite::SessionAction::RunMacro => {
                 let description = input.description.unwrap_or_default();
                 self.macro_run(Parameters(MacroDescriptionInput { description }))
                     .await
             }
-            "upsert_macro" => {
+            suite::SessionAction::UpsertMacro => {
                 let description = input.description.unwrap_or_default();
                 let items = input.items.unwrap_or_default();
                 self.macro_create(Parameters(CreateMacroInput {
@@ -3516,14 +3790,11 @@ impl BurpTools {
                 }))
                 .await
             }
-            "list_macros" => self.macro_list().await,
-            "delete_macro" => {
+            suite::SessionAction::ListMacros => self.macro_list().await,
+            suite::SessionAction::DeleteMacro => {
                 let description = input.description.unwrap_or_default();
                 self.macro_remove(Parameters(MacroDescriptionInput { description }))
                     .await
-            }
-            other => {
-                serde_json::json!({"error": format!("unknown session action: {other}")}).to_string()
             }
         }
     }
@@ -3539,61 +3810,83 @@ impl BurpTools {
         )
     )]
     async fn settings(&self, Parameters(input): Parameters<suite::SettingsActionInput>) -> String {
-        match input.action {
-            suite::SettingsAction::GetProxySettings => self.proxy_settings().await,
-            suite::SettingsAction::UpdateProxySettings => {
-                let op = input
-                    .operation
-                    .unwrap_or_else(|| "intercept_toggle".to_string());
+        match input {
+            suite::SettingsActionInput::GetProxySettings => self.proxy_settings().await,
+            suite::SettingsActionInput::UpdateProxySettings {
+                operation,
+                port,
+                running,
+                listen_mode,
+                listen_specific_address,
+                certificate_mode,
+                enable_http2,
+                support_invisible_proxying,
+                target,
+                mode,
+                script,
+                script_id,
+                script_name,
+                kind,
+                index,
+                rule,
+                master_enabled,
+                request_enabled,
+                response_enabled,
+            } => {
+                let op = operation.unwrap_or_else(|| "intercept_toggle".to_string());
                 self.update_proxy_settings(Parameters(ProxySettingsUpdateInput {
                     operation: op,
-                    port: input.port,
-                    running: input.running,
-                    listen_mode: input.listen_mode,
-                    listen_specific_address: input.listen_specific_address,
-                    certificate_mode: input.certificate_mode,
-                    enable_http2: input.enable_http2,
-                    support_invisible_proxying: input.support_invisible_proxying,
-                    target: input.target,
-                    mode: input.mode,
-                    script: input.script,
-                    script_id: input.script_id,
-                    script_name: input.script_name,
-                    kind: input.kind,
-                    index: input.index,
-                    rule: input.rule,
-                    master_enabled: input.master_enabled,
-                    request_enabled: input.request_enabled,
-                    response_enabled: input.response_enabled,
+                    port,
+                    running,
+                    listen_mode,
+                    listen_specific_address,
+                    certificate_mode,
+                    enable_http2,
+                    support_invisible_proxying,
+                    target,
+                    mode,
+                    script,
+                    script_id,
+                    script_name,
+                    kind,
+                    index,
+                    rule,
+                    master_enabled,
+                    request_enabled,
+                    response_enabled,
                 }))
                 .await
             }
-            suite::SettingsAction::ExportConfig => self.export_config().await,
-            suite::SettingsAction::InspectConfig => {
-                self.inspect_config(Parameters(InspectConfigInput { paths: input.paths }))
+            suite::SettingsActionInput::ExportConfig => self.export_config().await,
+            suite::SettingsActionInput::InspectConfig { paths } => {
+                self.inspect_config(Parameters(InspectConfigInput { paths }))
                     .await
             }
-            suite::SettingsAction::ImportConfig => {
-                let config = input.config.unwrap_or_default();
+            suite::SettingsActionInput::ImportConfig { config } => {
+                let config = config.unwrap_or_default();
                 self.import_config(Parameters(ImportConfigInput { config }))
                     .await
             }
-            suite::SettingsAction::InterceptState => self.intercept_state().await,
-            suite::SettingsAction::SetInterceptState => {
-                let enabled = input.enabled.unwrap_or(false);
+            suite::SettingsActionInput::InterceptState => self.intercept_state().await,
+            suite::SettingsActionInput::SetInterceptState { enabled } => {
+                let enabled = enabled.unwrap_or(false);
                 self.set_intercept_state(Parameters(SetInterceptStateInput { enabled }))
                     .await
             }
-            suite::SettingsAction::ProxyInterceptConfig => self.proxy_intercept_config().await,
-            suite::SettingsAction::UpdateProxyInterceptConfig => {
+            suite::SettingsActionInput::ProxyInterceptConfig => self.proxy_intercept_config().await,
+            suite::SettingsActionInput::UpdateProxyInterceptConfig {
+                master_enabled,
+                request_enabled,
+                response_enabled,
+            } => {
                 self.update_proxy_intercept_config(Parameters(ProxyInterceptConfigInput {
-                    master_intercept_enabled: input.master_enabled,
-                    request_do_intercept: input.request_enabled,
+                    master_intercept_enabled: master_enabled,
+                    request_do_intercept: request_enabled,
                     request_auto_content_length: None,
                     request_fix_missing_new_lines: None,
                     request_rules: None,
                     replace_request_rules: None,
-                    response_do_intercept: input.response_enabled,
+                    response_do_intercept: response_enabled,
                     response_auto_content_length: None,
                     response_rules: None,
                     replace_response_rules: None,
@@ -3608,27 +3901,56 @@ impl BurpTools {
                 }))
                 .await
             }
-            suite::SettingsAction::RegisterHttpHandler => {
+            suite::SettingsActionInput::RegisterHttpHandler {
+                header_name,
+                header_value,
+                match_text,
+                replace,
+            } => {
                 self.register_http_handler(Parameters(RegisterHttpHandlerInput {
-                    header_name: input.script_name,
-                    header_value: input.script,
-                    match_text: input.target,
-                    replace: input.mode,
+                    header_name,
+                    header_value,
+                    match_text,
+                    replace,
                 }))
                 .await
             }
-            suite::SettingsAction::RemoveHttpHandler => self.remove_http_handler().await,
-            suite::SettingsAction::RegisterProxyRule => match proxy_rule_input_from_settings(input)
-            {
-                Ok(input) => self.register_proxy_rule(Parameters(input)).await,
-                Err(message) => tool_input_error("burp_settings", "register_proxy_rule", message),
-            },
-            suite::SettingsAction::ListProxyRules => self.list_proxy_rules().await,
-            suite::SettingsAction::RemoveProxyRule => {
-                self.remove_proxy_rule(Parameters(RemoveProxyRuleInput {
-                    id: input.script_id,
+            suite::SettingsActionInput::RemoveHttpHandler => self.remove_http_handler().await,
+            suite::SettingsActionInput::RegisterProxyRule {
+                id,
+                url_contains,
+                phase,
+                rule_action,
+                match_text,
+                replace,
+                header_name,
+                header_value,
+                enabled,
+            } => {
+                if url_contains.trim().is_empty() {
+                    return tool_input_error(
+                        "burp_settings",
+                        "register_proxy_rule",
+                        "`url_contains` is required and must not be empty",
+                    );
+                }
+                self.register_proxy_rule(Parameters(RegisterProxyRuleInput {
+                    id,
+                    url_contains,
+                    phase,
+                    rule_action,
+                    match_text,
+                    replace,
+                    header_name,
+                    header_value,
+                    enabled,
                 }))
                 .await
+            }
+            suite::SettingsActionInput::ListProxyRules => self.list_proxy_rules().await,
+            suite::SettingsActionInput::RemoveProxyRule { id } => {
+                self.remove_proxy_rule(Parameters(RemoveProxyRuleInput { id }))
+                    .await
             }
         }
     }
@@ -3644,8 +3966,8 @@ impl BurpTools {
         )
     )]
     async fn logger(&self, Parameters(input): Parameters<suite::LoggerActionInput>) -> String {
-        match input.action.to_lowercase().as_str() {
-            "query" | "history" => {
+        match input.action {
+            suite::LoggerAction::Query => {
                 self.logger_history(Parameters(LoggerHistoryInput {
                     limit: input.limit,
                     offset: input.offset,
@@ -3664,10 +3986,11 @@ impl BurpTools {
                 }))
                 .await
             }
-            "detail" => {
+            suite::LoggerAction::Detail => {
                 let index = input.index.unwrap_or(0);
                 self.logger_detail(Parameters(LoggerDetailInput {
                     index,
+                    include_bodies: input.include_bodies,
                     headers_only: input.headers_only,
                     extract_css: input.extract_css,
                     extract_json: input.extract_json,
@@ -3675,10 +3998,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "clear" => self.clear_logger(Parameters(LoggerClearInput {})).await,
-            other => {
-                serde_json::json!({"error": format!("unknown logger action: {other}")}).to_string()
-            }
+            suite::LoggerAction::Clear => self.clear_logger(Parameters(LoggerClearInput {})).await,
         }
     }
 
@@ -3696,8 +4016,8 @@ impl BurpTools {
         &self,
         Parameters(input): Parameters<suite::OrganizerActionInput>,
     ) -> String {
-        match input.action.to_lowercase().as_str() {
-            "add" | "send" => {
+        match input.action {
+            suite::OrganizerAction::Add => {
                 let request = input.request.unwrap_or_default();
                 let host = input.host.unwrap_or_default();
                 self.organizer_send(Parameters(OrganizerSendInput {
@@ -3711,7 +4031,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "list" => {
+            suite::OrganizerAction::List => {
                 self.organizer_list(Parameters(OrganizerListInput {
                     limit: input.limit,
                     cursor: input.cursor,
@@ -3720,8 +4040,6 @@ impl BurpTools {
                 }))
                 .await
             }
-            other => serde_json::json!({"error": format!("unknown organizer action: {other}")})
-                .to_string(),
         }
     }
 
@@ -3739,16 +4057,16 @@ impl BurpTools {
         &self,
         Parameters(input): Parameters<suite::SiteGraphActionInput>,
     ) -> String {
-        match input.action.to_lowercase().as_str() {
-            "status" => self.sitegraph_status().await,
-            "stats" => self.sitegraph_stats().await,
-            "sync" => {
+        match input.action {
+            suite::SiteGraphAction::Status => self.sitegraph_status().await,
+            suite::SiteGraphAction::Stats => self.sitegraph_stats().await,
+            suite::SiteGraphAction::Sync => {
                 self.sitegraph_sync(Parameters(SiteGraphSyncInput {
                     url_prefix: input.url_prefix,
                 }))
                 .await
             }
-            "search" => {
+            suite::SiteGraphAction::Search => {
                 let query = input.query.unwrap_or_default();
                 self.sitegraph_search(Parameters(SiteGraphSearchInput {
                     query,
@@ -3757,7 +4075,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "security_view" => {
+            suite::SiteGraphAction::SecurityView => {
                 let Some(sitegraph) = &self.sitegraph else {
                     return sitegraph_disabled_json();
                 };
@@ -3770,7 +4088,7 @@ impl BurpTools {
                     Err(err) => serde_json::json!({"error": err.to_string()}).to_string(),
                 }
             }
-            "import_spec" | "import_openapi" => {
+            suite::SiteGraphAction::ImportSpec => {
                 let Some(sitegraph) = &self.sitegraph else {
                     return sitegraph_disabled_json();
                 };
@@ -3783,7 +4101,7 @@ impl BurpTools {
                     Err(err) => serde_json::json!({"error": err.to_string()}).to_string(),
                 }
             }
-            "neighbors" => {
+            suite::SiteGraphAction::Neighbors => {
                 let id = input.id.unwrap_or_default();
                 self.sitegraph_neighbors(Parameters(SiteGraphNeighborsInput {
                     id,
@@ -3792,7 +4110,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "trace" => {
+            suite::SiteGraphAction::Trace => {
                 let id = input.id.unwrap_or_default();
                 self.sitegraph_trace(Parameters(SiteGraphTraceInput {
                     id,
@@ -3801,7 +4119,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "shortest_path" => {
+            suite::SiteGraphAction::ShortestPath => {
                 let from_id = input.from_id.unwrap_or_default();
                 let to_id = input.to_id.unwrap_or_default();
                 self.sitegraph_shortest_path(Parameters(SiteGraphShortestPathInput {
@@ -3811,11 +4129,11 @@ impl BurpTools {
                 }))
                 .await
             }
-            "clusters" => {
+            suite::SiteGraphAction::Clusters => {
                 self.sitegraph_clusters(Parameters(SiteGraphClustersInput { limit: input.limit }))
                     .await
             }
-            "impact" => {
+            suite::SiteGraphAction::Impact => {
                 let id = input.id.unwrap_or_default();
                 self.sitegraph_impact(Parameters(SiteGraphImpactInput {
                     id,
@@ -3824,7 +4142,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "diff" => {
+            suite::SiteGraphAction::Diff => {
                 let since = input.since.unwrap_or(0);
                 self.sitegraph_diff(Parameters(SiteGraphDiffInput {
                     since,
@@ -3833,7 +4151,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "export" => {
+            suite::SiteGraphAction::Export => {
                 self.sitegraph_export(Parameters(SiteGraphExportInput {
                     profile: input.profile,
                     format: input.format,
@@ -3843,7 +4161,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "history_search" => {
+            suite::SiteGraphAction::HistorySearch => {
                 let query = input.query.unwrap_or_default();
                 self.sitegraph_history_search(Parameters(SiteGraphHistorySearchInput {
                     query,
@@ -3853,15 +4171,13 @@ impl BurpTools {
                 }))
                 .await
             }
-            "endpoint_detail" => {
+            suite::SiteGraphAction::EndpointDetail => {
                 let id = input.id.unwrap_or_default();
                 self.sitegraph_endpoint_detail(Parameters(SiteGraphEndpointInput { id }))
                     .await
             }
-            "projects" => self.sitegraph_projects().await,
-            "config" => self.sitegraph_config().await,
-            other => serde_json::json!({"error": format!("unknown sitegraph action: {other}")})
-                .to_string(),
+            suite::SiteGraphAction::Projects => self.sitegraph_projects().await,
+            suite::SiteGraphAction::Config => self.sitegraph_config().await,
         }
     }
 
@@ -4934,6 +5250,8 @@ impl BurpTools {
         if limit > MAX_PAGE_SIZE {
             return serde_json::json!({"error": "limit must be at most 500"}).to_string();
         }
+        let include_bodies = input.include_bodies.unwrap_or(false);
+        let max_body_length = input.max_body_length;
         match self
             .client
             .intercepted_messages(InterceptedMessagesRequest {
@@ -4947,7 +5265,7 @@ impl BurpTools {
             Ok(response) => {
                 let page = response.page.unwrap_or_default();
                 serde_json::json!({
-                    "items": response.items.into_iter().map(intercepted_message_output).collect::<Vec<_>>(),
+                    "items": response.items.into_iter().map(|item| intercepted_message_output(item, include_bodies, max_body_length)).collect::<Vec<_>>(),
                     "total": page.total,
                     "truncated": page.truncated,
                     "next_cursor": (!page.next_cursor.is_empty()).then_some(page.next_cursor),
@@ -4986,6 +5304,7 @@ impl BurpTools {
             },
             None => Vec::new(),
         };
+        let max_body_length = input.max_body_length;
         match self
             .client
             .control_intercepted_message(ControlInterceptedMessageRequest {
@@ -4997,7 +5316,7 @@ impl BurpTools {
         {
             Ok(response) => response
                 .message
-                .map(intercepted_message_output)
+                .map(|msg| intercepted_message_output(msg, true, max_body_length))
                 .map(|item| serde_json::to_string(&item).expect("intercept output must serialize"))
                 .unwrap_or_else(|| {
                     serde_json::json!({"error": "empty intercept response"}).to_string()
@@ -5046,6 +5365,8 @@ impl BurpTools {
         if limit > MAX_PAGE_SIZE {
             return serde_json::json!({"error": "limit must be at most 500"}).to_string();
         }
+        let include_bodies = input.include_bodies.unwrap_or(false);
+        let max_body_length = input.max_body_length;
         match self
             .client
             .intercepted_websocket_messages(InterceptedWebSocketMessagesRequest {
@@ -5059,7 +5380,7 @@ impl BurpTools {
             Ok(response) => {
                 let page = response.page.unwrap_or_default();
                 serde_json::json!({
-                    "items": response.items.into_iter().map(intercepted_websocket_message_output).collect::<Vec<_>>(),
+                    "items": response.items.into_iter().map(|item| intercepted_websocket_message_output(item, include_bodies, max_body_length)).collect::<Vec<_>>(),
                     "total": page.total,
                     "truncated": page.truncated,
                     "next_cursor": (!page.next_cursor.is_empty()).then_some(page.next_cursor),
@@ -5099,6 +5420,7 @@ impl BurpTools {
             },
             None => Vec::new(),
         };
+        let max_body_length = input.max_body_length;
         match self
             .client
             .control_intercepted_websocket_message(ControlInterceptedWebSocketMessageRequest {
@@ -5111,7 +5433,7 @@ impl BurpTools {
         {
             Ok(response) => response
                 .message
-                .map(intercepted_websocket_message_output)
+                .map(|item| intercepted_websocket_message_output(item, true, max_body_length))
                 .map(|item| {
                     serde_json::to_string(&item).expect("WebSocket intercept output must serialize")
                 })
@@ -5195,24 +5517,48 @@ impl BurpTools {
         Parameters(input): Parameters<ProxyWebSocketHistoryInput>,
     ) -> String {
         let limit = input.limit.unwrap_or(50).min(MAX_PAGE_SIZE);
+        let include_bodies = input.include_bodies.unwrap_or(false);
+        let effective_max_length = Some(input.max_body_length.unwrap_or(DEFAULT_MAX_BODY_LENGTH));
         match self.client.proxy_websocket_history(ProxyWebSocketHistoryRequest {
             page: Some(PageRequest { limit, cursor: input.cursor.unwrap_or_default() }),
             after_id: None,
         }).await {
-            Ok(response) => serde_json::json!({
-                "items": response.items.into_iter().map(|item| serde_json::json!({
-                    "index": item.index,
-                    "id": item.id,
-                    "websocket_id": item.web_socket_id,
-                    "direction": item.direction,
-                    "payload_base64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, item.payload),
-                    "edited_payload_base64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, item.edited_payload),
-                    "time": item.time,
-                    "listener_port": item.listener_port,
-                    "upgrade_url": item.upgrade_url,
-                })).collect::<Vec<_>>(),
-                "page": response.page.map(|page| serde_json::json!({"total": page.total, "truncated": page.truncated, "next_cursor": page.next_cursor})),
-            }).to_string(),
+            Ok(response) => serde_json::to_string(&ProxyWebSocketHistoryOutput {
+                items: response.items.into_iter().map(|item| {
+                    let payload_len = item.payload.len();
+                    let (payload_b64, payload_trunc) = if include_bodies && !item.payload.is_empty() {
+                        let (b64, trunc, _) = encode_bounded_base64(&item.payload, effective_max_length);
+                        (Some(b64), trunc.then_some(true))
+                    } else {
+                        (None, None)
+                    };
+
+                    let edited_len = item.edited_payload.len();
+                    let (edited_b64, edited_trunc) = if include_bodies && !item.edited_payload.is_empty() {
+                        let (b64, trunc, _) = encode_bounded_base64(&item.edited_payload, effective_max_length);
+                        (Some(b64), trunc.then_some(true))
+                    } else {
+                        (None, None)
+                    };
+
+                    ProxyWebSocketHistoryItemOutput {
+                        index: item.index,
+                        id: item.id,
+                        websocket_id: item.web_socket_id,
+                        direction: item.direction,
+                        payload_length: payload_len,
+                        payload_base64: payload_b64,
+                        payload_truncated: payload_trunc,
+                        edited_payload_length: edited_len,
+                        edited_payload_base64: edited_b64,
+                        edited_payload_truncated: edited_trunc,
+                        time: item.time,
+                        listener_port: item.listener_port,
+                        upgrade_url: item.upgrade_url,
+                    }
+                }).collect::<Vec<_>>(),
+                page: response.page.map(|page| serde_json::json!({"total": page.total, "truncated": page.truncated, "next_cursor": page.next_cursor})),
+            }).expect("proxy websocket history must serialize"),
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
@@ -5252,29 +5598,6 @@ impl BurpTools {
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
-}
-
-fn proxy_rule_input_from_settings(
-    input: suite::SettingsActionInput,
-) -> Result<RegisterProxyRuleInput, String> {
-    let url_contains = input.target.ok_or_else(|| {
-        "`target` is required and must contain the URL substring matched by this proxy rule"
-            .to_owned()
-    })?;
-    if url_contains.is_empty() {
-        return Err("`target` must not be empty".to_owned());
-    }
-    Ok(RegisterProxyRuleInput {
-        id: input.script_id,
-        url_contains,
-        phase: input.mode,
-        action: input.kind,
-        match_text: input.match_text,
-        replace: input.replace,
-        header_name: input.script_name,
-        header_value: input.script,
-        enabled: input.enabled,
-    })
 }
 
 fn macro_json(macro_definition: MacroDefinition) -> serde_json::Value {
@@ -5460,48 +5783,127 @@ fn invalid_arguments_result(
     }))
 }
 
+fn resolve_schema_ref<'a>(
+    schema: &'a serde_json::Value,
+    root: &'a serde_json::Value,
+) -> &'a serde_json::Value {
+    if let Some(ref_str) = schema.get("$ref").and_then(serde_json::Value::as_str) {
+        if let Some(def_name) = ref_str.strip_prefix("#/$defs/") {
+            if let Some(target) = root.get("$defs").and_then(|d| d.get(def_name)) {
+                return resolve_schema_ref(target, root);
+            }
+        } else if let Some(def_name) = ref_str.strip_prefix("#/definitions/") {
+            if let Some(target) = root.get("definitions").and_then(|d| d.get(def_name)) {
+                return resolve_schema_ref(target, root);
+            }
+        }
+    }
+    schema
+}
+
 fn schema_hints(tool: &rmcp::model::Tool) -> (Vec<String>, Vec<String>, Vec<String>) {
-    let required_fields = tool
-        .input_schema
-        .get("required")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(serde_json::Value::as_str)
-        .map(str::to_owned)
-        .collect();
-    let accepted_fields = tool
-        .input_schema
-        .get("properties")
-        .and_then(serde_json::Value::as_object)
-        .into_iter()
-        .flat_map(|properties| properties.keys().cloned())
-        .collect();
-    let action_schema = tool
-        .input_schema
-        .get("properties")
-        .and_then(serde_json::Value::as_object)
-        .and_then(|properties| properties.get("action"));
-    let action_values = action_schema
-        .and_then(|schema| schema.get("enum"))
-        .or_else(|| {
-            let reference = action_schema?
-                .get("$ref")?
-                .as_str()?
-                .strip_prefix("#/$defs/")?;
-            tool.input_schema
-                .get("$defs")?
-                .as_object()?
-                .get(reference)?
+    let root = serde_json::Value::Object((*tool.input_schema).clone());
+    let resolved_root = resolve_schema_ref(&root, &root);
+    let one_of = resolved_root
+        .get("oneOf")
+        .or_else(|| resolved_root.get("anyOf"))
+        .and_then(serde_json::Value::as_array);
+
+    if let Some(variants) = one_of {
+        let mut accepted_fields = Vec::new();
+        let mut valid_actions = Vec::new();
+        let mut common_required: Option<std::collections::BTreeSet<String>> = None;
+
+        for variant in variants {
+            let resolved_variant = resolve_schema_ref(variant, &root);
+            if let Some(props) = resolved_variant
+                .get("properties")
+                .and_then(serde_json::Value::as_object)
+            {
+                for key in props.keys() {
+                    if !accepted_fields.contains(key) {
+                        accepted_fields.push(key.clone());
+                    }
+                }
+                if let Some(action_prop) = props.get("action") {
+                    let resolved_action = resolve_schema_ref(action_prop, &root);
+                    if let Some(enums) = resolved_action
+                        .get("enum")
+                        .and_then(serde_json::Value::as_array)
+                    {
+                        for val in enums.iter().filter_map(serde_json::Value::as_str) {
+                            if !valid_actions.iter().any(|a| a == val) {
+                                valid_actions.push(val.to_owned());
+                            }
+                        }
+                    } else if let Some(const_val) = resolved_action
+                        .get("const")
+                        .and_then(serde_json::Value::as_str)
+                    {
+                        if !valid_actions.iter().any(|a| a == const_val) {
+                            valid_actions.push(const_val.to_owned());
+                        }
+                    }
+                }
+            }
+
+            let variant_req: std::collections::BTreeSet<String> = resolved_variant
+                .get("required")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .collect();
+
+            common_required = match common_required {
+                None => Some(variant_req),
+                Some(current) => Some(current.intersection(&variant_req).cloned().collect()),
+            };
+        }
+
+        let required_fields = common_required
+            .map(|s| s.into_iter().collect())
+            .unwrap_or_default();
+        (required_fields, accepted_fields, valid_actions)
+    } else {
+        let required_fields = resolved_root
+            .get("required")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .collect();
+        let accepted_fields = resolved_root
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+            .into_iter()
+            .flat_map(|properties| properties.keys().cloned())
+            .collect();
+        let action_schema = resolved_root
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|properties| properties.get("action"));
+        let mut valid_actions = Vec::new();
+        if let Some(act) = action_schema {
+            let resolved_action = resolve_schema_ref(act, &root);
+            if let Some(enums) = resolved_action
                 .get("enum")
-        })
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(serde_json::Value::as_str)
-        .map(str::to_owned)
-        .collect();
-    (required_fields, accepted_fields, action_values)
+                .and_then(serde_json::Value::as_array)
+            {
+                for val in enums.iter().filter_map(serde_json::Value::as_str) {
+                    valid_actions.push(val.to_owned());
+                }
+            } else if let Some(const_val) = resolved_action
+                .get("const")
+                .and_then(serde_json::Value::as_str)
+            {
+                valid_actions.push(const_val.to_owned());
+            }
+        }
+        (required_fields, accepted_fields, valid_actions)
+    }
 }
 
 fn has_nonempty_error(value: &serde_json::Value) -> bool {
@@ -5604,7 +6006,7 @@ On connection, call burp_burp_version first; its capabilities and runtime limits
 Prefer compact reads before active traffic: burp_proxy history defaults to metadata-only, then fetch one detail or server-side projection. Treat success=true as acceptance and verify the observable effect.
 For burp_http send_to_repeater, pass either {action:"send_to_repeater",url,method?,body?,headers?,tab_name?} or {action:"send_to_repeater",request,host?,port?,https?,tab_name?}; a raw request may derive host/port from Host.
 Enable burp_intercept_controller only with url_filter or in_scope_only=true and a bounded timeout. Resolve queued messages, disable the controller, and restore temporary Burp state before completion.
-For register_proxy_rule body edits use action:"register_proxy_rule", target:url substring, mode:"request"|"response", kind:"edit", match, and replace. Use script_name/script only for header name/value edits.
+For register_proxy_rule body edits use action:"register_proxy_rule", url_contains:url substring, phase:"request"|"response", rule_action:"edit", match, and replace. Use header_name/header_value only for header name/value edits.
 Bambda source is JVM-compiled: do not embed large payloads or string literals near the 65,535-byte class-file UTF-8 limit. Use register_proxy_rule for bounded replacements or another external streaming mechanism.
 Tool errors are structured with message, accepted_fields, valid_actions, and correction when available. Correct the call and retry instead of guessing aliases."#;
 
@@ -5665,7 +6067,17 @@ fn session_rule_request(input: SessionRuleUpsertInput) -> UpsertSessionRuleReque
 
 fn intercepted_websocket_message_output(
     item: burp_protocol::protocol::InterceptedWebSocketMessage,
+    include_bodies: bool,
+    max_body_length: Option<usize>,
 ) -> InterceptedWebSocketMessageOutput {
+    let payload_len = item.payload.len();
+    let (payload_b64, payload_trunc) = if include_bodies && !item.payload.is_empty() {
+        let (b64, trunc, _) = encode_bounded_base64(&item.payload, max_body_length);
+        (Some(b64), trunc.then_some(true))
+    } else {
+        (None, None)
+    };
+
     InterceptedWebSocketMessageOutput {
         id: item.id,
         web_socket_id: item.web_socket_id,
@@ -5673,13 +6085,33 @@ fn intercepted_websocket_message_output(
         direction: item.direction,
         message_type: item.message_type,
         phase: item.phase,
-        payload_base64: STANDARD.encode(item.payload),
+        payload_base64: payload_b64,
+        payload_length: Some(payload_len),
+        payload_truncated: payload_trunc,
     }
 }
 
 fn intercepted_message_output(
     item: burp_protocol::protocol::InterceptedMessage,
+    include_bodies: bool,
+    max_body_length: Option<usize>,
 ) -> InterceptedMessageOutput {
+    let req_len = item.request.len();
+    let (req_b64, req_trunc) = if include_bodies && !item.request.is_empty() {
+        let (b64, trunc, _) = encode_bounded_base64(&item.request, max_body_length);
+        (Some(b64), trunc.then_some(true))
+    } else {
+        (None, None)
+    };
+
+    let resp_len = (!item.response.is_empty()).then_some(item.response.len());
+    let (resp_b64, resp_trunc) = if include_bodies && !item.response.is_empty() {
+        let (b64, trunc, _) = encode_bounded_base64(&item.response, max_body_length);
+        (Some(b64), trunc.then_some(true))
+    } else {
+        (None, None)
+    };
+
     InterceptedMessageOutput {
         id: item.id,
         direction: item.direction,
@@ -5688,8 +6120,12 @@ fn intercepted_message_output(
         method: item.method,
         status: item.status,
         is_in_scope: item.is_in_scope,
-        request_base64: STANDARD.encode(item.request),
-        response_base64: (!item.response.is_empty()).then(|| STANDARD.encode(item.response)),
+        request_base64: req_b64,
+        request_length: Some(req_len),
+        request_truncated: req_trunc,
+        response_base64: resp_b64,
+        response_length: resp_len,
+        response_truncated: resp_trunc,
     }
 }
 
@@ -6124,15 +6560,30 @@ fn to_send_output_with_options(
     extract_json: Option<&str>,
     max_length: Option<usize>,
 ) -> SendResponseOutput {
-    let req_str = String::from_utf8_lossy(&response.request).into_owned();
-    let (resp_str, is_trunc) = if response.has_response {
+    let effective_max = Some(max_length.unwrap_or(DEFAULT_MAX_BODY_LENGTH));
+    let raw_req_str = String::from_utf8_lossy(&response.request).into_owned();
+    let (req_str, req_trunc) = if headers_only {
+        (body_filter::extract_headers_only(&raw_req_str), false)
+    } else {
+        let (filtered, trunc) = body_filter::filter_and_truncate_payload(
+            &response.request,
+            None,
+            headers_only,
+            None,
+            None,
+            effective_max,
+        );
+        (filtered, trunc)
+    };
+
+    let (resp_str, resp_trunc) = if response.has_response {
         let (filtered, trunc) = body_filter::filter_and_truncate_payload(
             &response.response,
             None,
             headers_only,
             extract_css,
             extract_json,
-            max_length,
+            effective_max,
         );
         (Some(filtered), trunc)
     } else {
@@ -6140,15 +6591,11 @@ fn to_send_output_with_options(
     };
 
     SendResponseOutput {
-        request: if headers_only {
-            body_filter::extract_headers_only(&req_str)
-        } else {
-            req_str
-        },
+        request: req_str,
         response: resp_str,
         status: response.has_response.then_some(response.status),
         extracted: None,
-        truncated: is_trunc.then_some(true),
+        truncated: (req_trunc || resp_trunc).then_some(true),
     }
 }
 
@@ -6414,16 +6861,22 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod contract_tests {
     use super::{
-        BurpTools, DecoderInput, ExportRequestInput, InterceptControllerInput, ProxyHistoryInput,
+        BurpTools, ControlInterceptedMessageInput, ControlInterceptedWebSocketMessageInput,
+        DEFAULT_MAX_BODY_LENGTH, DecoderInput, ExportRequestInput, InterceptControllerInput,
+        InterceptedMessagesInput, InterceptedWebSocketMessagesInput, LoggerDetailInput,
+        ManagedWebSocketHistoryInput, ProxyDetailInput, ProxyHistoryInput,
         ProxyInterceptRuleBooleanOperatorInput, ProxyInterceptRuleInput,
         ProxyInterceptRuleMatchTypeInput, ProxyInterceptRuleRelationshipInput,
-        ProxySettingsUpdateInput, RegisterProxyRuleInput, SITEGRAPH_TOOL_PREFIX,
-        authority_from_raw_request, decode_rpc_error, export_request_text, has_nonempty_error,
-        normalize_decoder_operation, normalize_repeater_input, proxy_rule_input_from_settings,
-        proxy_settings_operation, repeater_input_from_http_action, schema_hints,
-        to_proxy_history_request,
+        ProxyRuleActionInput, ProxyRulePhaseInput, ProxySettingsUpdateInput,
+        ProxyWebSocketHistoryInput, RegisterProxyRuleInput, SITEGRAPH_TOOL_PREFIX,
+        authority_from_raw_request, decode_rpc_error, encode_bounded_base64, export_request_text,
+        has_nonempty_error, intercepted_message_output, intercepted_websocket_message_output,
+        normalize_decoder_operation, normalize_repeater_input, proxy_settings_operation,
+        repeater_input_from_http_action, resolve_schema_ref, schema_hints,
+        to_proxy_history_request, to_send_output_with_options,
     };
-    use crate::suite::{HttpActionInput, SettingsAction, SettingsActionInput};
+    use crate::suite::{self, HttpActionInput, SettingsActionInput};
+    use base64::Engine as _;
     use burp_protocol::protocol::proxy_settings_update_request::Operation;
     use prost::Message;
     use serde_json::Value;
@@ -6504,13 +6957,36 @@ mod contract_tests {
     }
 
     #[test]
-    fn action_schemas_expose_valid_enum_values() {
+    fn action_schemas_expose_valid_enum_values_and_no_aliases() {
         let http = serde_json::to_value(schemars::schema_for!(HttpActionInput))
             .expect("HTTP action schema must serialize");
         let settings = serde_json::to_value(schemars::schema_for!(SettingsActionInput))
             .expect("settings action schema must serialize");
+        let target = serde_json::to_value(schemars::schema_for!(suite::TargetActionInput))
+            .expect("target action schema must serialize");
+        let scanner = serde_json::to_value(schemars::schema_for!(suite::ScannerActionInput))
+            .expect("scanner action schema must serialize");
+        let fuzzer = serde_json::to_value(schemars::schema_for!(suite::FuzzerActionInput))
+            .expect("fuzzer action schema must serialize");
+        let logger = serde_json::to_value(schemars::schema_for!(suite::LoggerActionInput))
+            .expect("logger action schema must serialize");
+        let organizer = serde_json::to_value(schemars::schema_for!(suite::OrganizerActionInput))
+            .expect("organizer action schema must serialize");
+        let sitegraph = serde_json::to_value(schemars::schema_for!(suite::SiteGraphActionInput))
+            .expect("sitegraph action schema must serialize");
+        let websocket = serde_json::to_value(schemars::schema_for!(suite::WebSocketActionInput))
+            .expect("websocket action schema must serialize");
+        let scan_config = serde_json::to_value(schemars::schema_for!(suite::ScanConfigActionInput))
+            .expect("scan_config action schema must serialize");
+        let collaborator =
+            serde_json::to_value(schemars::schema_for!(suite::CollaboratorActionInput))
+                .expect("collaborator action schema must serialize");
+        let diff = serde_json::to_value(schemars::schema_for!(suite::DiffActionInput))
+            .expect("diff action schema must serialize");
+        let session = serde_json::to_value(schemars::schema_for!(suite::SessionActionInput))
+            .expect("session action schema must serialize");
+
         let http_text = http.to_string();
-        let settings_text = settings.to_string();
         for action in [
             "send",
             "send_batch",
@@ -6520,9 +6996,188 @@ mod contract_tests {
         ] {
             assert!(
                 http_text.contains(&format!("\"{action}\"")),
-                "missing {action}"
+                "missing http action {action}"
             );
         }
+
+        let target_text = target.to_string();
+        for action in ["get_scope", "add_scope", "remove_scope", "info", "sitemap"] {
+            assert!(
+                target_text.contains(&format!("\"{action}\"")),
+                "missing target action {action}"
+            );
+        }
+        assert!(
+            !target_text.contains("\"scope_check\""),
+            "alias scope_check must not be in schema"
+        );
+
+        let scanner_text = scanner.to_string();
+        for action in [
+            "start_audit",
+            "start_crawl",
+            "stop",
+            "list_issues",
+            "issue_detail",
+            "update_issue",
+            "report",
+            "test_bcheck",
+            "remove",
+        ] {
+            assert!(
+                scanner_text.contains(&format!("\"{action}\"")),
+                "missing scanner action {action}"
+            );
+        }
+        assert!(
+            !scanner_text.contains("\"dry_run\""),
+            "alias dry_run must not be in schema"
+        );
+
+        let fuzzer_text = fuzzer.to_string();
+        for action in [
+            "fuzz",
+            "race",
+            "send_to_intruder",
+            "list_payloads",
+            "get_payload_list",
+            "create_payload_list",
+            "import_payload_list",
+            "upsert_payloads",
+            "delete_payload_list",
+            "register_payload_processor",
+            "list_payload_processors",
+            "remove_payload_processor",
+            "register_payload_generator",
+            "list_payload_generators",
+            "remove_payload_generator",
+        ] {
+            assert!(
+                fuzzer_text.contains(&format!("\"{action}\"")),
+                "missing fuzzer action {action}"
+            );
+        }
+        assert!(
+            !fuzzer_text.contains("\"get_payloads\""),
+            "alias get_payloads must not be in schema"
+        );
+        assert!(
+            !fuzzer_text.contains("\"delete_payloads\""),
+            "alias delete_payloads must not be in schema"
+        );
+
+        let logger_text = logger.to_string();
+        for action in ["query", "detail", "clear"] {
+            assert!(
+                logger_text.contains(&format!("\"{action}\"")),
+                "missing logger action {action}"
+            );
+        }
+
+        let organizer_text = organizer.to_string();
+        for action in ["add", "list"] {
+            assert!(
+                organizer_text.contains(&format!("\"{action}\"")),
+                "missing organizer action {action}"
+            );
+        }
+
+        let sitegraph_text = sitegraph.to_string();
+        for action in [
+            "status",
+            "stats",
+            "sync",
+            "search",
+            "security_view",
+            "import_spec",
+            "neighbors",
+            "trace",
+            "shortest_path",
+            "clusters",
+            "impact",
+            "diff",
+            "export",
+            "history_search",
+            "endpoint_detail",
+            "projects",
+            "config",
+        ] {
+            assert!(
+                sitegraph_text.contains(&format!("\"{action}\"")),
+                "missing sitegraph action {action}"
+            );
+        }
+        assert!(
+            !sitegraph_text.contains("\"import_openapi\""),
+            "alias import_openapi must not be in schema"
+        );
+
+        let websocket_text = websocket.to_string();
+        for action in [
+            "create",
+            "send_text",
+            "send_binary",
+            "history",
+            "close",
+            "list",
+        ] {
+            assert!(
+                websocket_text.contains(&format!("\"{action}\"")),
+                "missing websocket action {action}"
+            );
+        }
+
+        let scan_config_text = scan_config.to_string();
+        for action in [
+            "list_configs",
+            "get_config",
+            "upsert_config",
+            "delete_config",
+            "list_pools",
+            "get_pool",
+            "upsert_pool",
+            "delete_pool",
+        ] {
+            assert!(
+                scan_config_text.contains(&format!("\"{action}\"")),
+                "missing scan_config action {action}"
+            );
+        }
+
+        let collaborator_text = collaborator.to_string();
+        for action in ["generate", "poll", "correlate"] {
+            assert!(
+                collaborator_text.contains(&format!("\"{action}\"")),
+                "missing collaborator action {action}"
+            );
+        }
+
+        let diff_text = diff.to_string();
+        for action in ["compare_exchanges", "diff_responses"] {
+            assert!(
+                diff_text.contains(&format!("\"{action}\"")),
+                "missing diff action {action}"
+            );
+        }
+
+        let session_text = session.to_string();
+        for action in [
+            "list_rules",
+            "get_rule",
+            "upsert_rule",
+            "delete_rule",
+            "run_macro",
+            "upsert_macro",
+            "list_macros",
+            "delete_macro",
+        ] {
+            assert!(
+                session_text.contains(&format!("\"{action}\"")),
+                "missing session action {action}"
+            );
+        }
+
+        let settings_text = settings.to_string();
         for action in [
             "get_proxy_settings",
             "update_proxy_settings",
@@ -6541,49 +7196,113 @@ mod contract_tests {
         ] {
             assert!(
                 settings_text.contains(&format!("\"{action}\"")),
-                "missing {action}"
+                "missing settings action {action}"
             );
         }
-        assert!(settings.pointer("/properties/match").is_some());
-        assert!(settings.pointer("/properties/replace").is_some());
+    }
+
+    #[test]
+    fn settings_schema_contains_semantic_proxy_rule_fields_and_no_overloaded_fields() {
+        let schema = serde_json::to_value(schemars::schema_for!(SettingsActionInput))
+            .expect("settings action schema must serialize");
+        let root = &schema;
+        let main = resolve_schema_ref(root, root);
+        let variants = main
+            .get("oneOf")
+            .or_else(|| main.get("anyOf"))
+            .and_then(Value::as_array)
+            .expect("SettingsActionInput must be a oneOf/anyOf schema");
+
+        let register_proxy_rule_variant = variants
+            .iter()
+            .map(|v| resolve_schema_ref(v, root))
+            .find(|v| {
+                v.get("properties")
+                    .and_then(|p| p.get("action"))
+                    .and_then(|a| {
+                        let a_res = resolve_schema_ref(a, root);
+                        a_res.get("const").and_then(Value::as_str).or_else(|| {
+                            a_res
+                                .get("enum")
+                                .and_then(Value::as_array)
+                                .and_then(|arr| arr.first())
+                                .and_then(Value::as_str)
+                        })
+                    })
+                    == Some("register_proxy_rule")
+            })
+            .expect("must find register_proxy_rule variant in SettingsActionInput");
+
+        let props = register_proxy_rule_variant
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("properties object");
+
+        assert!(props.contains_key("id"));
+        assert!(props.contains_key("url_contains"));
+        assert!(props.contains_key("phase"));
+        assert!(props.contains_key("rule_action"));
+        assert!(props.contains_key("match"));
+        assert!(props.contains_key("replace"));
+        assert!(props.contains_key("header_name"));
+        assert!(props.contains_key("header_value"));
+        assert!(props.contains_key("enabled"));
+
+        assert!(!props.contains_key("target"));
+        assert!(!props.contains_key("mode"));
+        assert!(!props.contains_key("kind"));
+        assert!(!props.contains_key("script"));
+        assert!(!props.contains_key("script_id"));
+        assert!(!props.contains_key("script_name"));
     }
 
     #[test]
     fn settings_proxy_rule_preserves_match_and_replacement() {
-        let input = proxy_rule_input_from_settings(SettingsActionInput {
-            action: SettingsAction::RegisterProxyRule,
-            config: None,
-            paths: None,
-            enabled: Some(true),
-            operation: None,
-            port: None,
-            running: None,
-            listen_mode: None,
-            listen_specific_address: None,
-            certificate_mode: None,
-            enable_http2: None,
-            support_invisible_proxying: None,
-            target: Some("example.test/app.js".to_owned()),
-            mode: Some("response".to_owned()),
-            script: None,
-            script_id: Some("replace-js".to_owned()),
-            script_name: None,
-            kind: Some("edit".to_owned()),
+        let input = SettingsActionInput::RegisterProxyRule {
+            id: Some("replace-js".to_owned()),
+            url_contains: "example.test/app.js".to_owned(),
+            phase: Some(ProxyRulePhaseInput::Response),
+            rule_action: Some(ProxyRuleActionInput::Edit),
             match_text: Some("old".to_owned()),
             replace: Some("new".to_owned()),
-            index: None,
-            rule: None,
-            master_enabled: None,
-            request_enabled: None,
-            response_enabled: None,
-        })
-        .expect("proxy rule input should normalize");
+            header_name: None,
+            header_value: None,
+            enabled: Some(true),
+        };
 
-        assert_eq!(Some("old".to_owned()), input.match_text);
-        assert_eq!(Some("new".to_owned()), input.replace);
-        assert_eq!("example.test/app.js", input.url_contains);
+        match input {
+            SettingsActionInput::RegisterProxyRule {
+                id,
+                url_contains,
+                phase,
+                rule_action,
+                match_text,
+                replace,
+                header_name,
+                header_value,
+                enabled,
+            } => {
+                let rule_input = RegisterProxyRuleInput {
+                    id,
+                    url_contains,
+                    phase,
+                    rule_action,
+                    match_text,
+                    replace,
+                    header_name,
+                    header_value,
+                    enabled,
+                };
+                assert_eq!(Some("old".to_owned()), rule_input.match_text);
+                assert_eq!(Some("new".to_owned()), rule_input.replace);
+                assert_eq!("example.test/app.js", rule_input.url_contains);
+                assert_eq!(Some(ProxyRulePhaseInput::Response), rule_input.phase);
+                assert_eq!(Some(ProxyRuleActionInput::Edit), rule_input.rule_action);
+                assert_eq!(Some(true), rule_input.enabled);
+            }
+            _ => panic!("expected RegisterProxyRule variant"),
+        }
     }
-
     #[test]
     fn repeater_url_builds_complete_request_and_service() {
         let input = repeater_input_from_http_action(
@@ -6750,7 +7469,9 @@ mod contract_tests {
         let schema = serde_json::to_value(schemars::schema_for!(RegisterProxyRuleInput))
             .expect("proxy rule schema must serialize");
         assert!(schema.pointer("/properties/intercept").is_none());
-        assert!(schema.pointer("/properties/action").is_some());
+        assert!(schema.pointer("/properties/action").is_none());
+        assert!(schema.pointer("/properties/rule_action").is_some());
+        assert!(schema.pointer("/properties/phase").is_some());
     }
 
     #[test]
@@ -6980,6 +7701,272 @@ mod contract_tests {
         ] {
             assert!(tools.contains(tool), "Tool must be mounted: {tool}");
         }
+    }
+
+    #[test]
+    fn encode_bounded_base64_bounds_large_payload_by_default() {
+        let large_payload = vec![b'X'; 1_700_000];
+        let (encoded, truncated, length) = encode_bounded_base64(&large_payload, None);
+        assert!(truncated, "1.7MB payload must be marked truncated");
+        assert_eq!(length, 1_700_000);
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&encoded)
+            .expect("must be valid Base64");
+        assert_eq!(decoded.len(), DEFAULT_MAX_BODY_LENGTH);
+        assert_eq!(decoded.len(), 4096);
+    }
+
+    #[test]
+    fn encode_bounded_base64_honors_explicit_max_body_length() {
+        let large_payload = vec![b'Y'; 1_700_000];
+        let (encoded, truncated, length) = encode_bounded_base64(&large_payload, Some(256));
+        assert!(truncated, "payload must be marked truncated");
+        assert_eq!(length, 1_700_000);
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&encoded)
+            .expect("must be valid Base64");
+        assert_eq!(decoded.len(), 256);
+    }
+
+    #[test]
+    fn encode_bounded_base64_preserves_small_payload_verbatim() {
+        let small_payload = b"Hello, Burp MCP!".to_vec();
+        let (encoded, truncated, length) = encode_bounded_base64(&small_payload, None);
+        assert!(!truncated, "small payload must not be marked truncated");
+        assert_eq!(length, small_payload.len());
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&encoded)
+            .expect("must be valid Base64");
+        assert_eq!(decoded, small_payload);
+    }
+
+    #[test]
+    fn intercepted_message_output_is_metadata_only_by_default_and_bounds_explicit_body() {
+        let large_req = vec![b'R'; 1_700_000];
+        let large_resp = vec![b'S'; 1_700_000];
+        let proto_msg = burp_protocol::protocol::InterceptedMessage {
+            id: 42,
+            direction: "client_to_server".to_owned(),
+            phase: "request".to_owned(),
+            url: "https://example.test/upload".to_owned(),
+            method: "POST".to_owned(),
+            status: 200,
+            is_in_scope: true,
+            request: large_req.clone(),
+            response: large_resp.clone(),
+        };
+
+        // 1. Default (include_bodies = false): metadata only, no large base64 emitted
+        let meta_output = intercepted_message_output(proto_msg.clone(), false, None);
+        assert_eq!(meta_output.request_base64, None);
+        assert_eq!(meta_output.response_base64, None);
+        assert_eq!(meta_output.request_length, Some(1_700_000));
+        assert_eq!(meta_output.response_length, Some(1_700_000));
+
+        // 2. Explicit include_bodies with default cap: bounded at 4096 bytes
+        let bounded_output = intercepted_message_output(proto_msg.clone(), true, None);
+        assert!(bounded_output.request_base64.is_some());
+        assert_eq!(bounded_output.request_truncated, Some(true));
+        assert_eq!(bounded_output.request_length, Some(1_700_000));
+        let decoded_req = base64::engine::general_purpose::STANDARD
+            .decode(bounded_output.request_base64.unwrap())
+            .expect("decoded request base64");
+        assert_eq!(decoded_req.len(), DEFAULT_MAX_BODY_LENGTH);
+
+        // 3. Explicit cap: honors custom max_body_length
+        let custom_output = intercepted_message_output(proto_msg, true, Some(128));
+        let decoded_custom = base64::engine::general_purpose::STANDARD
+            .decode(custom_output.request_base64.unwrap())
+            .expect("decoded custom base64");
+        assert_eq!(decoded_custom.len(), 128);
+    }
+
+    #[test]
+    fn intercepted_websocket_message_output_is_metadata_only_by_default_and_bounds_explicit_body() {
+        let large_payload = vec![b'W'; 1_700_000];
+        let proto_ws = burp_protocol::protocol::InterceptedWebSocketMessage {
+            id: 101,
+            web_socket_id: 1,
+            upgrade_url: "wss://example.test/ws".to_owned(),
+            direction: "client_to_server".to_owned(),
+            message_type: "text".to_owned(),
+            phase: "message".to_owned(),
+            payload: large_payload,
+        };
+
+        // 1. Default (include_bodies = false): metadata only
+        let meta_ws = intercepted_websocket_message_output(proto_ws.clone(), false, None);
+        assert_eq!(meta_ws.payload_base64, None);
+        assert_eq!(meta_ws.payload_length, Some(1_700_000));
+
+        // 2. Explicit include_bodies with default cap: bounded at 4096 bytes
+        let bounded_ws = intercepted_websocket_message_output(proto_ws, true, None);
+        assert!(bounded_ws.payload_base64.is_some());
+        assert_eq!(bounded_ws.payload_truncated, Some(true));
+        assert_eq!(bounded_ws.payload_length, Some(1_700_000));
+        let decoded_ws = base64::engine::general_purpose::STANDARD
+            .decode(bounded_ws.payload_base64.unwrap())
+            .expect("decoded websocket base64");
+        assert_eq!(decoded_ws.len(), DEFAULT_MAX_BODY_LENGTH);
+    }
+
+    #[test]
+    fn to_send_output_with_options_truncates_large_payloads_with_default_cap() {
+        let large_response = vec![b'A'; 1_700_000];
+        let proto_resp = burp_protocol::protocol::SendRequestResponse {
+            request: b"GET / HTTP/1.1\r\nHost: example.test\r\n\r\n".to_vec(),
+            response: large_response,
+            has_response: true,
+            status: 200,
+        };
+        let send_output = to_send_output_with_options(proto_resp, false, None, None, None);
+        assert_eq!(send_output.truncated, Some(true));
+        assert!(send_output.response.is_some());
+        let resp_text = send_output.response.unwrap();
+        assert!(resp_text.contains("... [truncated"));
+    }
+
+    #[test]
+    fn input_schemas_expose_include_bodies_and_max_body_length() {
+        let ws_history_schema =
+            serde_json::to_value(schemars::schema_for!(ProxyWebSocketHistoryInput))
+                .expect("schema");
+        assert!(
+            ws_history_schema
+                .pointer("/properties/include_bodies")
+                .is_some()
+        );
+        assert!(
+            ws_history_schema
+                .pointer("/properties/max_body_length")
+                .is_some()
+        );
+
+        let managed_ws_schema =
+            serde_json::to_value(schemars::schema_for!(ManagedWebSocketHistoryInput))
+                .expect("schema");
+        assert!(
+            managed_ws_schema
+                .pointer("/properties/include_bodies")
+                .is_some()
+        );
+        assert!(
+            managed_ws_schema
+                .pointer("/properties/max_body_length")
+                .is_some()
+        );
+
+        let intercepted_msg_schema =
+            serde_json::to_value(schemars::schema_for!(InterceptedMessagesInput)).expect("schema");
+        assert!(
+            intercepted_msg_schema
+                .pointer("/properties/include_bodies")
+                .is_some()
+        );
+        assert!(
+            intercepted_msg_schema
+                .pointer("/properties/max_body_length")
+                .is_some()
+        );
+
+        let intercepted_ws_schema =
+            serde_json::to_value(schemars::schema_for!(InterceptedWebSocketMessagesInput))
+                .expect("schema");
+        assert!(
+            intercepted_ws_schema
+                .pointer("/properties/include_bodies")
+                .is_some()
+        );
+        assert!(
+            intercepted_ws_schema
+                .pointer("/properties/max_body_length")
+                .is_some()
+        );
+
+        let ctrl_msg_schema =
+            serde_json::to_value(schemars::schema_for!(ControlInterceptedMessageInput))
+                .expect("schema");
+        assert!(
+            ctrl_msg_schema
+                .pointer("/properties/max_body_length")
+                .is_some()
+        );
+
+        let ctrl_ws_schema = serde_json::to_value(schemars::schema_for!(
+            ControlInterceptedWebSocketMessageInput
+        ))
+        .expect("schema");
+        assert!(
+            ctrl_ws_schema
+                .pointer("/properties/max_body_length")
+                .is_some()
+        );
+
+        let proxy_detail_schema =
+            serde_json::to_value(schemars::schema_for!(ProxyDetailInput)).expect("schema");
+        assert!(
+            proxy_detail_schema
+                .pointer("/properties/include_bodies")
+                .is_some()
+        );
+        assert!(
+            proxy_detail_schema
+                .pointer("/properties/max_body_length")
+                .is_some()
+        );
+
+        let logger_detail_schema =
+            serde_json::to_value(schemars::schema_for!(LoggerDetailInput)).expect("schema");
+        assert!(
+            logger_detail_schema
+                .pointer("/properties/include_bodies")
+                .is_some()
+        );
+        assert!(
+            logger_detail_schema
+                .pointer("/properties/max_body_length")
+                .is_some()
+        );
+
+        let proxy_action_schema =
+            serde_json::to_value(schemars::schema_for!(suite::ProxyActionInput)).expect("schema");
+        assert!(
+            proxy_action_schema
+                .pointer("/properties/include_bodies")
+                .is_some()
+        );
+        assert!(
+            proxy_action_schema
+                .pointer("/properties/max_body_length")
+                .is_some()
+        );
+
+        let ws_action_schema =
+            serde_json::to_value(schemars::schema_for!(suite::WebSocketActionInput))
+                .expect("schema");
+        assert!(
+            ws_action_schema
+                .pointer("/properties/include_bodies")
+                .is_some()
+        );
+        assert!(
+            ws_action_schema
+                .pointer("/properties/max_body_length")
+                .is_some()
+        );
+
+        let logger_action_schema =
+            serde_json::to_value(schemars::schema_for!(suite::LoggerActionInput)).expect("schema");
+        assert!(
+            logger_action_schema
+                .pointer("/properties/include_bodies")
+                .is_some()
+        );
+        assert!(
+            logger_action_schema
+                .pointer("/properties/max_body_length")
+                .is_some()
+        );
     }
 
     fn schema_true_paths(value: &Value, path: String) -> Vec<String> {
