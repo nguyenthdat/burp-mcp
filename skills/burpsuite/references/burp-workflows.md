@@ -41,8 +41,9 @@ The `burp_editor_patch` tool performs surgical mutations without transmitting fu
 The MCP queues are separate from master Proxy Intercept state and Proxy history.
 Use them only for a narrow authorized fixture:
 
-1. Read/configure `burp_intercept_controller` or
-   `burp_websocket_intercept_controller` with a bounded timeout.
+1. Configure `burp_intercept_controller` with a bounded timeout and either a
+   narrow case-insensitive `url_filter` or `in_scope_only: true`. Unscoped HTTP
+   interception is rejected; non-matching traffic bypasses the MCP queue.
 2. Generate one scoped message.
 3. Page the matching pending queue; retain one stable ID.
 4. Forward, drop, or send that ID to manual Intercept. Replace complete HTTP
@@ -105,6 +106,11 @@ High-level automated workflows reduce round-trips:
 
 Typical flow from PortSwigger's [reissuing requests guide](https://portswigger.net/burp/documentation/desktop/getting-started/reissuing-http-requests): select an HTTP history entry, send it to Repeater, send a baseline unchanged request, modify one variable, resend, and use history navigation to compare results.
 
+`burp_http` action `send_to_repeater` accepts either an absolute `url` with
+optional `method`, `body`, and `headers`, or a complete raw `request`. For raw
+requests, `host` and an explicit port can be derived from the `Host` header;
+set `https` explicitly because a raw HTTP message does not encode transport.
+
 Keep redirect handling in-scope unless the operator asks otherwise. Redirects and cookie processing can cross boundaries or alter session state.
 
 ## Intruder
@@ -160,6 +166,11 @@ Safe OAST operating pattern:
 - For BApp Store installs, review source and resource/traffic impact; PortSwigger reviews submissions but does not guarantee quality or security. See [BApp installation](https://portswigger.net/burp/documentation/desktop/extend-burp/extensions/installing/bapp-store).
 - Review manually loaded JAR/Python/Ruby/BApp code and provenance before using [manual installation](https://portswigger.net/burp/documentation/desktop/extend-burp/extensions/installing/manual-install).
 - Check Logger after enabling an extension to understand generated traffic.
+
+Bambda compiles to JVM bytecode. A class-file `CONSTANT_Utf8` entry cannot
+exceed 65,535 bytes, so never embed multi-megabyte bundles or other large
+string literals. Use a bounded `burp_settings` `register_proxy_rule`
+`match`/`replace` operation or an external streaming proxy instead.
 
 ## Site map terminology
 

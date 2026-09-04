@@ -57,7 +57,7 @@ Burp HTTP client & Repeater bridge.
   - `send_batch`: Send parallel HTTP requests (up to 32).
   - `convert`: Convert raw HTTP request method (e.g. GET ↔ POST).
   - `export`: Export request as raw text, `curl`, or Python `requests` code.
-  - `send_to_repeater`: Open a raw request in Burp Repeater UI under a named tab.
+  - `send_to_repeater`: Open a request in Burp Repeater from either an absolute `url` plus optional `method`/`body`/`headers`, or a complete raw `request`; raw requests derive host/port from `Host` when omitted.
 
 ### `burp_target`
 Burp Target & Scope manager.
@@ -155,7 +155,7 @@ Proxy Settings & Configuration manager.
   - `update_proxy_intercept_config`: Patch intercept filters and response modification.
   - `register_http_handler`: Register bounded HTTP request handler rule.
   - `remove_http_handler`: Remove/clear HTTP handler rules.
-  - `register_proxy_rule`: Register request/response Proxy rule (`forward`, `intercept`, `drop`, `edit`).
+  - `register_proxy_rule`: Register request/response Proxy rule (`forward`, `intercept`, `drop`, `edit`). Body edits use `match`/`replace`; header edits use `script_name`/`script`.
   - `list_proxy_rules`: List runtime Proxy rules.
   - `remove_proxy_rule`: Remove one or clear all Proxy rules.
 
@@ -226,7 +226,7 @@ Response Comparer & Diff engine.
 
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
-| `burp_bambda_import` | Validate and import Bambda script definition into Burp. | Import YAML Bambda definition. |
+| `burp_bambda_import` | Validate and import Bambda script definition into Burp. JVM `CONSTANT_Utf8` entries are limited to 65,535 bytes; do not embed large bundles—use proxy rules or an external streaming proxy. | Import YAML Bambda definition. |
 | `burp_bcheck_import` | Validate and import declarative BCheck definition into Burp Scanner. | Import BCheck script. |
 
 ---
@@ -235,7 +235,7 @@ Response Comparer & Diff engine.
 
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
-| `burp_intercept_controller` | Read or configure MCP-controlled HTTP request/response interception queue. | Configure bounded queue timeout. |
+| `burp_intercept_controller` | Read or configure MCP-controlled HTTP request/response interception. Enabling requires `url_filter` or `in_scope_only: true`; non-matching traffic bypasses the queue. | Configure a bounded timeout and narrow scope filter. |
 | `burp_intercepted_messages` | List HTTP messages currently paused by MCP intercept controller. | Inspect paused requests/responses. |
 | `burp_control_intercepted_message` | Forward, drop, or edit MCP-paused HTTP message. | Resolve paused message. |
 | `burp_websocket_intercept_controller` | Read or configure MCP-controlled WebSocket interception queue. | Configure WebSocket intercept queue. |

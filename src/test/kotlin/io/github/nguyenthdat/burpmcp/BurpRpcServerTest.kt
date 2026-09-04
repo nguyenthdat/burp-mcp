@@ -27,6 +27,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.assertFailsWith
+import com.google.rpc.Status as RpcStatus
+import com.google.protobuf.Any as RpcAny
+import io.github.nguyenthdat.burpmcp.grpc.v1.RpcError
+import io.github.nguyenthdat.burpmcp.rpc.structuredStatus
+import io.grpc.Status
+import io.grpc.protobuf.StatusProto
 
 class BurpRpcServerTest {
     private var server: BurpRpcServer? = null
@@ -77,6 +83,24 @@ class BurpRpcServerTest {
         assertEquals(GRPC_MAX_RPC_TIMEOUT_SECONDS.toInt(), info.maxRpcTimeoutSeconds)
         assertEquals(GRPC_MAX_RESPONSE_BYTES, info.maxResponseBytes)
         assertTrue(server?.isRunning() == true)
+    }
+
+    @Test
+    fun `structured invalid argument keeps correction details`() {
+        val failure =
+            structuredStatus(
+                Status.INVALID_ARGUMENT,
+                io.github.nguyenthdat.burpmcp.grpc.v1.ErrorCode.ERROR_CODE_INVALID_ARGUMENT,
+                "url_filter is required",
+                details = "set url_filter or in_scope_only=true",
+            )
+
+        val rpcStatus: RpcStatus = StatusProto.fromThrowable(failure)!!
+        val detail: RpcAny = rpcStatus.detailsList.single()
+        val error = detail.unpack(RpcError::class.java)
+        assertEquals("url_filter is required", error.message)
+        assertEquals("set url_filter or in_scope_only=true", error.details)
+        assertFalse(error.retryable)
     }
 
     @Test

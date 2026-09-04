@@ -215,3 +215,4 @@ source: |+
 5. **Import Verification**:
    - Send complete YAML via `burp_bambda_import`.
    - Verify `success: true`, `status: LOADED_WITHOUT_ERRORS`, and `errors: []`.
+6. **JVM Constant Limit**: Bambda is compiled to Java bytecode. A class-file `CONSTANT_Utf8` entry is limited to 65,535 bytes, so never embed large JavaScript bundles or other multi-megabyte literals. For traffic substitution, use a bounded `burp_settings` `register_proxy_rule` `match`/`replace` rule or an external streaming proxy.

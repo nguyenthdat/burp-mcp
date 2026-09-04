@@ -90,7 +90,7 @@ Burp MCP registers **43 tools by default** (42 Burp tools + 1 offline Decoder to
 | Tool | Key Actions | Description | Read-Only |
 |---|---|---|:---:|
 | `burp_proxy` | `history`, `detail`, `annotate`, `highlight`, `extract`, `websocket_history` | Proxy HTTP/WebSocket history inspection & annotation. | No |
-| `burp_http` | `send`, `send_batch`, `convert`, `export`, `send_to_repeater` | Send requests, batch testing, format export, and Repeater UI bridge. | No |
+| `burp_http` | `send`, `send_batch`, `convert`, `export`, `send_to_repeater` | Send requests, batch testing, format export, and Repeater UI bridge. `send_to_repeater` accepts either an absolute `url` plus optional method/body/headers or a raw `request`; raw requests derive service authority from `Host` when possible. | No |
 | `burp_target` | `get_scope`, `add_scope`, `remove_scope`, `info`, `sitemap` | Scope checking/mutation and Site Map exploration. | No |
 | `burp_scanner` | `start_audit`, `start_crawl`, `stop`, `list_issues`, `issue_detail`, `update_issue`, `report`, `test_bcheck`, `remove` | Automated scanning, issue triage, and BCheck test runner. | No |
 | `burp_scan_config` | `list_configs`, `get_config`, `upsert_config`, `delete_config`, `list_pools`, `get_pool`, `upsert_pool`, `delete_pool` | Full CRUD for scan configurations and resource pools. | No |
@@ -98,7 +98,7 @@ Burp MCP registers **43 tools by default** (42 Burp tools + 1 offline Decoder to
 | `burp_collaborator` | `generate`, `poll`, `correlate` | Out-of-band OAST testing with origin correlation tracking. | No |
 | `burp_websocket` | `create`, `send_text`, `send_binary`, `history`, `close`, `list` | Outbound managed WebSocket connections. | No |
 | `burp_session` | `list_rules`, `get_rule`, `upsert_rule`, `delete_rule`, `run_macro`, `upsert_macro`, `list_macros`, `delete_macro` | Session handling rules and multi-request macros. | No |
-| `burp_settings` | `get_proxy_settings`, `update_proxy_settings`, `export_config`, `inspect_config`, `import_config`, `intercept_state`, `set_intercept_state`, `proxy_intercept_config`, `update_proxy_intercept_config`, `register_http_handler`, `remove_http_handler`, `register_proxy_rule`, `list_proxy_rules`, `remove_proxy_rule` | Proxy listeners, intercept settings, handlers, and configuration. | No |
+| `burp_settings` | `get_proxy_settings`, `update_proxy_settings`, `export_config`, `inspect_config`, `import_config`, `intercept_state`, `set_intercept_state`, `proxy_intercept_config`, `update_proxy_intercept_config`, `register_http_handler`, `remove_http_handler`, `register_proxy_rule`, `list_proxy_rules`, `remove_proxy_rule` | Proxy listeners, intercept settings, handlers, and configuration. `register_proxy_rule` uses `match`/`replace` for body edits and `script_name`/`script` for header edits. | No |
 | `burp_logger` | `query`, `detail`, `clear` | Comprehensive traffic logger across all Burp tools. | No |
 | `burp_organizer` | `add`, `list` | Burp Organizer item storage and triage. | No |
 | `burp_diff` | `diff_responses`, `compare_exchanges` | HTTP response diffing, similarity scoring, and Comparer UI bridge. | Yes |
@@ -143,14 +143,14 @@ Burp MCP registers **43 tools by default** (42 Burp tools + 1 offline Decoder to
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
-| `burp_bambda_import` | `{script}` | Validate and import a complete Bambda YAML script without executing it. | No |
+| `burp_bambda_import` | `{script}` | Validate and import a complete Bambda YAML script without executing it. JVM class-file string constants are limited to 65,535 bytes; do not embed large bundles—use proxy rules or an external streaming proxy. | No |
 | `burp_bcheck_import` | `{script, enabled?}` | Validate and import a complete BCheck script definition into Burp. | No |
 
 ### 8. MCP Interception Queues (6 tools)
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
-| `burp_intercept_controller` | `{enabled?, timeout_seconds?}` | Read or configure the MCP-owned HTTP interception queue. Pending messages auto-forward on timeout. | No |
+| `burp_intercept_controller` | `{enabled?, timeout_seconds?, url_filter?, in_scope_only?}` | Read or configure the MCP-owned HTTP interception queue. Enabling requires `url_filter` or `in_scope_only: true`; non-matching traffic continues normally and pending messages auto-forward on timeout. | No |
 | `burp_intercepted_messages` | `{limit?, cursor?}` | Page pending HTTP requests and responses, including lossless base64 messages. | Yes |
 | `burp_control_intercepted_message` | `{id, action, message_base64?}` | Forward, drop, or send one paused HTTP message to Burp's manual Intercept tab; optionally replace the full message. | No |
 | `burp_websocket_intercept_controller` | `{enabled?, timeout_seconds?}` | Read or configure MCP-owned WebSocket interception. | No |

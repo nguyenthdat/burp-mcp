@@ -33,7 +33,7 @@ Fields ending in `?` are optional. `{}` means no arguments.
 | Tool | Input | Key Actions & Purpose |
 |---|---|---|
 | `burp_proxy` | `{action, limit?, offset?, cursor?, url_filter?, method_filter?, status_filter?, has_notes?, color?, include_bodies?, headers_only?, extract_css?, extract_json?, max_body_length?, index?, notes?, regex?}` | `history`, `detail`, `annotate`, `highlight`, `extract`, `websocket_history`. Default history uses compact metadata (`include_bodies: false`). |
-| `burp_http` | `{action, method?, url?, body?, headers?, headers_only?, extract_css?, extract_json?, max_body_length?, requests?, request?, convert_to?, host?, port?, https?, format?, tab_name?}` | `send`, `send_batch`, `convert`, `export`, `send_to_repeater`. |
+| `burp_http` | `{action, method?, url?, body?, headers?, headers_only?, extract_css?, extract_json?, max_body_length?, requests?, request?, convert_to?, host?, port?, https?, format?, tab_name?}` | `send`, `send_batch`, `convert`, `export`, `send_to_repeater`. For `send_to_repeater`, provide either absolute `url` plus optional method/body/headers or a raw `request`; raw requests derive host/port from `Host` when omitted. |
 | `burp_target` | `{action, url?, url_prefix?, limit?, cursor?}` | `get_scope`, `add_scope`, `remove_scope`, `info`, `sitemap`. |
 | `burp_scanner` | `{action, url?, audit_type?, seed_urls?, scan_configuration_id?, resource_pool_id?, timeout_seconds?, stable_seconds?, include_out_of_scope?, job_id?, limit?, offset?, cursor?, index?, status?, severity?, confidence?, notes?, format?, path?, issue_indexes?, script?, request?, response?, host?, port?, https?}` | `start_audit`, `start_crawl`, `stop`, `list_issues`, `issue_detail`, `update_issue`, `report`, `test_bcheck`, `remove`. |
 | `burp_scan_config` | `{action, id?, name?, scan_type?, audit_type?, include_out_of_scope?, timeout_seconds?, stable_seconds?, resource_pool_id?, kind?, existing_pool_name?, concurrent_request_limit?, throttle_millis?, max_retries?}` | `list_configs`, `get_config`, `upsert_config`, `delete_config`, `list_pools`, `get_pool`, `upsert_pool`, `delete_pool`. |
@@ -41,7 +41,7 @@ Fields ending in `?` are optional. `{}` means no arguments.
 | `burp_collaborator` | `{action, count?, target_url?, injection_point?, limit?, cursor?}` | `generate` (with target binding), `poll` (with auto-correlation), `correlate`. |
 | `burp_websocket` | `{action, host?, port?, https?, path?, id?, text?, data?, limit?, cursor?}` | `create`, `send_text`, `send_binary`, `history`, `close`, `list`. |
 | `burp_session` | `{action, id?, description?, action_type?, find?, replace?, header_name?, parameter_name?, macro_description?, url_contains?, tools?, enabled?, serial_number?, items?}` | `list_rules`, `get_rule`, `upsert_rule`, `delete_rule`, `run_macro`, `upsert_macro`, `list_macros`, `delete_macro`. |
-| `burp_settings` | `{action, config?, paths?, enabled?, operation?, port?, running?, listen_mode?, listen_specific_address?, certificate_mode?, enable_http2?, support_invisible_proxying?, target?, mode?, script?, script_id?, script_name?, kind?, index?, rule?, master_enabled?, request_enabled?, response_enabled?}` | `get_proxy_settings`, `update_proxy_settings`, `export_config`, `inspect_config`, `import_config`, `intercept_state`, `set_intercept_state`, `proxy_intercept_config`, `update_proxy_intercept_config`, `register_http_handler`, `remove_http_handler`, `register_proxy_rule`, `list_proxy_rules`, `remove_proxy_rule`. |
+| `burp_settings` | `{action, config?, paths?, enabled?, operation?, port?, running?, listen_mode?, listen_specific_address?, certificate_mode?, enable_http2?, support_invisible_proxying?, target?, mode?, script?, script_id?, script_name?, kind?, match?, replace?, index?, rule?, master_enabled?, request_enabled?, response_enabled?}` | `get_proxy_settings`, `update_proxy_settings`, `export_config`, `inspect_config`, `import_config`, `intercept_state`, `set_intercept_state`, `proxy_intercept_config`, `update_proxy_intercept_config`, `register_http_handler`, `remove_http_handler`, `register_proxy_rule`, `list_proxy_rules`, `remove_proxy_rule`. Proxy-rule body edits use `match`/`replace`; header edits use `script_name`/`script`. |
 | `burp_logger` | `{action, limit?, offset?, cursor?, source_filter?, url_filter?, method_filter?, status_filter?, has_notes?, color?, include_bodies?, headers_only?, extract_css?, extract_json?, max_body_length?, index?}` | `query` (across proxy, repeater, scanner, intruder, extensions), `detail`, `clear`. |
 | `burp_organizer` | `{action, request?, response?, host?, port?, https?, notes?, highlight?, limit?, cursor?, status_filter?, url_filter?}` | `add`, `list`. |
 | `burp_diff` | `{action, response_a?, response_b?, index_a?, index_b?, first?, second?}` | `diff_responses` (similarity score, header diff, body line diff), `compare_exchanges` (send to desktop Comparer tab). |
@@ -97,7 +97,7 @@ Fields ending in `?` are optional. `{}` means no arguments.
 
 | Tool | Input | Purpose |
 |---|---|---|
-| `burp_bambda_import` | `{script}` | Validate and import Bambda script definition into Burp. |
+| `burp_bambda_import` | `{script}` | Validate and import a Bambda definition. JVM `CONSTANT_Utf8` entries are limited to 65,535 bytes; do not embed large bundles. |
 | `burp_bcheck_import` | `{script, enabled}` | Validate and import declarative BCheck definition into Burp Scanner. |
 
 ---
@@ -106,12 +106,12 @@ Fields ending in `?` are optional. `{}` means no arguments.
 
 | Tool | Input | Purpose |
 |---|---|---|
-| `burp_intercept_controller` | `{enabled?, timeout_millis?}` | Read or configure MCP-controlled HTTP request/response interception queue. |
+| `burp_intercept_controller` | `{enabled?, timeout_seconds?, url_filter?, in_scope_only?}` | Configure scoped HTTP interception. Enabling requires `url_filter` or `in_scope_only: true`; non-matching traffic bypasses the queue. |
 | `burp_intercepted_messages` | `{limit?, cursor?}` | List HTTP messages currently paused by MCP intercept controller. |
-| `burp_control_intercepted_message` | `{id, action, raw_message?}` | Forward, drop, or edit MCP-paused HTTP message. |
-| `burp_websocket_intercept_controller` | `{enabled?, timeout_millis?}` | Read or configure MCP-controlled WebSocket interception queue. |
+| `burp_control_intercepted_message` | `{id, action, message_base64?}` | Forward, drop, or send an MCP-paused HTTP message to manual Intercept; optionally replace the complete raw message from standard Base64. |
+| `burp_websocket_intercept_controller` | `{enabled?, timeout_seconds?}` | Read or configure MCP-controlled WebSocket interception queue. |
 | `burp_intercepted_websocket_messages` | `{limit?, cursor?}` | List WebSocket messages currently paused by MCP controller. |
-| `burp_control_intercepted_websocket_message` | `{id, action, raw_payload?}` | Forward, drop, or edit paused WebSocket frame. |
+| `burp_control_intercepted_websocket_message` | `{id, action, payload_base64?}` | Forward, drop, or send a paused WebSocket frame to manual Intercept; optionally replace its payload from standard Base64. |
 
 ---
 

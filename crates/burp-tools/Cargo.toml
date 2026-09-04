@@ -10,6 +10,7 @@ base64.workspace = true
 blake3.workspace = true
 burp-protocol = { package = "burp-protocol", path = "../burp-protocol" }
 rmcp.workspace = true
+prost.workspace = true
 schemars.workspace = true
 serde.workspace = true
 regex.workspace = true
@@ -17,6 +18,7 @@ serde_json.workspace = true
 sitegraph = { path = "../sitegraph" }
 sitegraph-daemon = { path = "../sitegraph-daemon" }
 tokio.workspace = true
+tonic.workspace = true
 time.workspace = true
 url.workspace = true
 sha2.workspace = true

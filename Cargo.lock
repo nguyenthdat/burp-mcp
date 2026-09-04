@@ -325,6 +325,7 @@ dependencies = [
  "html-escape",
  "pest",
  "pest_derive",
+ "prost",
  "regex",
  "rmcp",
  "schemars",
@@ -335,6 +336,7 @@ dependencies = [
  "sitegraph-daemon",
  "time",
  "tokio",
+ "tonic",
  "url",
  "utility-engine",
 ]

@@ -1,6 +1,35 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HttpAction {
+    Send,
+    SendBatch,
+    Convert,
+    Export,
+    SendToRepeater,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SettingsAction {
+    GetProxySettings,
+    UpdateProxySettings,
+    ExportConfig,
+    InspectConfig,
+    ImportConfig,
+    InterceptState,
+    SetInterceptState,
+    ProxyInterceptConfig,
+    UpdateProxyInterceptConfig,
+    RegisterHttpHandler,
+    RemoveHttpHandler,
+    RegisterProxyRule,
+    ListProxyRules,
+    RemoveProxyRule,
+}
+
 // ==========================================
 // 1. burp_proxy
 // ==========================================
@@ -30,7 +59,7 @@ pub struct ProxyActionInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct HttpActionInput {
-    pub action: String, // "send", "send_batch", "convert", "export", "send_to_repeater"
+    pub action: HttpAction,
     pub method: Option<String>,
     pub url: Option<String>,
     pub body: Option<String>,
@@ -197,7 +226,7 @@ pub struct SessionActionInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SettingsActionInput {
-    pub action: String, // "get_proxy_settings", "update_proxy_settings", "export_config", "inspect_config", "import_config", "intercept_state", "set_intercept_state", "proxy_intercept_config", "update_proxy_intercept_config", "register_http_handler", "remove_http_handler", "register_proxy_rule", "list_proxy_rules", "remove_proxy_rule"
+    pub action: SettingsAction,
     pub config: Option<String>,
     pub paths: Option<Vec<String>>,
     pub enabled: Option<bool>,
@@ -215,6 +244,9 @@ pub struct SettingsActionInput {
     pub script_id: Option<String>,
     pub script_name: Option<String>,
     pub kind: Option<String>,
+    #[serde(rename = "match")]
+    pub match_text: Option<String>,
+    pub replace: Option<String>,
     pub index: Option<u32>,
     pub rule: Option<crate::ProxyInterceptRuleInput>,
     pub master_enabled: Option<bool>,

@@ -393,6 +393,7 @@ internal fun structuredStatus(
     code: ErrorCode,
     message: String,
     retryable: Boolean = false,
+    details: String = "",
 ): io.grpc.StatusRuntimeException {
     val detail =
         RpcError
@@ -400,6 +401,7 @@ internal fun structuredStatus(
             .setCode(code)
             .setMessage(message)
             .setRetryable(retryable)
+            .setDetails(details)
             .build()
     val rpcStatus =
         RpcStatus
@@ -417,11 +419,13 @@ internal fun <T> StreamObserver<T>.respond(block: () -> T) {
     } catch (exception: io.grpc.StatusException) {
         onError(exception)
     } catch (exception: IllegalArgumentException) {
+        val message = exception.message ?: "invalid argument"
         onError(
             structuredStatus(
                 Status.INVALID_ARGUMENT,
                 ErrorCode.ERROR_CODE_INVALID_ARGUMENT,
-                exception.message ?: "invalid argument",
+                message,
+                details = "Correct the named input field and retry the same MCP tool call.",
             ),
         )
     } catch (exception: NoSuchElementException) {
@@ -564,7 +568,7 @@ internal class BurpRpcService(
                 !request.hasPage() || request.page.limit == 0 -> 100
                 request.page.limit > GRPC_MAX_PAGE_SIZE ->
                     throw IllegalArgumentException("page limit must be at most $GRPC_MAX_PAGE_SIZE")
-                else -> request.page.limit.toInt()
+                else -> request.page.limit
             }
         val offset = parseCursor(if (request.hasPage()) request.page.cursor else "", "proxy history cursor")
         val page =
@@ -949,11 +953,15 @@ internal class BurpRpcService(
         val state = interceptController.configure(
             request.enabled.takeIf { request.hasEnabled() },
             request.timeoutSeconds.toInt().takeIf { request.hasTimeoutSeconds() },
+            request.urlFilter.takeIf { request.hasUrlFilter() },
+            request.inScopeOnly.takeIf { request.hasInScopeOnly() },
         )
         InterceptControllerConfigResponse.newBuilder()
             .setEnabled(state.enabled)
             .setTimeoutSeconds(state.timeoutSeconds)
             .setPending(state.pending)
+            .setUrlFilter(state.urlFilter)
+            .setInScopeOnly(state.inScopeOnly)
             .build()
     }
     override fun proxyInterceptConfig(

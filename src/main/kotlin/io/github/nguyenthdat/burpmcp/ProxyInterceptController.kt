@@ -39,10 +39,13 @@ internal data class InterceptControllerState(
     val enabled: Boolean,
     val timeoutSeconds: Int,
     val pending: Int,
+    val urlFilter: String = "",
+    val inScopeOnly: Boolean = false,
 )
 
 internal class ProxyInterceptController(private val api: MontoyaApi) : AutoCloseable {
     private data class Resolution(val decision: InterceptDecision, val message: ByteArray?)
+    private data class InterceptFilter(val urlContains: String, val inScopeOnly: Boolean)
     private class Pending(val snapshot: PendingIntercept) {
         val latch = CountDownLatch(1)
         @Volatile var resolution: Resolution? = null
@@ -54,12 +57,15 @@ internal class ProxyInterceptController(private val api: MontoyaApi) : AutoClose
     private val responseRegistration: Registration
     @Volatile private var enabled = false
     @Volatile private var timeoutSeconds = DEFAULT_TIMEOUT_SECONDS
+    @Volatile private var filter = InterceptFilter("", false)
 
     init {
         requestRegistration = api.proxy().registerRequestHandler(object : ProxyRequestHandler {
             override fun handleRequestReceived(request: InterceptedRequest): ProxyRequestReceivedAction {
                 if (!enabled) return ProxyRequestReceivedAction.continueWith(request)
-                val resolution = await(requestSnapshot(request, InterceptPhase.RECEIVED))
+                val snapshot = requestSnapshot(request, InterceptPhase.RECEIVED)
+                if (!shouldPause(snapshot)) return ProxyRequestReceivedAction.continueWith(request)
+                val resolution = await(snapshot)
                 return when (resolution.decision) {
                     InterceptDecision.FORWARD -> ProxyRequestReceivedAction.doNotIntercept(requestMessage(request, resolution.message))
                     InterceptDecision.DROP -> ProxyRequestReceivedAction.drop()
@@ -69,7 +75,9 @@ internal class ProxyInterceptController(private val api: MontoyaApi) : AutoClose
 
             override fun handleRequestToBeSent(request: InterceptedRequest): ProxyRequestToBeSentAction {
                 if (!enabled) return ProxyRequestToBeSentAction.continueWith(request)
-                val resolution = await(requestSnapshot(request, InterceptPhase.TO_BE_SENT))
+                val snapshot = requestSnapshot(request, InterceptPhase.TO_BE_SENT)
+                if (!shouldPause(snapshot)) return ProxyRequestToBeSentAction.continueWith(request)
+                val resolution = await(snapshot)
                 return when (resolution.decision) {
                     InterceptDecision.DROP -> ProxyRequestToBeSentAction.drop()
                     InterceptDecision.FORWARD, InterceptDecision.INTERCEPT ->
@@ -80,7 +88,9 @@ internal class ProxyInterceptController(private val api: MontoyaApi) : AutoClose
         responseRegistration = api.proxy().registerResponseHandler(object : ProxyResponseHandler {
             override fun handleResponseReceived(response: InterceptedResponse): ProxyResponseReceivedAction {
                 if (!enabled) return ProxyResponseReceivedAction.continueWith(response)
-                val resolution = await(responseSnapshot(response, InterceptPhase.RECEIVED))
+                val snapshot = responseSnapshot(response, InterceptPhase.RECEIVED)
+                if (!shouldPause(snapshot)) return ProxyResponseReceivedAction.continueWith(response)
+                val resolution = await(snapshot)
                 return when (resolution.decision) {
                     InterceptDecision.FORWARD -> ProxyResponseReceivedAction.doNotIntercept(responseMessage(response, resolution.message))
                     InterceptDecision.DROP -> ProxyResponseReceivedAction.drop()
@@ -90,7 +100,9 @@ internal class ProxyInterceptController(private val api: MontoyaApi) : AutoClose
 
             override fun handleResponseToBeSent(response: InterceptedResponse): ProxyResponseToBeSentAction {
                 if (!enabled) return ProxyResponseToBeSentAction.continueWith(response)
-                val resolution = await(responseSnapshot(response, InterceptPhase.TO_BE_SENT))
+                val snapshot = responseSnapshot(response, InterceptPhase.TO_BE_SENT)
+                if (!shouldPause(snapshot)) return ProxyResponseToBeSentAction.continueWith(response)
+                val resolution = await(snapshot)
                 return when (resolution.decision) {
                     InterceptDecision.DROP -> ProxyResponseToBeSentAction.drop()
                     InterceptDecision.FORWARD, InterceptDecision.INTERCEPT ->
@@ -100,15 +112,40 @@ internal class ProxyInterceptController(private val api: MontoyaApi) : AutoClose
         })
     }
 
-    fun configure(enabled: Boolean?, timeoutSeconds: Int?): InterceptControllerState {
+    fun configure(
+        enabled: Boolean?,
+        timeoutSeconds: Int?,
+        urlFilter: String?,
+        inScopeOnly: Boolean?,
+    ): InterceptControllerState {
+        val currentFilter = filter
+        val nextFilter =
+            InterceptFilter(
+                urlContains = urlFilter?.trim() ?: currentFilter.urlContains,
+                inScopeOnly = inScopeOnly ?: currentFilter.inScopeOnly,
+            )
+        val nextEnabled = enabled ?: this.enabled
+        require(!nextEnabled || nextFilter.urlContains.isNotEmpty() || nextFilter.inScopeOnly) {
+            "refusing unscoped interception; set url_filter or in_scope_only=true before enabling"
+        }
         timeoutSeconds?.let { require(it in 1..MAX_TIMEOUT_SECONDS) { "timeout_seconds must be between 1 and $MAX_TIMEOUT_SECONDS" } }
         if (timeoutSeconds != null) this.timeoutSeconds = timeoutSeconds
-        if (enabled != null) this.enabled = enabled
-        if (enabled == false) releaseAll()
+        filter = nextFilter
+        this.enabled = nextEnabled
+        if (!nextEnabled) releaseAll()
         return state()
     }
 
-    fun state(): InterceptControllerState = InterceptControllerState(enabled, timeoutSeconds, pending.size)
+    fun state(): InterceptControllerState {
+        val currentFilter = filter
+        return InterceptControllerState(
+            enabled,
+            timeoutSeconds,
+            pending.size,
+            currentFilter.urlContains,
+            currentFilter.inScopeOnly,
+        )
+    }
 
     fun list(offset: Int, limit: Int): Pair<List<PendingIntercept>, Int> {
         require(offset >= 0) { "offset must be non-negative" }
@@ -126,6 +163,13 @@ internal class ProxyInterceptController(private val api: MontoyaApi) : AutoClose
             item.latch.countDown()
         }
         return item.snapshot
+    }
+
+    internal fun shouldPause(snapshot: PendingIntercept): Boolean {
+        if (!enabled) return false
+        val currentFilter = filter
+        return (!currentFilter.inScopeOnly || snapshot.isInScope) &&
+            (currentFilter.urlContains.isEmpty() || snapshot.url.contains(currentFilter.urlContains, ignoreCase = true))
     }
 
     private fun await(snapshot: PendingIntercept): Resolution {
