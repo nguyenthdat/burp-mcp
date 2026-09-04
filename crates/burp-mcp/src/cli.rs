@@ -59,7 +59,7 @@ pub struct ServeArgs {
     #[arg(long, env = "BURP_MCP_SITEGRAPH_PROJECT_ROOT")]
     pub sitegraph_project_root: Option<PathBuf>,
 
-    /// Sitegraph enrichment rules JSON. Initialized from embedded defaults when absent.
+    /// Sitegraph enrichment rules file. Initialized from embedded defaults when absent.
     #[arg(long, env = "BURP_MCP_SITEGRAPH_RULES")]
     pub sitegraph_rules_path: Option<PathBuf>,
 

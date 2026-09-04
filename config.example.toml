@@ -8,7 +8,7 @@ endpoint = "http://127.0.0.1:9877"
 [sitegraph]
 enabled = false
 # project_root = "~/.local/share/burp-mcp/sitegraph"
-# rules_path = "~/.config/burp-mcp/default-rules.json"
+# rules_path = "~/.config/burp-mcp/default-rules.rules"
 # daemon = "/absolute/path/to/a-specific-project.daemon.toml"
 mode = "off"
 interval_seconds = 30

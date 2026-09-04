@@ -11,7 +11,7 @@ Sitegraph is disabled by default. Enable it only when the target, retention poli
 enabled = true
 mode = "off"
 project_root = "/absolute/path/to/burp-mcp/sitegraph"
-rules_path = "/absolute/path/to/default-rules.json"
+rules_path = "/absolute/path/to/default-rules.rules"
 ```
 
 The file is loaded from `~/.config/burp-mcp/config.toml`; use `burp-mcp --config PATH serve` to select another file. The equivalent environment and CLI opt-in remain available:
@@ -24,7 +24,49 @@ BURP_MCP_ENABLE_SITEGRAPH=true burp-mcp serve
 `project_root` is a directory, not a database filename. Burp MCP reads the active Burp project's stable `graph_id` and resolves the database as `<project_root>/<graph_id>.sqlite`; unsaved temporary projects use `<project_root>/temp-<graph_id>.sqlite`. Each project therefore has an independent database and daemon endpoint.
 CLI flags and environment variables override TOML values. A project root or indexing mode does not enable sitegraph by itself. Restart the server after changing the enable flag.
 
-On first SiteGraph enablement, Burp MCP initializes `~/.config/burp-mcp/default-rules.json` from its embedded rule pack. Edit that JSON to customize enrichment rules, or select another file with `[sitegraph].rules_path`. Existing rule files are validated and never overwritten. `sitegraph_config` only reports the effective runtime settings; it does not mutate them.
+On first SiteGraph enablement, Burp MCP initializes `~/.config/burp-mcp/default-rules.rules` from its embedded rule pack. Customize enrichment rules in that file, or select another file with `[sitegraph].rules_path`. Existing rule files are validated and never overwritten. Following a clean cutover, rule definitions use a Pest-parsed DSL; legacy JSON rule files are strictly rejected. `sitegraph_config` only reports the effective runtime settings; it does not mutate them.
+
+### Enrichment Rule DSL
+
+Rules are defined in declarative `.rules` files parsed by a custom Pest grammar. Once parsed into typed pack and rule structs, pattern evaluation executes via `regex::bytes::RegexSet` and `regex::bytes::Regex`, preserving byte-exact offsets and capture groups across arbitrary payloads without lossy UTF-8 conversion.
+
+The DSL supports `pack` metadata blocks, `rule` blocks, raw string literals (`r"..."` or `r#"..."#`), standard escaped strings (`"..."`), capture group indexes, severity ratings (`critical`, `high`, `medium`, `low`), and surface filters (`request_message`, `response_message`, `response_body`, `websocket_payload`, `websocket_edited_payload`). Comments start with `#` or `//`.
+
+Example `default-rules.rules` definition:
+
+```text
+pack {
+    id = "burp-mcp-sitegraph"
+    version = "2026.08.25"
+    max_matches = 256
+}
+
+rule "jwt" {
+    pattern = r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
+    capture_group = 0
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "bearer_auth" {
+    pattern = r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,512}"
+    capture_group = 0
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+    ]
+}
+```
+
+Dual-format JSON/DSL compatibility is not supported; JSON rule files will fail to load with a parse error.
 
 ## Endpoint TLS
 
@@ -82,6 +124,13 @@ Use `off` for reproducible investigations and invoke sync deliberately. Use `wat
 The runtime schema is authoritative; inspect the exposed MCP tool definitions rather than copying fields from this guide.
 
 - `sitegraph_sync`: import bounded sitemap, HTTP history, WebSocket history, issue, and technology observations.
+  - Automatic HTTP-history annotations: as a secondary post-commit side effect of indexing newly fetched Proxy history, matching entries with medium+ severity findings are annotated in Burp Suite.
+    - **Stable ID Lookup**: annotations target the permanent Burp Proxy history entry ID rather than a transient filtered index.
+    - **Run Bounding**: bounded at a maximum of 50 history entries per sync run.
+    - **Severity Threshold & Colors**: triggers only on `medium`, `high`, or `critical` matches. Severity maps to highlight colors: `critical` and `high` to **RED**, `medium` to **ORANGE**, and `low` (if configured) to **YELLOW**.
+    - **Operator State Preservation**: existing non-NONE highlights are preserved. Existing operator notes are preserved; SiteGraph injects or updates an idempotent marker line: `[SiteGraph] severity={severity} rules={rule_ids} direction={direction}`. Re-syncing is fully idempotent and never duplicates markers.
+    - **Non-Fatal Post-Commit Execution**: annotation runs after SQLite transaction commit. Annotation failures are logged and do not roll back or fail the graph synchronization.
+    - **HTTP Scope Only**: automatic annotations apply strictly to HTTP proxy history; WebSocket messages are never annotated.
 - `sitegraph_search`, `sitegraph_endpoint_detail`: locate normalized endpoints.
 - `sitegraph_history_search`: search sensitive indexed evidence with bounded source filtering and pagination.
 - `sitegraph_projects`, `sitegraph_stats`, `sitegraph_status`: inspect graph and sync state.

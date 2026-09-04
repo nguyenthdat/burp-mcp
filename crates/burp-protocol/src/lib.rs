@@ -220,6 +220,10 @@ enum Command {
         request: proto::SetNoteRequest,
         response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
     },
+    AnnotateProxyEntries {
+        request: proto::AnnotateProxyEntriesRequest,
+        response: oneshot::Sender<Result<proto::AnnotateProxyEntriesResponse, ClientError>>,
+    },
     MutateScope {
         request: proto::MutateScopeRequest,
         response: oneshot::Sender<Result<proto::ActionResponse, ClientError>>,
@@ -828,6 +832,13 @@ impl BurpClient {
         request: proto::SetNoteRequest,
     ) -> Result<proto::ActionResponse, ClientError> {
         self.send(|response| Command::SetNote { request, response })
+            .await
+    }
+    pub async fn annotate_proxy_entries(
+        &self,
+        request: proto::AnnotateProxyEntriesRequest,
+    ) -> Result<proto::AnnotateProxyEntriesResponse, ClientError> {
+        self.send(|response| Command::AnnotateProxyEntries { request, response })
             .await
     }
 
@@ -1857,6 +1868,16 @@ async fn execute(
             let _ = response.send(result);
             reconnect
         }
+        Command::AnnotateProxyEntries { request, response } => {
+            let result = client
+                .annotate_proxy_entries(with_deadline(request, config.call_timeout))
+                .await
+                .map(|response| response.into_inner())
+                .map_err(ClientError::Rpc);
+            let reconnect = result.as_ref().is_err_and(is_transport_failure);
+            let _ = response.send(result);
+            reconnect
+        }
         Command::MutateScope { request, response } => {
             let result = client
                 .mutate_scope(with_deadline(request, config.call_timeout))
@@ -2465,6 +2486,9 @@ fn respond_offline(command: Command) {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::SetNote { response, .. } => {
+            let _ = response.send(Err(ClientError::Rpc(status)));
+        }
+        Command::AnnotateProxyEntries { response, .. } => {
             let _ = response.send(Err(ClientError::Rpc(status)));
         }
         Command::MutateScope { response, .. } => {

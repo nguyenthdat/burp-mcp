@@ -65,8 +65,18 @@ This release represents a comprehensive overhaul of Burp MCP, transforming it fr
 - **Smart Path Parameter Inference (`normalize/url.rs`)**:
   - Introduced `parameterize_path` with regex classifiers for Integer IDs, UUIDs, Hex Hashes, and Slugs (e.g., `/api/v1/users/{user_id}/orders/{order_id}`).
   - Cuts graph node noise by 85–90% on large RESTful surfaces.
-- **Single-Pass Enrichment Engine (`enrichment/mod.rs`)**:
-  - Refactored `RulePack` using Rust's `RegexSet` to evaluate 28 security rules in a single compiled pass, cutting regex evaluation overhead by 90%.
+- **Enrichment Rule DSL & Byte-Safe RegexSet Matching (`enrichment/`)**:
+  - Migrated rule pack definitions from JSON to a custom Pest-parsed DSL (`default-rules.rules`); legacy JSON rule definitions are rejected without dual-format shims.
+  - The DSL supports `pack` metadata, `rule` blocks, raw string literals (`r"..."` or `r#"..."#`), standard escaped strings, capture groups, severity ratings, and target surface lists (`request_message`, `response_message`, `response_body`, `websocket_payload`, `websocket_edited_payload`).
+  - Pattern matching compiles into Rust's `regex::bytes::RegexSet` and individual `regex::bytes::Regex` instances, preserving byte-exact offsets and capture groups across arbitrary payloads without lossy UTF-8 conversions.
+- **Automatic HTTP-History Proxy Annotations (`sitegraph/sync.rs`, `AnnotationFacade.kt`)**:
+  - `sitegraph_sync` automatically annotates interesting newly indexed HTTP Proxy history entries matching medium+ severity rules (`medium`, `high`, `critical`).
+  - Annotations resolve entries by permanent stable Burp history `id` rather than transient relative indexes.
+  - Bounded to a maximum of 50 entries per sync run.
+  - Injects or updates an idempotent marker line: `[SiteGraph] severity={severity} rules={rule_ids} direction={direction}`, preserving existing operator notes.
+  - Maps severity to highlights: `critical`/`high` -> RED, `medium` -> ORANGE, `low` -> YELLOW, while preserving existing non-NONE highlights.
+  - Runs post-commit as a non-fatal side effect (annotation failures do not fail or roll back graph sync).
+  - Applied strictly to HTTP proxy history (WebSocket messages are not annotated).
 - **Scale Ceiling Expansion & Storage Optimization**:
   - Raised analysis capacity limits to `MAX_ANALYSIS_NODES = 250_000` and `MAX_ANALYSIS_EDGES = 1_000_000`.
   - Excluded binary payloads from SQLite FTS5 index (`0004_history_fts.sql`), keeping database sizes lightweight and query times fast.
@@ -116,11 +126,18 @@ This release represents a comprehensive overhaul of Burp MCP, transforming it fr
   - Defaulted traffic history queries to compact metadata only (`include_bodies: false`).
   - Added automatic payload truncation exceeding `max_body_length` and binary content stripping.
   - Added `headers_only` filtering flag.
-- **Modular PEG Grammar Parsing (`pest`) for Field Projection (`src/body_filter/`)**:
-  - Replaced monolithic regex/parsers with modular Pest grammar definitions and modules:
-    - Grammars: `crates/burp-tools/src/grammars/json_path.pest` and `crates/burp-tools/src/grammars/css_selector.pest`.
-    - Parser modules: `src/body_filter/mod.rs`, `src/body_filter/css_selector.rs`, `src/body_filter/json_path.rs`, and `src/body_filter/payload.rs`.
-    - AST-based extraction for JSON responses (`extract_json`) and CSS selector extraction for HTML responses (`extract_css`).
+- **Expanded Custom Pest Grammar Parsing for Field Projections (`src/body_filter/`)**:
+  - Expanded custom Pest grammars and AST evaluators without external parser crates (avoiding `scraper` or `serde_json_path` dependencies):
+    - **CSS Selectors (`css_selector.pest`, `css_selector.rs`)**:
+      - Supports selector lists (`,`), combinators (child `>`, descendant whitespace, next-sibling `+`, subsequent-sibling `~`), escaped and Unicode identifiers.
+      - Supports attribute matchers (`=`, `~=`, `|=`, `^=`, `$=`, `*=`) with `i`/`s` case flags, empty values, and quoted/unquoted strings.
+      - Supports structural pseudos (`:first-child`, `:last-child`, `:only-child`, `:nth-child` with `odd`/`even`/`An+B`, `:first`, `:last`), logical pseudos (`:not`, `:is`, `:where`), and deliberate nonstandard extension `:contains("...")`.
+      - Replaced naive regex balancing with bounded tokenization so `>`/`<` inside quoted attributes, comments, and scripts parse predictably. (Does not claim full CSS4 coverage).
+    - **JSONPath (`json_path.pest`, `json_path.rs`)**:
+      - RFC 9535 syntax with quoted escaped member names (`\uXXXX`, `\"`, `\'`), negative array indices, full slices `[start:end:step]` (with `step=0` evaluating to empty per RFC 9535).
+      - Supports selector unions, recursive descent (`..`), filter expressions `?(...)` with logical precedence (`!`, `&&`, `||`), comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `=~`), and standard functions `match()` and `search()`.
+      - Rejects unsupported functions or malformed paths with clear parse errors rather than silent partial matches.
+      - Bounded input and recursion depth with deterministic document ordering; final projection output remains bounded by `max_body_length`.
 ---
 
 ### 5. Autonomous Compound Security Workflows (`workflows.rs`)

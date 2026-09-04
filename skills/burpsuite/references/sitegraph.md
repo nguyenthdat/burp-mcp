@@ -34,8 +34,40 @@ BURP_MCP_ENABLE_SITEGRAPH=true burp-mcp serve
 | `--sitegraph-project-root <PATH>` | `BURP_MCP_SITEGRAPH_PROJECT_ROOT` | Platform data directory | Parent directory for project-scoped SQLite databases. |
 | `--sitegraph-mode <MODE>` | `BURP_MCP_SITEGRAPH_MODE` | `off` | Sync mode: `off`, `startup`, or `watch`. |
 | `--sitegraph-interval-seconds <SECS>` | `BURP_MCP_SITEGRAPH_INTERVAL_SECONDS` | `30` | Delay between bounded `watch` sync attempts. |
+| `--sitegraph-rules-path <PATH>` | `BURP_MCP_SITEGRAPH_RULES` | `~/.config/burp-mcp/default-rules.rules` | Sitegraph enrichment rules file (`.rules` DSL format). |
 
 *Note: Merely specifying `--sitegraph-project-root` or `--sitegraph-mode` does not enable sitegraph without `--enable-sitegraph`.*
+
+### 1.1 Enrichment Rule DSL
+
+Enrichment rules are defined in declarative `.rules` files parsed by a custom Pest grammar. Once parsed into typed pack and rule structs, pattern evaluation executes via `regex::bytes::RegexSet` and `regex::bytes::Regex`, preserving byte-exact offsets and capture groups across arbitrary payloads without lossy UTF-8 conversion.
+
+The DSL supports `pack` metadata blocks, `rule` blocks, raw string literals (`r"..."` or `r#"..."#`), standard escaped strings (`"..."`), capture group indexes, severity ratings (`critical`, `high`, `medium`, `low`), and surface filters (`request_message`, `response_message`, `response_body`, `websocket_payload`, `websocket_edited_payload`). Comments start with `#` or `//`.
+
+Example `default-rules.rules` DSL snippet:
+
+```text
+pack {
+    id = "burp-mcp-sitegraph"
+    version = "2026.08.25"
+    max_matches = 256
+}
+
+rule "jwt" {
+    pattern = r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
+    capture_group = 0
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+```
+
+Legacy JSON rule files (`default-rules.json`) are strictly rejected following a clean cutover.
 
 ---
 
@@ -62,7 +94,7 @@ The graph stores normalized endpoint metadata, parameter names, relationships, o
 
 | Tool | Parameters | Purpose |
 |---|---|---|
-| `sitegraph_sync` | `{url_prefix?}` | Synchronize bounded Burp observations into the active project's local SQLite graph. |
+| `sitegraph_sync` | `{url_prefix?}` | Synchronize bounded Burp observations into the active project's local SQLite graph. Automatically annotates interesting newly indexed HTTP Proxy history entries matching medium+ severity rules (stable ID lookup, capped at 50/run, critical/high -> RED, medium -> ORANGE, low -> YELLOW; preserves existing notes and non-NONE highlights; idempotent `[SiteGraph]` marker; non-fatal post-commit; HTTP only, never WebSockets). |
 | `sitegraph_status` | `{}` | Read local sitegraph synchronization and schema status. |
 | `sitegraph_stats` | `{}` | Return graph ID, active mode, node count, and edge count. |
 | `sitegraph_config` | `{}` | Read active auto-index settings; edit configuration and restart to change them. |

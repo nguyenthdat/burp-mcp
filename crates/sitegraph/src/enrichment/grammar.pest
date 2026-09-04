@@ -1,0 +1,47 @@
+COMMENT = _{ "//" ~ (!"\n" ~ ANY)* | "#" ~ (!"\n" ~ ANY)* }
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" | COMMENT }
+
+file = { SOI ~ (pack_decl | rule_decl)* ~ EOI }
+
+pack_decl = { "pack" ~ "{" ~ pack_field* ~ "}" }
+pack_field = {
+    id_field
+    | version_field
+    | max_matches_field
+}
+id_field = { "id" ~ (":" | "=") ~ string_val }
+version_field = { "version" ~ (":" | "=") ~ string_val }
+max_matches_field = { "max_matches" ~ (":" | "=") ~ integer_val }
+
+rule_decl = { "rule" ~ string_val ~ "{" ~ rule_field* ~ "}" }
+rule_field = {
+    pattern_field
+    | capture_group_field
+    | severity_field
+    | surfaces_field
+}
+pattern_field = { "pattern" ~ (":" | "=") ~ string_val }
+capture_group_field = { "capture_group" ~ (":" | "=") ~ integer_val }
+severity_field = { "severity" ~ (":" | "=") ~ (severity_val | string_val) }
+surfaces_field = { "surfaces" ~ (":" | "=") ~ surface_list }
+
+severity_val = { "critical" | "high" | "medium" | "low" }
+
+surface_list = { "[" ~ (surface_item ~ ("," ~ surface_item)* ~ ","?)? ~ "]" }
+surface_item = { surface_name | string_val }
+surface_name = {
+    "request_message"
+    | "response_message"
+    | "response_body"
+    | "websocket_payload"
+    | "websocket_edited_payload"
+}
+
+integer_val = @{ ASCII_DIGIT+ }
+
+string_val = { raw_string | quoted_string }
+quoted_string = @{ "\"" ~ quoted_inner ~ "\"" }
+quoted_inner = @{ (escape | (!("\"" | "\\") ~ ANY))* }
+escape = @{ "\\" ~ ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t" | ("u" ~ ASCII_HEX_DIGIT{4})) }
+
+raw_string = @{ "r" ~ PUSH("#"*) ~ "\"" ~ (!("\"" ~ PEEK) ~ ANY)* ~ "\"" ~ POP }

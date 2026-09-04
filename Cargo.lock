@@ -337,6 +337,7 @@ dependencies = [
  "time",
  "tokio",
  "tonic",
+ "tracing",
  "url",
  "utility-engine",
 ]
@@ -2386,6 +2387,8 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "http",
+ "pest",
+ "pest_derive",
  "proptest",
  "regex",
  "serde",

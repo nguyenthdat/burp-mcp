@@ -1630,6 +1630,14 @@ impl BurpTools {
                 );
             }
         };
+        let rule_pack = Arc::new(
+            ::sitegraph::enrichment::RulePack::from_path(rules_path).map_err(|error| {
+                format!(
+                    "invalid sitegraph rules file {}: {error}",
+                    rules_path.display()
+                )
+            })?,
+        );
         let daemon = match daemon_endpoint {
             Some(endpoint) => sitegraph_daemon::Client::new(endpoint),
             None => connect_or_spawn(&resolved_path, &graph_id, rules_path)
@@ -1637,7 +1645,7 @@ impl BurpTools {
                 .map_err(|error| error.to_string())?,
         };
         let graph = GraphBackend::Remote(daemon);
-        let indexer = SitegraphIndexer::spawn(client.clone(), graph.clone());
+        let indexer = SitegraphIndexer::spawn(client.clone(), graph.clone(), rule_pack);
         let (auto_index_shutdown, _) = tokio::sync::watch::channel(false);
         Ok(Self {
             client,

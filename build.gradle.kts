@@ -8,7 +8,7 @@ plugins {
 }
 
 
-val sitegraphRulePackSha256 = "0ad7dbd9d752b914aefbc37f6958495af956156865ce1392014ec86f8f69a398"
+val sitegraphRulePackSha256 = "62195a9a9f6ec090a8e9094057f3e7cc569e4611b8fe5c6fa590a6a4ff1723f6"
 group = "io.github.nguyenthdat.burpmcp"
 version = providers.gradleProperty("version").orElse("3.2.0").get()
 

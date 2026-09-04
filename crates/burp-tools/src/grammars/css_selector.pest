@@ -1,25 +1,73 @@
-css_query = { SOI ~ selector_step+ ~ EOI }
+css_query = { SOI ~ opt_s ~ selector_list ~ opt_s ~ EOI }
 
-selector_step = { combinator? ~ compound_selector }
+selector_list = { complex_selector ~ (opt_s ~ "," ~ opt_s ~ complex_selector)* }
 
-combinator = { ">" | "+" | "~" }
+complex_selector = { compound_selector ~ (combinator ~ compound_selector)* }
 
-compound_selector = {
-    (tag_name ~ (id_selector | class_selector | attr_selector | pseudo_selector)*)
-    | (id_selector | class_selector | attr_selector | pseudo_selector)+
+combinator = {
+    (opt_s ~ ">" ~ opt_s)
+    | (opt_s ~ "+" ~ opt_s)
+    | (opt_s ~ "~" ~ opt_s)
+    | s
 }
 
-tag_name = @{ (ASCII_ALPHANUMERIC | "-" | "_")+ | "*" }
+compound_selector = {
+    (type_or_universal ~ subclass_selector*)
+    | subclass_selector+
+}
+
+type_or_universal = { tag_name | universal }
+universal = { "*" }
+tag_name = { ident }
+
+subclass_selector = {
+    id_selector
+    | class_selector
+    | attr_selector
+    | pseudo_selector
+}
+
 id_selector = { "#" ~ ident }
 class_selector = { "." ~ ident }
-attr_selector = { "[" ~ ident ~ (attr_op ~ (string_lit | ident))? ~ "]" }
-attr_op = { "=" | "~=" | "|=" | "^=" | "$=" | "*=" }
-pseudo_selector = { ":" ~ pseudo_name ~ ("(" ~ (string_lit | pseudo_arg | number | ident) ~ ")")? }
+
+attr_selector = {
+    "[" ~ opt_s ~ attr_name ~ opt_s ~ (attr_matcher ~ opt_s ~ attr_val ~ (opt_s ~ attr_flag)?)? ~ opt_s ~ "]"
+}
+attr_name = { ident }
+attr_matcher = { "=" | "~=" | "|=" | "^=" | "$=" | "*=" }
+attr_val = { string_lit | unquoted_attr_val }
+unquoted_attr_val = @{ (!("]" | " " | "\t" | "\r" | "\n") ~ ANY)+ }
+attr_flag = @{ "i" | "I" | "s" | "S" }
+
+pseudo_selector = {
+    ":" ~ (nth_pseudo | selector_pseudo | string_pseudo | pseudo_ident)
+}
+pseudo_ident = { pseudo_name }
+nth_pseudo = { "nth-child" ~ "(" ~ opt_s ~ nth_expr ~ opt_s ~ ")" }
+selector_pseudo = { selector_pseudo_name ~ "(" ~ opt_s ~ selector_list ~ opt_s ~ ")" }
+selector_pseudo_name = @{ "not" | "is" | "where" }
+string_pseudo = { "contains" ~ "(" ~ opt_s ~ string_lit ~ opt_s ~ ")" }
 pseudo_name = @{ (ASCII_ALPHANUMERIC | "-" | "_")+ }
-pseudo_arg = @{ (ASCII_ALPHANUMERIC | "-" | "_" | " " | "\t")+ }
 
-ident = @{ (ASCII_ALPHANUMERIC | "_" | "-")+ }
-number = @{ ASCII_DIGIT+ }
-string_lit = @{ ("\"" ~ (!"\"" ~ ("\\\"" | ANY))* ~ "\"") | ("'" ~ (!"'" ~ ("\\'" | ANY))* ~ "'") }
+nth_expr = @{
+    ("odd" | "even")
+    | (("+" | "-")? ~ ASCII_DIGIT* ~ ("n" | "N") ~ ((" " | "\t")* ~ ("+" | "-") ~ (" " | "\t")* ~ ASCII_DIGIT+)? ~ &(" " | "\t" | ")"))
+    | (("+" | "-")? ~ ASCII_DIGIT+ ~ &(" " | "\t" | ")"))
+}
 
-WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+ident = @{
+    ("--" | ("-"? ~ (ASCII_ALPHA | "_" | non_ascii | escape)))
+    ~ (ASCII_ALPHANUMERIC | "_" | "-" | non_ascii | escape)*
+}
+
+escape = @{ "\\" ~ (hex_escape | (!("\r" | "\n" | "\x0c") ~ ANY)) }
+hex_escape = @{ ASCII_HEX_DIGIT{1,6} ~ (" " | "\t")? }
+non_ascii = @{ !ASCII ~ ANY }
+
+string_lit = @{
+    ("\"" ~ (!"\"" ~ ("\\\"" | ANY))* ~ "\"")
+    | ("'" ~ (!"'" ~ ("\\'" | ANY))* ~ "'")
+}
+
+s = _{ (" " | "\t" | "\r" | "\n")+ }
+opt_s = _{ (" " | "\t" | "\r" | "\n")* }

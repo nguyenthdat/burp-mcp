@@ -1,4 +1,6 @@
-json_path = { SOI ~ ("$" | "@")? ~ segment* ~ EOI }
+json_path = { SOI ~ opt_s ~ root_scope? ~ opt_s ~ segment* ~ opt_s ~ EOI }
+
+root_scope = { "$" | "@" }
 
 segment = _{
     recursive_segment
@@ -7,39 +9,89 @@ segment = _{
     | root_ident
 }
 
-recursive_segment = { ".." ~ (bracket_segment | wildcard | ident) }
+recursive_segment = { ".." ~ opt_s ~ (bracket_segment | wildcard | ident) }
 
-dot_segment = { "." ~ (wildcard | ident) }
+dot_segment = { "." ~ opt_s ~ (wildcard | ident) }
 
 root_ident = { ident }
 
 bracket_segment = {
-    "[" ~ (
-        filter_expr
-        | slice
-        | union_segment
-        | wildcard
-        | number
-        | string_lit
-        | ident
-    ) ~ "]"
+    "[" ~ opt_s ~ (
+        union_segment
+        | selector_item
+    ) ~ opt_s ~ "]"
 }
 
-slice = { number? ~ ":" ~ number? ~ (":" ~ number?)? }
+union_segment = { selector_item ~ (opt_s ~ "," ~ opt_s ~ selector_item)+ }
 
-union_segment = { union_item ~ ("," ~ union_item)+ }
-union_item = { number | string_lit | ident }
+selector_item = {
+    filter_expr
+    | slice
+    | wildcard
+    | number
+    | string_lit
+    | ident
+}
 
-filter_expr = { "?" ~ "(" ~ filter_condition ~ ")" }
-filter_condition = { filter_path ~ (filter_op ~ filter_val)? }
-filter_path = { ("@" | "$")? ~ ("." ~ ident)+ | ident }
+slice = {
+    (number? ~ opt_s ~ ":" ~ opt_s ~ number? ~ (opt_s ~ ":" ~ opt_s ~ number?)?)
+}
+
+filter_expr = { "?" ~ opt_s ~ (paren_logical_expr | logical_or_expr) }
+paren_logical_expr = { "(" ~ opt_s ~ logical_or_expr ~ opt_s ~ ")" }
+
+logical_or_expr = { logical_and_expr ~ (opt_s ~ "||" ~ opt_s ~ logical_and_expr)* }
+logical_and_expr = { unary_expr ~ (opt_s ~ "&&" ~ opt_s ~ unary_expr)* }
+unary_expr = { (logical_not ~ opt_s)? ~ primary_filter_expr }
+logical_not = { "!" }
+
+primary_filter_expr = {
+    paren_logical_expr
+    | comparison_or_test_expr
+}
+
+comparison_or_test_expr = {
+    comparable_val ~ (opt_s ~ filter_op ~ opt_s ~ comparable_val)?
+}
+
+comparable_val = {
+    func_call
+    | filter_literal
+    | filter_path
+}
+
+func_call = {
+    func_name ~ "(" ~ opt_s ~ (func_arg ~ (opt_s ~ "," ~ opt_s ~ func_arg)*)? ~ opt_s ~ ")"
+}
+func_name = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+func_arg = { comparable_val }
+
+filter_path = {
+    (("@" | "$") ~ (opt_s ~ ("." | "..") ~ opt_s ~ (wildcard | ident | bracket_segment))* ~ (opt_s ~ ("." | "..") ~ opt_s ~ (wildcard | ident))*)
+    | ("." ~ opt_s ~ (wildcard | ident))
+    | ident
+}
+
 filter_op = { "==" | "!=" | "<=" | ">=" | "<" | ">" | "=~" }
-filter_val = { string_lit | number | boolean | "null" }
+
+filter_literal = { string_lit | number | boolean | "null" }
 
 boolean = { "true" | "false" }
 wildcard = { "*" }
-ident = @{ (ASCII_ALPHANUMERIC | "_" | "-")+ }
-number = @{ "-"? ~ ASCII_DIGIT+ }
-string_lit = @{ ("\"" ~ (!"\"" ~ ("\\\"" | ANY))* ~ "\"") | ("'" ~ (!"'" ~ ("\\'" | ANY))* ~ "'") }
 
-WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+ident = @{
+    (ASCII_ALPHANUMERIC | "_" | "-")+
+}
+
+number = @{
+    "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? ~ (("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+)?
+}
+
+string_lit = @{
+    ("\"" ~ (!"\"" ~ ("\\\"" | "\\\\" | "\\/" | "\\b" | "\\f" | "\\n" | "\\r" | "\\t" | unicode_escape | ANY))* ~ "\"")
+    | ("'" ~ (!"'" ~ ("\\'" | "\\\\" | "\\/" | "\\b" | "\\f" | "\\n" | "\\r" | "\\t" | unicode_escape | ANY))* ~ "'")
+}
+
+unicode_escape = @{ "\\u" ~ ASCII_HEX_DIGIT{4} }
+
+opt_s = _{ (" " | "\t" | "\r" | "\n")* }

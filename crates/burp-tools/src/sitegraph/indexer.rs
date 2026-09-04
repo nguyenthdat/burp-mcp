@@ -1,8 +1,10 @@
 use super::sync::SiteGraphSynchronizer;
+use ::sitegraph::enrichment::RulePack;
 use ::sitegraph::{GraphStatus, SyncSummary};
 use burp_protocol::BurpClient;
 use serde::Serialize;
 use sitegraph_daemon::GraphBackend;
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, watch};
 
 const DEFAULT_QUEUE_CAPACITY: usize = 32;
@@ -49,14 +51,14 @@ pub(crate) struct SitegraphIndexer {
 }
 
 impl SitegraphIndexer {
-    pub(crate) fn spawn(client: BurpClient, graph: GraphBackend) -> Self {
+    pub(crate) fn spawn(client: BurpClient, graph: GraphBackend, rule_pack: Arc<RulePack>) -> Self {
         let (sender, mut receiver) = mpsc::channel(DEFAULT_QUEUE_CAPACITY);
         let (status_sender, status) = watch::channel(StatusState {
             state: IndexerState::Disabled,
             pending_commands: 0,
             last_error: None,
         });
-        let synchronizer = SiteGraphSynchronizer::new(client, graph.clone());
+        let synchronizer = SiteGraphSynchronizer::new(client, graph.clone(), rule_pack);
         tokio::spawn(async move {
             while let Some(command) = receiver.recv().await {
                 match command {

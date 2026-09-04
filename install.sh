@@ -51,9 +51,9 @@ main() {
   os="$(uname -s)"
   arch="$(uname -m)"
   case "$os/$arch" in
-    Linux/x86_64|Linux/amd64) asset="burp-mcp-linux-x86_64"; daemon_asset="sitegraph-daemon-linux-x86_64"; rules_asset="default-rules.json" ;;
-    Darwin/arm64|Darwin/aarch64) asset="burp-mcp-macos-aarch64"; daemon_asset="sitegraph-daemon-macos-aarch64"; rules_asset="default-rules.json" ;;
-    Darwin/x86_64|Darwin/amd64) asset="burp-mcp-macos-x86_64"; daemon_asset="sitegraph-daemon-macos-x86_64"; rules_asset="default-rules.json" ;;
+    Linux/x86_64|Linux/amd64) asset="burp-mcp-linux-x86_64"; daemon_asset="sitegraph-daemon-linux-x86_64"; rules_asset="default-rules.rules" ;;
+    Darwin/arm64|Darwin/aarch64) asset="burp-mcp-macos-aarch64"; daemon_asset="sitegraph-daemon-macos-aarch64"; rules_asset="default-rules.rules" ;;
+    Darwin/x86_64|Darwin/amd64) asset="burp-mcp-macos-x86_64"; daemon_asset="sitegraph-daemon-macos-x86_64"; rules_asset="default-rules.rules" ;;
     *) fail "unsupported platform: $os/$arch" ;;
   esac
 
@@ -78,10 +78,10 @@ main() {
   install -m 0755 "$tmp_dir/$daemon_asset" "$daemon_staged"
   mv -f "$staged" "$INSTALL_DIR/burp-mcp"
   mv -f "$daemon_staged" "$INSTALL_DIR/sitegraph-daemon"
-  if [ ! -e "$CONFIG_DIR/default-rules.json" ]; then
-    install -m 0644 "$tmp_dir/$rules_asset" "$CONFIG_DIR/default-rules.json"
+  if [ ! -e "$CONFIG_DIR/default-rules.rules" ]; then
+    install -m 0644 "$tmp_dir/$rules_asset" "$CONFIG_DIR/default-rules.rules"
   fi
-  echo "Installed $INSTALL_DIR/burp-mcp, managed sitegraph daemon, and $CONFIG_DIR/default-rules.json"
+  echo "Installed $INSTALL_DIR/burp-mcp, managed sitegraph daemon, and $CONFIG_DIR/default-rules.rules"
 
   case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;

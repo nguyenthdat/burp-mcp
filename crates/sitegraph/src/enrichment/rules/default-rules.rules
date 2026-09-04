@@ -1,0 +1,335 @@
+pack {
+    id = "burp-mcp-sitegraph"
+    version = "2026.08.25"
+    max_matches = 256
+}
+
+rule "remember_me" {
+    pattern = r"(?:^|[?&])rememberMe=[^&\s]+"
+    capture_group = 0
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "jwt" {
+    pattern = r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
+    capture_group = 0
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "basic_auth" {
+    pattern = r"(?i)\bBasic\s+[A-Za-z0-9+/=_:-]{8,256}"
+    capture_group = 0
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "bearer_auth" {
+    pattern = r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,512}"
+    capture_group = 0
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "secret_assignment" {
+    pattern = r#"(?i)(?:api[_-]?key|secret|token|access[_-]?token|client[_-]?secret|authorization)\s*[:=]\s*[\"']?([^\"'&\s]{4,256})"#
+    capture_group = 1
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "password_assignment" {
+    pattern = r#"(?i)(?:password|passwd|pwd)\s*[:=]\s*[\"']([^\"']{1,128})[\"']"#
+    capture_group = 1
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "cloud_access_key" {
+    pattern = r"(?i)\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"
+    capture_group = 0
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "aliyun_access_key" {
+    pattern = r"\bLTAI[a-zA-Z0-9]{12,32}\b"
+    capture_group = 0
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "jdbc_connection" {
+    pattern = r#"(?i)jdbc:[a-z][a-z0-9+.-]*://[^\s\"']{4,512}"#
+    capture_group = 0
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "private_key_block" {
+    pattern = r"-----BEGIN [A-Z0-9 ]+ PRIVATE KEY-----"
+    capture_group = 0
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "email_address" {
+    pattern = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}\b"
+    capture_group = 0
+    severity = "medium"
+    surfaces = [
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "internal_ipv4" {
+    pattern = r"\b(?:127\.0\.0\.1|10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}|172\.(?:1[6-9]|2[0-9]|3[01])\.(?:[0-9]{1,3}\.)[0-9]{1,3}|192\.168\.(?:[0-9]{1,3}\.)[0-9]{1,3})\b"
+    capture_group = 0
+    severity = "medium"
+    surfaces = [
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "unix_password_file" {
+    pattern = r"(?m)^[^:]{1,64}:[^:]*:[0-9]+:[0-9]+:[^:]*:/[^:]*:/(?:bin|usr/bin)/(?:ba|z|fi|sh)sh$"
+    capture_group = 0
+    severity = "critical"
+    surfaces = [
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "windows_path" {
+    pattern = r"[A-Za-z]:\\(?:[^<>:/|?*\r\n]+\\)+[^<>:/|?*\r\n]+"
+    capture_group = 0
+    severity = "medium"
+    surfaces = [
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "debug_parameter" {
+    pattern = r"(?i)(?:^|[?&])((?:access|adm|admin|alter|cfg|clone|config|create|dbg|debug|delete|disable|edit|enable|exec|execute|grant|load|make|modify|rename|reset|root|shell|test|toggle))="
+    capture_group = 1
+    severity = "medium"
+    surfaces = [
+        "request_message",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "pagination_parameter" {
+    pattern = r"(?i)(?:^|[?&])((?:size|page|page_size|num|limit|start|end|count|offset))=[^&\s]*"
+    capture_group = 1
+    severity = "low"
+    surfaces = [
+        "request_message",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "url_parameter" {
+    pattern = r#"=\s*[\"']?((?:https?://)[^\s\"'&<>]{4,1024})"#
+    capture_group = 1
+    severity = "medium"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "absolute_url" {
+    pattern = r"https?://[-A-Za-z0-9+&@#/%?=~_|!:,.;\u4E00-\u9FFF]+"
+    capture_group = 0
+    severity = "low"
+    surfaces = [
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "relative_api_link" {
+    pattern = r#"[\"'`]((?:/|\.\./|\./)(?:api|graphql|swagger|openapi|admin|internal|debug)(?:/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]*)?)[\"'`]"#
+    capture_group = 1
+    severity = "medium"
+    surfaces = [
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "source_map" {
+    pattern = r#"(?:^|[\"'`])[^\"'`\s]{1,512}\.js\.map(?:[?#][^\"'`\s]*)?"#
+    capture_group = 0
+    severity = "medium"
+    surfaces = [
+        "response_body",
+        "response_message",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}
+
+rule "swagger_marker" {
+    pattern = r#"(?i)(?:swagger-ui(?:\.html)?|\"swagger\"\s*:|openapi\s*[:=])"#
+    capture_group = 0
+    severity = "low"
+    surfaces = [
+        "response_body",
+        "response_message",
+    ]
+}
+
+rule "vite_dev_client" {
+    pattern = r"/@vite/client"
+    capture_group = 0
+    severity = "medium"
+    surfaces = [
+        "response_body",
+        "response_message",
+    ]
+}
+
+rule "file_upload_form" {
+    pattern = r#"(?i)<input\b[^>]*\btype\s*=\s*[\"']file[\"']"#
+    capture_group = 0
+    severity = "low"
+    surfaces = [
+        "response_body",
+    ]
+}
+
+rule "local_storage_identity" {
+    pattern = r#"(?i)\b(?:localStorage|sessionStorage)\.(?:setItem|getItem)\s*\(\s*[\"']([^\"']{1,128})"#
+    capture_group = 1
+    severity = "medium"
+    surfaces = [
+        "response_body",
+        "response_message",
+    ]
+}
+
+rule "cookie_identity" {
+    pattern = r#"(?i)\b(?:setCookie|Cookies\.set)\s*\(\s*[\"']([^\"']{1,128})"#
+    capture_group = 1
+    severity = "medium"
+    surfaces = [
+        "response_body",
+        "response_message",
+    ]
+}
+
+rule "router_push" {
+    pattern = r"(?:\$router\.push|router\.navigate|history\.pushState)\s*\("
+    capture_group = 0
+    severity = "low"
+    surfaces = [
+        "response_body",
+        "response_message",
+    ]
+}
+
+rule "location_header" {
+    pattern = r"(?im)^Location:\s*([^\r\n]{1,1024})"
+    capture_group = 1
+    severity = "low"
+    surfaces = [
+        "response_message",
+    ]
+}
+
+rule "xml_secret_element" {
+    pattern = r"(?i)<(?:password|secret|token|apiKey|accessKey)>[^<]{1,256}</(?:password|secret|token|apiKey|accessKey)>"
+    capture_group = 0
+    severity = "high"
+    surfaces = [
+        "request_message",
+        "response_message",
+        "response_body",
+        "websocket_payload",
+        "websocket_edited_payload",
+    ]
+}

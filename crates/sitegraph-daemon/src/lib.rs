@@ -212,7 +212,7 @@ mod tests {
         let temporary = tempfile::tempdir().unwrap();
         let graph_path = temporary.path().join("graph.sqlite");
         let endpoint_file = temporary.path().join("daemon.toml");
-        let rules_path = temporary.path().join("default-rules.json");
+        let rules_path = temporary.path().join("default-rules.rules");
         std::fs::write(&rules_path, sitegraph::enrichment::DEFAULT_RULE_PACK).unwrap();
         let server = Server::bind(&graph_path, "shared", endpoint_file.clone(), &rules_path)
             .await

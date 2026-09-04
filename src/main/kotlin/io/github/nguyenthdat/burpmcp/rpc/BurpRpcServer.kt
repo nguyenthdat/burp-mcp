@@ -155,6 +155,8 @@ import io.github.nguyenthdat.burpmcp.grpc.v1.ActionResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.SendToRepeaterRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.SetHighlightRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.SetNoteRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.AnnotateProxyEntriesRequest
+import io.github.nguyenthdat.burpmcp.grpc.v1.AnnotateProxyEntriesResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.MutateScopeRequest
 import io.github.nguyenthdat.burpmcp.grpc.v1.ConfigResponse
 import io.github.nguyenthdat.burpmcp.grpc.v1.ExportConfigRequest
@@ -1277,6 +1279,25 @@ internal class BurpRpcService(
         annotationFacade.annotate(request.index, request.note)
         ActionResponse.newBuilder().setSuccess(true).setMessage("note updated").build()
     }
+    override fun annotateProxyEntries(
+        request: AnnotateProxyEntriesRequest,
+        responseObserver: StreamObserver<AnnotateProxyEntriesResponse>,
+    ) = responseObserver.respond {
+        val annotations = request.entriesList.map { entry ->
+            require(entry.highlight.isNotBlank()) { "annotation highlight is required" }
+            require(entry.sitegraphMarker.isNotBlank()) { "sitegraph_marker is required" }
+            io.github.nguyenthdat.burpmcp.AnnotationFacade.ProxyAnnotation(
+                id = entry.id.toInt(),
+                highlight = entry.highlight,
+                marker = entry.sitegraphMarker,
+            )
+        }
+        AnnotateProxyEntriesResponse.newBuilder()
+            .setAnnotatedCount(annotationFacade.annotateProxyEntries(annotations))
+            .build()
+    }
+
+
 
     override fun inspectConfig(
         request: ExportConfigRequest,

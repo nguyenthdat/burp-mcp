@@ -287,7 +287,7 @@ is [`config.example.toml`](config.example.toml).
 | `--tls-dir <PATH>` / `[burp].tls_dir` | `BURP_MCP_TLS_DIR` | `~/.config/burp-mcp/tls` | mTLS directory for HTTPS endpoints. |
 | `--enable-sitegraph` / `[sitegraph].enabled` | `BURP_MCP_ENABLE_SITEGRAPH` | `false` | Enable the 15 `sitegraph_*` tools. |
 | `--sitegraph-project-root <PATH>` / `[sitegraph].project_root` | `BURP_MCP_SITEGRAPH_PROJECT_ROOT` | `~/.local/share/burp-mcp/sitegraph` | Parent directory for project-scoped SQLite databases. |
-| `--sitegraph-rules-path <PATH>` / `[sitegraph].rules_path` | `BURP_MCP_SITEGRAPH_RULES` | `~/.config/burp-mcp/default-rules.json` | Sitegraph enrichment rules. |
+| `--sitegraph-rules-path <PATH>` / `[sitegraph].rules_path` | `BURP_MCP_SITEGRAPH_RULES` | `~/.config/burp-mcp/default-rules.rules` | Sitegraph enrichment rules. |
 | `--sitegraph-mode <MODE>` / `[sitegraph].mode` | `BURP_MCP_SITEGRAPH_MODE` | `off` | Auto-index mode: `off`, `startup`, or `watch`. |
 | `--sitegraph-interval-seconds <SECS>` / `[sitegraph].interval_seconds` | `BURP_MCP_SITEGRAPH_INTERVAL_SECONDS` | `30` | Poll interval for `watch` mode. |
 

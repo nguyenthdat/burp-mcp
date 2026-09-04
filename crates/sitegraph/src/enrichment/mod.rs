@@ -1,8 +1,10 @@
 use regex::bytes::{Regex, RegexSet};
-use serde::Deserialize;
 use std::collections::HashSet;
+use std::path::Path;
 
-pub const DEFAULT_RULE_PACK: &[u8] = include_bytes!("rules/default-rules.json");
+pub mod parser;
+
+pub const DEFAULT_RULE_PACK: &str = include_str!("rules/default-rules.rules");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuleMatch {
@@ -13,7 +15,7 @@ pub struct RuleMatch {
     pub severity: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RulePack {
     id: String,
     version: String,
@@ -21,7 +23,8 @@ pub struct RulePack {
     set: RegexSet,
     max_matches: usize,
 }
-#[derive(Debug)]
+
+#[derive(Debug, Clone)]
 struct CompiledRule {
     id: String,
     regex: Regex,
@@ -30,66 +33,21 @@ struct CompiledRule {
     surfaces: HashSet<String>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawRulePack {
-    id: String,
-    version: String,
-    max_matches: usize,
-    rules: Vec<RawRule>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawRule {
-    id: String,
-    pattern: String,
-    capture_group: usize,
-    severity: String,
-    surfaces: Vec<String>,
-}
-
 impl RulePack {
     pub fn default_exact() -> Result<Self, String> {
-        Self::from_json(DEFAULT_RULE_PACK)
+        Self::from_dsl(DEFAULT_RULE_PACK)
     }
 
-    pub fn from_path(path: &std::path::Path) -> Result<Self, String> {
-        let document = std::fs::read(path)
+    pub fn from_path(path: &Path) -> Result<Self, String> {
+        let document = std::fs::read_to_string(path)
             .map_err(|error| format!("failed to read rule pack {}: {error}", path.display()))?;
-        Self::from_json(&document)
+        Self::from_dsl(&document)
     }
 
-    pub fn from_json(document: &[u8]) -> Result<Self, String> {
-        let raw: RawRulePack = serde_json::from_slice(document)
-            .map_err(|error| format!("invalid rule pack JSON: {error}"))?;
-        validate_name("rule pack id", &raw.id)?;
-        validate_name("rule pack version", &raw.version)?;
-        if raw.max_matches == 0 || raw.max_matches > 4_096 {
-            return Err("rule pack max_matches must be between 1 and 4096".to_owned());
-        }
-        if raw.rules.is_empty() || raw.rules.len() > 512 {
-            return Err("rule pack must contain between 1 and 512 rules".to_owned());
-        }
-        let mut rule_ids = HashSet::with_capacity(raw.rules.len());
-        let mut rules = Vec::with_capacity(raw.rules.len());
-        for raw_rule in raw.rules {
-            validate_name("rule id", &raw_rule.id)?;
-            if !rule_ids.insert(raw_rule.id.clone()) {
-                return Err(format!("duplicate rule id: {}", raw_rule.id));
-            }
-            if raw_rule.pattern.is_empty() || raw_rule.pattern.len() > 16 * 1_024 {
-                return Err(format!(
-                    "rule {} pattern is empty or too large",
-                    raw_rule.id
-                ));
-            }
-            if raw_rule.surfaces.is_empty() {
-                return Err(format!(
-                    "rule {} must declare at least one surface",
-                    raw_rule.id
-                ));
-            }
+    pub fn from_dsl(document: &str) -> Result<Self, String> {
+        let parsed = parser::parse_rule_pack(document)?;
+        let mut rules = Vec::with_capacity(parsed.rules.len());
+        for raw_rule in parsed.rules {
             let regex = Regex::new(&raw_rule.pattern)
                 .map_err(|error| format!("invalid regex for rule {}: {error}", raw_rule.id))?;
             if raw_rule.capture_group >= regex.captures_len() {
@@ -110,19 +68,24 @@ impl RulePack {
         let set = RegexSet::new(patterns)
             .map_err(|e| format!("failed to build compiled rule set: {e}"))?;
         Ok(Self {
-            id: raw.id,
-            version: raw.version,
+            id: parsed.id,
+            version: parsed.version,
             rules,
             set,
-            max_matches: raw.max_matches,
+            max_matches: parsed.max_matches,
         })
     }
+
     pub fn id(&self) -> &str {
         &self.id
     }
 
     pub fn version(&self) -> &str {
         &self.version
+    }
+
+    pub fn max_matches(&self) -> usize {
+        self.max_matches
     }
 
     pub fn matches(&self, surface: &str, input: &[u8]) -> Vec<RuleMatch> {
@@ -151,18 +114,6 @@ impl RulePack {
         }
         matches
     }
-}
-
-fn validate_name(label: &str, value: &str) -> Result<(), String> {
-    if value.is_empty()
-        || value.len() > 128
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-    {
-        return Err(format!("{label} contains unsupported characters"));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
