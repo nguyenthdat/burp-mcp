@@ -17,6 +17,11 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import burp.api.montoya.bambda.Bambda
+import burp.api.montoya.bambda.BambdaImportResult
+import burp.api.montoya.bambda.BambdaImportResult.Status
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -45,6 +50,27 @@ class ProxyFacadeTest {
     fun `WebSocket intercept timeout uses the same safe forward policy`() {
         assertEquals(InterceptDecision.FORWARD, InterceptDecisionPolicy.fallbackOnTimeout())
     }
+
+    @Test
+    fun `HTTP intercept controller requires and applies a narrow scope`() {
+        val registration = fake<Registration>(mapOf("deregister" to {}))
+        val proxy = fake<Proxy>(mapOf("registerRequestHandler" to { registration }, "registerResponseHandler" to { registration }))
+        val controller = ProxyInterceptController(fake(mapOf("proxy" to { proxy })))
+
+        assertFailsWith<IllegalArgumentException> { controller.configure(true, 5, null, null) }
+
+        val state = controller.configure(true, 5, "Example.Test/api", false)
+        assertEquals("Example.Test/api", state.urlFilter)
+        assertEquals(false, state.inScopeOnly)
+        assertTrue(controller.shouldPause(pendingIntercept("https://example.test/api/users", false)))
+        assertFalse(controller.shouldPause(pendingIntercept("https://other.test/api/users", true)))
+
+        controller.configure(null, null, "", true)
+        assertTrue(controller.shouldPause(pendingIntercept("https://other.test/", true)))
+        assertFalse(controller.shouldPause(pendingIntercept("https://example.test/api/users", false)))
+        controller.close()
+    }
+
 
     @Test
     fun `detail handles invalid indices without touching transport types`() {
@@ -243,6 +269,22 @@ class ProxyFacadeTest {
 
 
     @Test
+    fun `Bambda constant-pool failures explain the JVM limit and alternative`() {
+        val result = mockk<BambdaImportResult>()
+        every { result.importErrors() } returns listOf("constant string too long")
+        every { result.status() } returns Status.LOADED_WITH_ERRORS
+        val bambda = mockk<Bambda>()
+        every { bambda.importBambda(any()) } returns result
+        val facade = ScriptImportFacade(fake(mapOf("bambda" to { bambda })))
+
+        val imported = facade.importBambda("id: test\nsource: return true;")
+
+        assertFalse(imported.success)
+        assertTrue(imported.errors.single().contains("65,535"))
+        assertTrue(imported.errors.single().contains("register_proxy_rule"))
+    }
+
+    @Test
     fun `websocket close of absent id reports stable already-closed state`() {
         val facade = WebSocketFacade(fake<MontoyaApi>(emptyMap()))
 
@@ -250,6 +292,20 @@ class ProxyFacadeTest {
 
         assertEquals("managed WebSocket ws-7 was not found or already closed", exception.message)
     }
+
+    private fun pendingIntercept(url: String, isInScope: Boolean): PendingIntercept =
+        PendingIntercept(
+            id = 1,
+            messageId = 1,
+            direction = InterceptDirection.REQUEST,
+            phase = InterceptPhase.RECEIVED,
+            url = url,
+            method = "GET",
+            status = 0,
+            isInScope = isInScope,
+            request = byteArrayOf(),
+            response = byteArrayOf(),
+        )
 
     @Suppress("UNCHECKED_CAST")
     private inline fun <reified T> fake(methods: Map<String, () -> Any?>): T =

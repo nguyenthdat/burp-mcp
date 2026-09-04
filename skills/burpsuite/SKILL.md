@@ -18,7 +18,7 @@ description: >-
 
 Use the native `burp-mcp` server as a controlled, deterministic interface to Burp Suite. Focus on reproducible security evidence, defensive test isolation, and bounded side effects.
 
-Tool names in this skill are server-local names (e.g. `burp_send_request`). When exposed by an MCP client, they may have a server prefix (e.g. `burp__burp_send_request` or `burp_send_request`). Match by the local suffix. The runtime MCP schema is always authoritative.
+Tool names in this skill are server-local names. Use the exact names returned by the connected server's `tools/list`; MCP hosts may expose qualified bindings such as `mcp__burp_mcp_burp_http` or `tool.mcp__burp_mcp_burp_http`, so do not assume `tool.burp_http` exists in an eval kernel. The runtime MCP schema is authoritative.
 
 ---
 
@@ -43,7 +43,7 @@ Load supporting reference files only when the task enters a specific domain:
 2. **Token Efficiency First**: Prefer compact metadata history (`burp_proxy_history` default `include_bodies: false`). Use server-side projection (`headers_only`, `extract_json: "$.data..."`, `extract_css: "form#login"`) or fetch single entries (`burp_proxy_detail`, `burp_logger_detail`) to preserve client context window.
 3. **Start Read-Only**: Prefer Proxy history (`burp_proxy_history`), Logger traffic (`burp_logger_history`), Target site map (`burp_sitemap`), target info (`burp_target_info`), Scanner issues (`burp_scan_issues`), sitegraph queries (`sitegraph_search`), and offline decoder operations (`decoder`) before generating active traffic.
 4. **Preserve Operator State**: Record every temporary scope addition, intercept state change, HTTP handler, proxy rule, session rule, macro, cookie, background job, and managed WebSocket connection. Restore or remove it during cleanup.
-5. **Interception Discipline**: Do not enable proxy interception in unattended flows. Read `burp_intercept_state` before automated traffic; if enabled, request confirmation before disabling it and restore original state upon completion.
+5. **Interception Discipline**: Do not enable proxy interception in unattended flows. The MCP HTTP controller requires a narrow `url_filter` or `in_scope_only: true`; set a bounded timeout, resolve pending messages, disable it, and restore original state upon completion.
 6. **Rate & Concurrency Bounds**: Limit parallel requests (at most 32 via `burp_send_request_parallel`), cap scan concurrency via custom resource pools (`burp_scan_pool_create`), and pace background job polling.
 7. **Protect Secrets & Redact Evidence**: Never log or disclose private keys, session cookies, auth tokens, or Collaborator secrets in reports.
 ## Procedural Security Assessment Workflow
@@ -76,7 +76,7 @@ Follow specific vulnerability methodologies in [`references/appsec-testing-guide
   - **Access Control Matrix**: Use `burp_auth_matrix` to evaluate role-based access control across multiple endpoints.
 - **Manual Request Crafting**:
   - Replay modified requests via `burp_send_request` or `burp_http`.
-  - Send requests to Repeater UI for manual operator inspection with `burp_send_to_repeater`.
+  - Send requests to Repeater UI with `burp_http` action `send_to_repeater`, using either an absolute `url` plus optional method/body/headers or a raw `request` (authority derives from `Host` when omitted).
   - Export requests to `curl` or Python `requests` using `burp_export_request`.
   - Convert request methods (GET ↔ POST) using `burp_convert_request`.
 - **Differential & Parallel Testing**:
@@ -105,7 +105,7 @@ Follow specific vulnerability methodologies in [`references/appsec-testing-guide
 5. Dry-run and test BCheck rules against sample request/response exchanges using `burp_test_bcheck`.
 ### 7. Custom Extensions (Bambda & BCheck)
 - **BChecks**: When creating custom declarative Scanner checks, load [`references/bcheck-authoring.md`](references/bcheck-authoring.md). Validate syntax and import with `burp_bcheck_import` (default `enabled: false`).
-- **Bambdas**: When creating custom Java filters, columns, or match-replace handlers, load [`references/bambda-authoring.md`](references/bambda-authoring.md). Import complete YAML definitions with `burp_bambda_import`.
+- **Bambdas**: Load [`references/bambda-authoring.md`](references/bambda-authoring.md) and import complete YAML with `burp_bambda_import`. Never embed large bundles: JVM `CONSTANT_Utf8` entries are limited to 65,535 bytes; use a bounded proxy rule or external streaming proxy.
 
 ### 8. Offline Transformations (Decoder)
 For deterministic local encoding, decoding, hashing, compression, or parsing without network traffic, use `decoder`:

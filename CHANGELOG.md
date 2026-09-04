@@ -16,6 +16,13 @@ This release represents a comprehensive overhaul of Burp MCP, transforming it fr
 - **Deep Montoya API Integration**: Full traffic monitoring via Burp Logger, Burp Organizer triage, BCheck lifecycle & dry-run execution, and Scanner issue status triage.
 - **Advanced Pentest Workflows**: True Single-Packet Attack (Last-Byte Synchronization), Multi-Marker Fuzzing (Pitchfork, Cluster Bomb, Sniper), Collaborator Auto-Correlation Tracker, and a suite of 9 compound security workflows.
 
+### Reliability and MCP usability fixes
+- `burp_http.send_to_repeater` now accepts an absolute URL or raw HTTP request and derives Repeater service metadata safely.
+- `burp_settings.action` is a schema enum, and proxy-rule `match`/`replace` fields reach the backend unchanged.
+- HTTP interception requires `url_filter` or `in_scope_only`, so unrelated traffic bypasses the MCP queue.
+- MCP initialization now publishes usage instructions; tool and gRPC errors return corrective structured metadata.
+- Bambda import errors explain the JVM 65,535-byte `CONSTANT_Utf8` limit and supported alternatives.
+
 ---
 
 ### 1. Active UI & Desktop Editor Integration

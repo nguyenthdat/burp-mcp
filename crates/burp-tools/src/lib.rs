@@ -42,6 +42,7 @@ use burp_protocol::protocol::{
     UpsertScanResourcePoolRequest, UpsertSessionRuleRequest,
     WebSocketInterceptControllerConfigRequest,
 };
+use prost::Message;
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock};
@@ -249,6 +250,12 @@ pub struct SetInterceptStateInput {
 pub struct InterceptControllerInput {
     pub enabled: Option<bool>,
     pub timeout_seconds: Option<u32>,
+    #[schemars(
+        description = "Case-insensitive URL substring. Set to an empty string to clear; enabling requires this or in_scope_only=true"
+    )]
+    pub url_filter: Option<String>,
+    #[schemars(description = "Pause only messages that Burp Target currently marks in scope")]
+    pub in_scope_only: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -1833,23 +1840,16 @@ impl BurpTools {
     }
 
     async fn send_to_repeater(&self, Parameters(input): Parameters<SendToRepeaterInput>) -> String {
-        let https = input.https.unwrap_or(false);
-        match self
-            .client
-            .send_to_repeater(SendToRepeaterRequest {
-                request: input.request.into_bytes(),
-                host: input.host,
-                port: input.port.unwrap_or(if https { 443 } else { 80 }),
-                https,
-                tab_name: input.tab_name.unwrap_or_else(|| "MCP".to_owned()),
-            })
-            .await
-        {
+        let request = match normalize_repeater_input(input) {
+            Ok(request) => request,
+            Err(message) => return tool_input_error("burp_http", "send_to_repeater", message),
+        };
+        match self.client.send_to_repeater(request).await {
             Ok(response) => {
                 serde_json::json!({"success": response.success, "message": response.message})
                     .to_string()
             }
-            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+            Err(error) => rpc_error_json(error),
         }
     }
     async fn highlight(&self, Parameters(input): Parameters<HighlightInput>) -> String {
@@ -2795,7 +2795,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_bambda_import",
-        description = "Import a complete Bambda YAML document with id, name, function, location, and source; does not execute it",
+        description = "Import a complete Bambda YAML document with id, name, function, location, and source; does not execute it. Bambda is JVM-compiled: do not embed large payloads or string literals near the 65,535-byte CONSTANT_Utf8 limit; use a proxy rule or external streaming proxy instead",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -2902,8 +2902,8 @@ impl BurpTools {
         )
     )]
     async fn http(&self, Parameters(input): Parameters<suite::HttpActionInput>) -> String {
-        match input.action.to_lowercase().as_str() {
-            "send" => {
+        match input.action {
+            suite::HttpAction::Send => {
                 let url = input.url.unwrap_or_default();
                 self.send_request(Parameters(SendRequestInput {
                     method: input.method,
@@ -2917,12 +2917,12 @@ impl BurpTools {
                 }))
                 .await
             }
-            "send_batch" => {
+            suite::HttpAction::SendBatch => {
                 let requests = input.requests.unwrap_or_default();
                 self.send_request_parallel(Parameters(SendRequestsInput { requests }))
                     .await
             }
-            "convert" => {
+            suite::HttpAction::Convert => {
                 let request = input.request.unwrap_or_default();
                 self.convert_request(Parameters(ConvertRequestInput {
                     request,
@@ -2930,7 +2930,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "export" => {
+            suite::HttpAction::Export => {
                 let request = input.request.unwrap_or_default();
                 self.export_request(Parameters(ExportRequestInput {
                     request,
@@ -2940,20 +2940,22 @@ impl BurpTools {
                 }))
                 .await
             }
-            "send_to_repeater" => {
-                let request = input.request.unwrap_or_default();
-                let host = input.host.unwrap_or_default();
-                self.send_to_repeater(Parameters(SendToRepeaterInput {
-                    request,
-                    host,
+            suite::HttpAction::SendToRepeater => {
+                let url = input.url.as_deref();
+                let method = input.method.as_deref();
+                let body = input.body.as_deref();
+                let headers = input.headers.as_ref();
+                let repeater_input = SendToRepeaterInput {
+                    request: input.request.unwrap_or_default(),
+                    host: input.host.unwrap_or_default(),
                     port: input.port,
                     https: input.https,
                     tab_name: input.tab_name,
-                }))
-                .await
-            }
-            other => {
-                serde_json::json!({"error": format!("unknown http action: {other}")}).to_string()
+                };
+                match repeater_input_from_http_action(repeater_input, url, method, body, headers) {
+                    Ok(request) => self.send_to_repeater(Parameters(request)).await,
+                    Err(message) => tool_input_error("burp_http", "send_to_repeater", message),
+                }
             }
         }
     }
@@ -3537,9 +3539,9 @@ impl BurpTools {
         )
     )]
     async fn settings(&self, Parameters(input): Parameters<suite::SettingsActionInput>) -> String {
-        match input.action.to_lowercase().as_str() {
-            "get_proxy_settings" => self.proxy_settings().await,
-            "update_proxy_settings" => {
+        match input.action {
+            suite::SettingsAction::GetProxySettings => self.proxy_settings().await,
+            suite::SettingsAction::UpdateProxySettings => {
                 let op = input
                     .operation
                     .unwrap_or_else(|| "intercept_toggle".to_string());
@@ -3566,24 +3568,24 @@ impl BurpTools {
                 }))
                 .await
             }
-            "export_config" => self.export_config().await,
-            "inspect_config" => {
+            suite::SettingsAction::ExportConfig => self.export_config().await,
+            suite::SettingsAction::InspectConfig => {
                 self.inspect_config(Parameters(InspectConfigInput { paths: input.paths }))
                     .await
             }
-            "import_config" => {
+            suite::SettingsAction::ImportConfig => {
                 let config = input.config.unwrap_or_default();
                 self.import_config(Parameters(ImportConfigInput { config }))
                     .await
             }
-            "intercept_state" => self.intercept_state().await,
-            "set_intercept_state" => {
+            suite::SettingsAction::InterceptState => self.intercept_state().await,
+            suite::SettingsAction::SetInterceptState => {
                 let enabled = input.enabled.unwrap_or(false);
                 self.set_intercept_state(Parameters(SetInterceptStateInput { enabled }))
                     .await
             }
-            "proxy_intercept_config" => self.proxy_intercept_config().await,
-            "update_proxy_intercept_config" => {
+            suite::SettingsAction::ProxyInterceptConfig => self.proxy_intercept_config().await,
+            suite::SettingsAction::UpdateProxyInterceptConfig => {
                 self.update_proxy_intercept_config(Parameters(ProxyInterceptConfigInput {
                     master_intercept_enabled: input.master_enabled,
                     request_do_intercept: input.request_enabled,
@@ -3606,7 +3608,7 @@ impl BurpTools {
                 }))
                 .await
             }
-            "register_http_handler" => {
+            suite::SettingsAction::RegisterHttpHandler => {
                 self.register_http_handler(Parameters(RegisterHttpHandlerInput {
                     header_name: input.script_name,
                     header_value: input.script,
@@ -3615,30 +3617,19 @@ impl BurpTools {
                 }))
                 .await
             }
-            "remove_http_handler" => self.remove_http_handler().await,
-            "register_proxy_rule" => {
-                self.register_proxy_rule(Parameters(RegisterProxyRuleInput {
-                    id: input.script_id,
-                    url_contains: input.target.unwrap_or_default(),
-                    phase: input.mode,
-                    action: input.kind,
-                    match_text: None,
-                    replace: None,
-                    header_name: input.script_name,
-                    header_value: input.script,
-                    enabled: input.enabled,
-                }))
-                .await
-            }
-            "list_proxy_rules" => self.list_proxy_rules().await,
-            "remove_proxy_rule" => {
+            suite::SettingsAction::RemoveHttpHandler => self.remove_http_handler().await,
+            suite::SettingsAction::RegisterProxyRule => match proxy_rule_input_from_settings(input)
+            {
+                Ok(input) => self.register_proxy_rule(Parameters(input)).await,
+                Err(message) => tool_input_error("burp_settings", "register_proxy_rule", message),
+            },
+            suite::SettingsAction::ListProxyRules => self.list_proxy_rules().await,
+            suite::SettingsAction::RemoveProxyRule => {
                 self.remove_proxy_rule(Parameters(RemoveProxyRuleInput {
                     id: input.script_id,
                 }))
                 .await
             }
-            other => serde_json::json!({"error": format!("unknown settings action: {other}")})
-                .to_string(),
         }
     }
 
@@ -4891,7 +4882,7 @@ impl BurpTools {
 
     #[tool(
         name = "burp_intercept_controller",
-        description = "Read or configure MCP-controlled Burp Proxy request/response interception. Disabled by default; pending messages forward when timeout expires.",
+        description = "Read or configure MCP-controlled Burp Proxy request/response interception. Enabling requires url_filter or in_scope_only=true; non-matching traffic continues without entering the queue; pending messages forward when timeout expires.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -4908,6 +4899,8 @@ impl BurpTools {
             .intercept_controller_config(InterceptControllerConfigRequest {
                 enabled: input.enabled,
                 timeout_seconds: input.timeout_seconds,
+                url_filter: input.url_filter,
+                in_scope_only: input.in_scope_only,
             })
             .await
         {
@@ -4915,9 +4908,11 @@ impl BurpTools {
                 "enabled": state.enabled,
                 "timeout_seconds": state.timeout_seconds,
                 "pending": state.pending,
+                "url_filter": state.url_filter,
+                "in_scope_only": state.in_scope_only,
             })
             .to_string(),
-            Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+            Err(error) => rpc_error_json(error),
         }
     }
 
@@ -5259,6 +5254,29 @@ impl BurpTools {
     }
 }
 
+fn proxy_rule_input_from_settings(
+    input: suite::SettingsActionInput,
+) -> Result<RegisterProxyRuleInput, String> {
+    let url_contains = input.target.ok_or_else(|| {
+        "`target` is required and must contain the URL substring matched by this proxy rule"
+            .to_owned()
+    })?;
+    if url_contains.is_empty() {
+        return Err("`target` must not be empty".to_owned());
+    }
+    Ok(RegisterProxyRuleInput {
+        id: input.script_id,
+        url_contains,
+        phase: input.mode,
+        action: input.kind,
+        match_text: input.match_text,
+        replace: input.replace,
+        header_name: input.script_name,
+        header_value: input.script,
+        enabled: input.enabled,
+    })
+}
+
 fn macro_json(macro_definition: MacroDefinition) -> serde_json::Value {
     serde_json::json!({
         "description": macro_definition.description,
@@ -5290,9 +5308,17 @@ impl rmcp::ServerHandler for BurpTools {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, rmcp::ErrorData> {
         let router = self.tool_router();
+        let tool_name = request.name.to_string();
+        let arguments = request.arguments.clone().unwrap_or_default();
         let tool_context = ToolCallContext::new(self, request, context);
-        let response = router.call(tool_context).await?;
-        Ok(mark_embedded_error(response))
+        match router.call(tool_context).await {
+            Ok(response) => Ok(finalize_tool_response(
+                &router, &tool_name, &arguments, response,
+            )),
+            Err(error) => Ok(actionable_call_error(
+                &router, &tool_name, &arguments, error,
+            )),
+        }
     }
 
     async fn list_tools(
@@ -5304,35 +5330,284 @@ impl rmcp::ServerHandler for BurpTools {
             self.tool_router().list_all(),
         ))
     }
+
+    fn get_info(&self) -> rmcp::model::ServerInfo {
+        mcp_server_info()
+    }
 }
 
-fn mark_embedded_error(response: CallToolResponse) -> CallToolResponse {
+fn mcp_server_info() -> rmcp::model::ServerInfo {
+    rmcp::model::ServerInfo::new(
+        rmcp::model::ServerCapabilities::builder()
+            .enable_tools()
+            .build(),
+    )
+    .with_server_info(rmcp::model::Implementation::new("burp-mcp", "3.2.0"))
+    .with_instructions(BURP_MCP_USAGE_INSTRUCTIONS)
+}
+
+fn actionable_call_error(
+    router: &rmcp::handler::server::tool::ToolRouter<BurpTools>,
+    tool_name: &str,
+    arguments: &serde_json::Map<String, serde_json::Value>,
+    error: rmcp::ErrorData,
+) -> CallToolResponse {
+    let Some(tool) = router.get(tool_name) else {
+        let available_tools = router
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.into_owned())
+            .collect::<Vec<_>>();
+        return CallToolResult::structured_error(serde_json::json!({
+            "error": "unknown_tool",
+            "message": format!("tool `{tool_name}` is not available on this server"),
+            "received_tool": tool_name,
+            "available_tools": available_tools,
+            "correction": "Use the exact server-local name returned by tools/list. In eval kernels, call the host-provided qualified binding (for example tool.mcp__burp_mcp_burp_http), not an assumed alias.",
+        }))
+        .into();
+    };
+    invalid_arguments_result(tool, tool_name, arguments, error.message.into_owned()).into()
+}
+
+fn finalize_tool_response(
+    router: &rmcp::handler::server::tool::ToolRouter<BurpTools>,
+    tool_name: &str,
+    arguments: &serde_json::Map<String, serde_json::Value>,
+    response: CallToolResponse,
+) -> CallToolResponse {
     let CallToolResponse::Complete(result) = response else {
         return response;
     };
+    let Some(tool) = router.get(tool_name) else {
+        return CallToolResponse::Complete(result);
+    };
 
     if result.is_error == Some(true) {
-        return CallToolResponse::Complete(result);
+        if result.structured_content.is_some() {
+            return CallToolResponse::Complete(result);
+        }
+        let message = result
+            .content
+            .iter()
+            .find_map(ContentBlock::as_text)
+            .map(|text| text.text.clone())
+            .unwrap_or_else(|| "tool call failed".to_owned());
+        return invalid_arguments_result(tool, tool_name, arguments, message).into();
     }
-    let Some(error) = result.content.iter().find_map(|content| {
+
+    let Some(mut value) = result.content.iter().find_map(|content| {
         let ContentBlock::Text(text) = content else {
             return None;
         };
         let value: serde_json::Value = serde_json::from_str(&text.text).ok()?;
-        value
-            .get("error")
-            .filter(|error| match error {
-                serde_json::Value::Null => false,
-                serde_json::Value::String(message) => !message.is_empty(),
-                _ => true,
-            })
-            .cloned()
+        has_nonempty_error(&value).then_some(value)
     }) else {
         return CallToolResponse::Complete(result);
     };
-    let value = serde_json::json!({"error": error});
-    CallToolResponse::Complete(CallToolResult::structured_error(value))
+    let object = value
+        .as_object_mut()
+        .expect("has_nonempty_error only accepts JSON objects");
+    object
+        .entry("tool")
+        .or_insert_with(|| serde_json::Value::String(tool_name.to_owned()));
+    if !object.contains_key("message")
+        && let Some(error) = object.get("error").and_then(serde_json::Value::as_str)
+    {
+        object.insert(
+            "message".to_owned(),
+            serde_json::Value::String(error.to_owned()),
+        );
+    }
+    let (required_fields, accepted_fields, valid_actions) = schema_hints(tool);
+    object
+        .entry("required_fields")
+        .or_insert_with(|| serde_json::json!(required_fields));
+    object
+        .entry("accepted_fields")
+        .or_insert_with(|| serde_json::json!(accepted_fields));
+    if !valid_actions.is_empty() {
+        object
+            .entry("valid_actions")
+            .or_insert_with(|| serde_json::json!(valid_actions));
+    }
+    object.entry("correction").or_insert_with(|| {
+        serde_json::Value::String(
+            "Use message plus the accepted fields and valid actions, correct the call, then retry the same tool once."
+                .to_owned(),
+        )
+    });
+    CallToolResult::structured_error(value).into()
 }
+
+fn invalid_arguments_result(
+    tool: &rmcp::model::Tool,
+    tool_name: &str,
+    arguments: &serde_json::Map<String, serde_json::Value>,
+    message: String,
+) -> CallToolResult {
+    let (required_fields, accepted_fields, valid_actions) = schema_hints(tool);
+    let received_fields = arguments.keys().cloned().collect::<Vec<_>>();
+    CallToolResult::structured_error(serde_json::json!({
+        "error": "invalid_tool_arguments",
+        "message": message,
+        "tool": tool_name,
+        "received_fields": received_fields,
+        "required_fields": required_fields,
+        "accepted_fields": accepted_fields,
+        "valid_actions": valid_actions,
+        "correction": "Retry the same tool using only accepted_fields, include every required_field, and choose action from valid_actions when present.",
+    }))
+}
+
+fn schema_hints(tool: &rmcp::model::Tool) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let required_fields = tool
+        .input_schema
+        .get("required")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    let accepted_fields = tool
+        .input_schema
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flat_map(|properties| properties.keys().cloned())
+        .collect();
+    let action_schema = tool
+        .input_schema
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|properties| properties.get("action"));
+    let action_values = action_schema
+        .and_then(|schema| schema.get("enum"))
+        .or_else(|| {
+            let reference = action_schema?
+                .get("$ref")?
+                .as_str()?
+                .strip_prefix("#/$defs/")?;
+            tool.input_schema
+                .get("$defs")?
+                .as_object()?
+                .get(reference)?
+                .get("enum")
+        })
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    (required_fields, accepted_fields, action_values)
+}
+
+fn has_nonempty_error(value: &serde_json::Value) -> bool {
+    value
+        .as_object()
+        .and_then(|object| object.get("error"))
+        .is_some_and(|error| match error {
+            serde_json::Value::Null => false,
+            serde_json::Value::String(message) => !message.is_empty(),
+            _ => true,
+        })
+}
+
+fn tool_input_error(tool: &str, action: &str, message: impl Into<String>) -> String {
+    serde_json::json!({
+        "error": "invalid_tool_arguments",
+        "message": message.into(),
+        "tool": tool,
+        "action": action,
+        "correction": "Correct the arguments described by message and retry the same tool call.",
+    })
+    .to_string()
+}
+
+fn rpc_error_json(error: burp_protocol::ClientError) -> String {
+    match error {
+        burp_protocol::ClientError::Rpc(status) => {
+            let code = status.code();
+            let detail = decode_rpc_error(&status);
+            let message = detail
+                .as_ref()
+                .map_or_else(|| status.message().to_owned(), |detail| detail.message.clone());
+            let correction = match code {
+                tonic::Code::InvalidArgument => {
+                    "Correct the named argument or action fields and retry the same tool call."
+                }
+                tonic::Code::Unavailable => {
+                    "Start Burp Suite with the Burp MCP extension, verify the configured endpoint, then retry."
+                }
+                tonic::Code::DeadlineExceeded => {
+                    "Retry once; if the operation is long-running, use its background-job action and poll the returned job id."
+                }
+                tonic::Code::NotFound => {
+                    "Refresh the relevant list, use a current id or index, then retry."
+                }
+                _ => "Use the message and gRPC code to correct the call before retrying.",
+            };
+            serde_json::json!({
+                "error": "burp_rpc_error",
+                "code": format!("{code:?}").to_ascii_lowercase(),
+                "message": message,
+                "details": detail.as_ref().map(|detail| detail.details.as_str()).filter(|details| !details.is_empty()),
+                "retryable": detail.as_ref().map_or_else(
+                    || matches!(code, tonic::Code::Unavailable | tonic::Code::DeadlineExceeded | tonic::Code::ResourceExhausted),
+                    |detail| detail.retryable,
+                ),
+                "correction": correction,
+            })
+            .to_string()
+        }
+        other => serde_json::json!({
+            "error": "burp_client_error",
+            "message": other.to_string(),
+            "retryable": matches!(other, burp_protocol::ClientError::QueueFull),
+            "correction": "Follow the message, correct the environment or wait for an in-flight call, then retry.",
+        })
+        .to_string(),
+    }
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct GoogleRpcStatus {
+    #[prost(int32, tag = "1")]
+    code: i32,
+    #[prost(string, tag = "2")]
+    message: String,
+    #[prost(message, repeated, tag = "3")]
+    details: Vec<GoogleRpcAny>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct GoogleRpcAny {
+    #[prost(string, tag = "1")]
+    type_url: String,
+    #[prost(bytes = "vec", tag = "2")]
+    value: Vec<u8>,
+}
+
+fn decode_rpc_error(status: &tonic::Status) -> Option<burp_protocol::protocol::RpcError> {
+    let google_status = GoogleRpcStatus::decode(status.details()).ok()?;
+    google_status.details.into_iter().find_map(|detail| {
+        (detail.type_url == "type.googleapis.com/burp.v1.RpcError")
+            .then(|| burp_protocol::protocol::RpcError::decode(detail.value.as_slice()).ok())
+            .flatten()
+    })
+}
+
+const BURP_MCP_USAGE_INSTRUCTIONS: &str = r#"Use Burp MCP only on targets the operator is authorized to test.
+On connection, call burp_burp_version first; its capabilities and runtime limits are authoritative. Use server-local tool names exactly as returned by tools/list. A host client may expose qualified bindings such as mcp__burp_mcp_burp_http or tool.mcp__burp_mcp_burp_http; never assume the server-local name is a valid eval-kernel binding.
+Prefer compact reads before active traffic: burp_proxy history defaults to metadata-only, then fetch one detail or server-side projection. Treat success=true as acceptance and verify the observable effect.
+For burp_http send_to_repeater, pass either {action:"send_to_repeater",url,method?,body?,headers?,tab_name?} or {action:"send_to_repeater",request,host?,port?,https?,tab_name?}; a raw request may derive host/port from Host.
+Enable burp_intercept_controller only with url_filter or in_scope_only=true and a bounded timeout. Resolve queued messages, disable the controller, and restore temporary Burp state before completion.
+For register_proxy_rule body edits use action:"register_proxy_rule", target:url substring, mode:"request"|"response", kind:"edit", match, and replace. Use script_name/script only for header name/value edits.
+Bambda source is JVM-compiled: do not embed large payloads or string literals near the 65,535-byte class-file UTF-8 limit. Use register_proxy_rule for bounded replacements or another external streaming mechanism.
+Tool errors are structured with message, accepted_fields, valid_actions, and correction when available. Correct the call and retry instead of guessing aliases."#;
+
 fn sitegraph_disabled_json() -> String {
     serde_json::json!({
         "error": "sitegraph is disabled; restart burp-mcp with --enable-sitegraph"
@@ -5354,7 +5629,7 @@ fn action_json(
             serde_json::json!({"success": response.success, "message": response.message})
                 .to_string()
         }
-        Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        Err(error) => rpc_error_json(error),
     }
 }
 
@@ -5423,7 +5698,7 @@ fn intercept_state_json(
 ) -> String {
     match result {
         Ok(response) => serde_json::json!({"enabled": response.enabled}).to_string(),
-        Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        Err(error) => rpc_error_json(error),
     }
 }
 
@@ -5480,7 +5755,7 @@ fn proxy_intercept_config_json(
                 "in_scope_only": response.websocket_in_scope_only,
             },
         }).to_string(),
-        Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        Err(error) => rpc_error_json(error),
     }
 }
 fn proxy_settings_json(
@@ -5531,7 +5806,7 @@ fn proxy_settings_json(
                 },
             })),
         }).to_string(),
-        Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        Err(error) => rpc_error_json(error),
     }
 }
 
@@ -5621,7 +5896,7 @@ fn script_import_json(
             "errors": response.errors,
         })
         .to_string(),
-        Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+        Err(error) => rpc_error_json(error),
     }
 }
 fn utility_value(input: UtilityValueInput) -> utility_engine_api::UtilityResult<DataValue> {
@@ -5722,11 +5997,30 @@ fn scan_configuration_request(
 fn scan_configuration_json(
     value: burp_protocol::protocol::ScanConfigurationEntry,
 ) -> serde_json::Value {
-    serde_json::json!({"id": value.id, "name": value.name, "scan_type": value.scan_type, "audit_type": value.audit_type, "include_out_of_scope": value.include_out_of_scope, "timeout_seconds": value.timeout_seconds, "stable_seconds": value.stable_seconds, "resource_pool_id": value.resource_pool_id, "source": value.source})
+    serde_json::json!({
+        "id": value.id,
+        "name": value.name,
+        "scan_type": value.scan_type,
+        "audit_type": value.audit_type,
+        "include_out_of_scope": value.include_out_of_scope,
+        "timeout_seconds": value.timeout_seconds,
+        "stable_seconds": value.stable_seconds,
+        "resource_pool_id": value.resource_pool_id,
+        "source": value.source,
+    })
 }
 
 fn scan_pool_json(value: burp_protocol::protocol::ScanResourcePoolEntry) -> serde_json::Value {
-    serde_json::json!({"id": value.id, "name": value.name, "kind": value.kind, "existing_pool_name": value.existing_pool_name, "concurrent_request_limit": value.concurrent_request_limit, "throttle_millis": value.throttle_millis, "max_retries": value.max_retries, "source": value.source})
+    serde_json::json!({
+        "id": value.id,
+        "name": value.name,
+        "kind": value.kind,
+        "existing_pool_name": value.existing_pool_name,
+        "concurrent_request_limit": value.concurrent_request_limit,
+        "throttle_millis": value.throttle_millis,
+        "max_retries": value.max_retries,
+        "source": value.source,
+    })
 }
 
 fn scan_pool_request(input: ScanResourcePoolUpsertInput) -> UpsertScanResourcePoolRequest {
@@ -5863,6 +6157,148 @@ fn to_send_output(response: burp_protocol::protocol::SendRequestResponse) -> Sen
     to_send_output_with_options(response, false, None, None, None)
 }
 
+fn repeater_input_from_http_action(
+    mut input: SendToRepeaterInput,
+    url: Option<&str>,
+    method: Option<&str>,
+    body: Option<&str>,
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> Result<SendToRepeaterInput, String> {
+    if input.request.is_empty() {
+        let url = url.ok_or_else(|| {
+            "provide either `url` or a complete raw HTTP `request`; accepted fields for this action: url, method?, body?, headers?, request?, host?, port?, https?, tab_name?".to_owned()
+        })?;
+        let parsed = url::Url::parse(url)
+            .map_err(|error| format!("`url` must be an absolute http(s) URL: {error}"))?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err(format!(
+                "unsupported URL scheme `{}`; use `http` or `https`",
+                parsed.scheme()
+            ));
+        }
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| "`url` must include a host".to_owned())?;
+        input.host = host.to_owned();
+        input.https = Some(parsed.scheme() == "https");
+        input.port = parsed.port_or_known_default().map(u32::from);
+
+        let mut target = parsed.path().to_owned();
+        if let Some(query) = parsed.query() {
+            target.push('?');
+            target.push_str(query);
+        }
+        let method = method.unwrap_or("GET").to_ascii_uppercase();
+        let body = body.unwrap_or_default();
+        let newline = "\r\n";
+        let mut request = format!("{method} {target} HTTP/1.1{newline}");
+        let has_host = headers
+            .is_some_and(|headers| headers.keys().any(|name| name.eq_ignore_ascii_case("host")));
+        if !has_host {
+            request.push_str("Host: ");
+            request.push_str(host);
+            if parsed.port().is_some() {
+                request.push(':');
+                request.push_str(&input.port.unwrap_or_default().to_string());
+            }
+            request.push_str(newline);
+        }
+        if let Some(headers) = headers {
+            let mut headers = headers.iter().collect::<Vec<_>>();
+            headers.sort_unstable_by_key(|(name, _)| *name);
+            for (name, value) in headers {
+                request.push_str(name);
+                request.push_str(": ");
+                request.push_str(value);
+                request.push_str(newline);
+            }
+        }
+        if !body.is_empty()
+            && !headers.is_some_and(|headers| {
+                headers
+                    .keys()
+                    .any(|name| name.eq_ignore_ascii_case("content-length"))
+            })
+        {
+            request.push_str(&format!("Content-Length: {}{newline}", body.len()));
+        }
+        request.push_str(newline);
+        request.push_str(body);
+        input.request = request;
+    }
+    Ok(input)
+}
+
+fn normalize_repeater_input(
+    mut input: SendToRepeaterInput,
+) -> Result<SendToRepeaterRequest, String> {
+    if input.request.trim().is_empty() {
+        return Err("raw `request` must not be empty".to_owned());
+    }
+    let (request_host, request_port) = authority_from_raw_request(&input.request)?;
+    if input.host.is_empty() {
+        input.host = request_host.ok_or_else(|| {
+            "raw `request` must contain a Host header when `host` is omitted".to_owned()
+        })?;
+    }
+    let https = input.https.unwrap_or(false);
+    let port = input
+        .port
+        .or(request_port)
+        .unwrap_or(if https { 443 } else { 80 });
+    if port == 0 || port > u16::MAX as u32 {
+        return Err("`port` must be between 1 and 65535".to_owned());
+    }
+    Ok(SendToRepeaterRequest {
+        request: input.request.into_bytes(),
+        host: input.host,
+        port,
+        https,
+        tab_name: input.tab_name.unwrap_or_else(|| "MCP".to_owned()),
+    })
+}
+
+fn authority_from_raw_request(request: &str) -> Result<(Option<String>, Option<u32>), String> {
+    let head = request
+        .split_once("\r\n\r\n")
+        .or_else(|| request.split_once("\n\n"))
+        .map_or(request, |(head, _)| head);
+    let mut lines = head.lines();
+    let request_line = lines
+        .next()
+        .ok_or_else(|| "raw `request` must include an HTTP request line".to_owned())?;
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next();
+    let target = parts.next();
+    let version = parts.next();
+    if method.is_none()
+        || target.is_none()
+        || version.is_none_or(|value| !value.starts_with("HTTP/"))
+    {
+        return Err(
+            "raw `request` must start with `<METHOD> <request-target> HTTP/<version>`".to_owned(),
+        );
+    }
+    let host = lines.find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case("host").then_some(value.trim())
+    });
+    match host {
+        Some("") => Err("Host header must not be empty".to_owned()),
+        Some(authority) => parse_http_authority(authority).map(|(host, port)| (Some(host), port)),
+        None => Ok((None, None)),
+    }
+}
+
+fn parse_http_authority(authority: &str) -> Result<(String, Option<u32>), String> {
+    let parsed = url::Url::parse(&format!("http://{authority}/"))
+        .map_err(|error| format!("invalid Host header `{authority}`: {error}"))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| format!("invalid Host header `{authority}`"))?;
+    Ok((host.to_owned(), parsed.port().map(u32::from)))
+}
+
 fn convert_request_text(request: &str, target_method: &str) -> Result<String, String> {
     let newline = if request.contains("\r\n") {
         "\r\n"
@@ -5978,14 +6414,18 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod contract_tests {
     use super::{
-        BurpTools, DecoderInput, ExportRequestInput, ProxyHistoryInput,
+        BurpTools, DecoderInput, ExportRequestInput, InterceptControllerInput, ProxyHistoryInput,
         ProxyInterceptRuleBooleanOperatorInput, ProxyInterceptRuleInput,
         ProxyInterceptRuleMatchTypeInput, ProxyInterceptRuleRelationshipInput,
         ProxySettingsUpdateInput, RegisterProxyRuleInput, SITEGRAPH_TOOL_PREFIX,
-        export_request_text, normalize_decoder_operation, proxy_settings_operation,
+        authority_from_raw_request, decode_rpc_error, export_request_text, has_nonempty_error,
+        normalize_decoder_operation, normalize_repeater_input, proxy_rule_input_from_settings,
+        proxy_settings_operation, repeater_input_from_http_action, schema_hints,
         to_proxy_history_request,
     };
+    use crate::suite::{HttpActionInput, SettingsAction, SettingsActionInput};
     use burp_protocol::protocol::proxy_settings_update_request::Operation;
+    use prost::Message;
     use serde_json::Value;
     use std::collections::BTreeSet;
 
@@ -6005,6 +6445,14 @@ mod contract_tests {
                 "{name} must declare every MCP behavior hint"
             );
         }
+    }
+
+    #[test]
+    fn initialization_instructions_publish_usage_contract() {
+        let instructions = super::mcp_server_info().instructions.expect("instructions");
+        assert!(instructions.contains("call burp_burp_version first"));
+        assert!(instructions.contains("tool.mcp__burp_mcp_burp_http"));
+        assert!(instructions.contains("url_filter or in_scope_only=true"));
     }
 
     #[test]
@@ -6054,6 +6502,187 @@ mod contract_tests {
         assert_eq!(request.color, "red");
         assert_eq!(request.page.expect("page is required").limit, 5);
     }
+
+    #[test]
+    fn action_schemas_expose_valid_enum_values() {
+        let http = serde_json::to_value(schemars::schema_for!(HttpActionInput))
+            .expect("HTTP action schema must serialize");
+        let settings = serde_json::to_value(schemars::schema_for!(SettingsActionInput))
+            .expect("settings action schema must serialize");
+        let http_text = http.to_string();
+        let settings_text = settings.to_string();
+        for action in [
+            "send",
+            "send_batch",
+            "convert",
+            "export",
+            "send_to_repeater",
+        ] {
+            assert!(
+                http_text.contains(&format!("\"{action}\"")),
+                "missing {action}"
+            );
+        }
+        for action in [
+            "get_proxy_settings",
+            "update_proxy_settings",
+            "export_config",
+            "inspect_config",
+            "import_config",
+            "intercept_state",
+            "set_intercept_state",
+            "proxy_intercept_config",
+            "update_proxy_intercept_config",
+            "register_http_handler",
+            "remove_http_handler",
+            "register_proxy_rule",
+            "list_proxy_rules",
+            "remove_proxy_rule",
+        ] {
+            assert!(
+                settings_text.contains(&format!("\"{action}\"")),
+                "missing {action}"
+            );
+        }
+        assert!(settings.pointer("/properties/match").is_some());
+        assert!(settings.pointer("/properties/replace").is_some());
+    }
+
+    #[test]
+    fn settings_proxy_rule_preserves_match_and_replacement() {
+        let input = proxy_rule_input_from_settings(SettingsActionInput {
+            action: SettingsAction::RegisterProxyRule,
+            config: None,
+            paths: None,
+            enabled: Some(true),
+            operation: None,
+            port: None,
+            running: None,
+            listen_mode: None,
+            listen_specific_address: None,
+            certificate_mode: None,
+            enable_http2: None,
+            support_invisible_proxying: None,
+            target: Some("example.test/app.js".to_owned()),
+            mode: Some("response".to_owned()),
+            script: None,
+            script_id: Some("replace-js".to_owned()),
+            script_name: None,
+            kind: Some("edit".to_owned()),
+            match_text: Some("old".to_owned()),
+            replace: Some("new".to_owned()),
+            index: None,
+            rule: None,
+            master_enabled: None,
+            request_enabled: None,
+            response_enabled: None,
+        })
+        .expect("proxy rule input should normalize");
+
+        assert_eq!(Some("old".to_owned()), input.match_text);
+        assert_eq!(Some("new".to_owned()), input.replace);
+        assert_eq!("example.test/app.js", input.url_contains);
+    }
+
+    #[test]
+    fn repeater_url_builds_complete_request_and_service() {
+        let input = repeater_input_from_http_action(
+            super::SendToRepeaterInput {
+                request: String::new(),
+                host: String::new(),
+                port: None,
+                https: None,
+                tab_name: Some("case".to_owned()),
+            },
+            Some("https://example.test:8443/a?q=1"),
+            Some("post"),
+            Some("{}"),
+            None,
+        )
+        .expect("URL input should normalize");
+        let request = normalize_repeater_input(input).expect("request should normalize");
+        assert_eq!("example.test", request.host);
+        assert_eq!(8443, request.port);
+        assert!(request.https);
+        assert_eq!("case", request.tab_name);
+        assert_eq!(
+            "POST /a?q=1 HTTP/1.1\r\nHost: example.test:8443\r\nContent-Length: 2\r\n\r\n{}",
+            String::from_utf8(request.request).expect("request is UTF-8")
+        );
+    }
+
+    #[test]
+    fn rpc_status_details_preserve_backend_message_and_retryability() {
+        let detail = burp_protocol::protocol::RpcError {
+            code: burp_protocol::protocol::ErrorCode::InvalidArgument as i32,
+            message: "url_filter is required".to_owned(),
+            retryable: false,
+            details: "set url_filter or in_scope_only=true".to_owned(),
+        };
+        let status = super::GoogleRpcStatus {
+            code: tonic::Code::InvalidArgument as i32,
+            message: detail.message.clone(),
+            details: vec![super::GoogleRpcAny {
+                type_url: "type.googleapis.com/burp.v1.RpcError".to_owned(),
+                value: detail.encode_to_vec(),
+            }],
+        };
+        let tonic_status = tonic::Status::with_details(
+            tonic::Code::InvalidArgument,
+            "Invalid data",
+            status.encode_to_vec().into(),
+        );
+
+        let decoded = decode_rpc_error(&tonic_status).expect("RPC detail should decode");
+        assert_eq!("url_filter is required", decoded.message);
+        assert_eq!("set url_filter or in_scope_only=true", decoded.details);
+        assert!(!decoded.retryable);
+    }
+
+    #[test]
+    fn repeater_raw_request_derives_host_and_port() {
+        let (host, port) =
+            authority_from_raw_request("GET / HTTP/1.1\r\nHost: example.test:8081\r\n\r\n")
+                .expect("authority should parse");
+        assert_eq!(Some("example.test".to_owned()), host);
+        assert_eq!(Some(8081), port);
+    }
+
+    #[test]
+    fn intercept_controller_schema_exposes_scope_guards() {
+        let schema = serde_json::to_value(schemars::schema_for!(InterceptControllerInput))
+            .expect("intercept controller schema must serialize");
+        assert!(schema.pointer("/properties/url_filter").is_some());
+        assert!(schema.pointer("/properties/in_scope_only").is_some());
+    }
+
+    #[test]
+    fn tool_schema_hints_resolve_action_enum_reference() {
+        let router = BurpTools::burp_router();
+        let tool = router.map.get("burp_settings").expect("settings tool");
+        let (_, fields, actions) = schema_hints(&tool.attr);
+        assert!(fields.contains(&"action".to_owned()));
+        assert!(fields.contains(&"match".to_owned()));
+        assert!(actions.contains(&"register_proxy_rule".to_owned()));
+        assert!(has_nonempty_error(&serde_json::json!({"error": "boom"})));
+
+        let result = super::invalid_arguments_result(
+            &tool.attr,
+            "burp_settings",
+            &serde_json::Map::new(),
+            "bad action".to_owned(),
+        );
+        assert_eq!(Some(true), result.is_error);
+        let structured = result.structured_content.expect("structured error");
+        assert!(structured["accepted_fields"].as_array().is_some());
+        assert!(
+            structured["valid_actions"]
+                .as_array()
+                .is_some_and(|actions| actions.contains(&serde_json::json!("register_proxy_rule")))
+        );
+        assert!(structured["correction"].as_str().is_some());
+    }
+
     #[test]
     fn raw_request_export_preserves_input_without_host() {
         let request = "GET /health HTTP/1.1\r\n\r\n".to_owned();
@@ -6106,57 +6735,6 @@ mod contract_tests {
             true_paths.is_empty(),
             "true subschemas are unsupported by LM Studio: {true_paths:?}"
         );
-    }
-
-    #[test]
-    fn embedded_error_json_becomes_mcp_error_result() {
-        let response =
-            rmcp::model::CallToolResponse::Complete(rmcp::model::CallToolResult::success(vec![
-                rmcp::model::ContentBlock::text(serde_json::json!({"error": "boom"}).to_string()),
-            ]));
-
-        let rmcp::model::CallToolResponse::Complete(result) = super::mark_embedded_error(response)
-        else {
-            panic!("expected complete result");
-        };
-
-        assert_eq!(Some(true), result.is_error);
-        assert_eq!(
-            Some(&serde_json::json!({"error": "boom"})),
-            result.structured_content.as_ref()
-        );
-    }
-
-    #[test]
-    fn nullable_error_field_remains_successful() {
-        let response =
-            rmcp::model::CallToolResponse::Complete(rmcp::model::CallToolResult::success(vec![
-                rmcp::model::ContentBlock::text(
-                    serde_json::json!({"error": null, "state": "queued"}).to_string(),
-                ),
-            ]));
-
-        let rmcp::model::CallToolResponse::Complete(result) = super::mark_embedded_error(response)
-        else {
-            panic!("expected complete result");
-        };
-        assert_eq!(Some(false), result.is_error);
-    }
-
-    #[test]
-    fn empty_error_field_remains_successful() {
-        let response =
-            rmcp::model::CallToolResponse::Complete(rmcp::model::CallToolResult::success(vec![
-                rmcp::model::ContentBlock::text(
-                    serde_json::json!({"error": "", "state": "running"}).to_string(),
-                ),
-            ]));
-
-        let rmcp::model::CallToolResponse::Complete(result) = super::mark_embedded_error(response)
-        else {
-            panic!("expected complete result");
-        };
-        assert_eq!(Some(false), result.is_error);
     }
 
     #[test]

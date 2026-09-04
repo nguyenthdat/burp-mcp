@@ -23,7 +23,8 @@ internal class ScriptImportFacade(
     fun importBambda(script: String): ScriptImportResult {
         require(script.isNotBlank()) { "script must not be blank" }
         val result = api.bambda().importBambda(script)
-        return ScriptImportResult(result.importErrors().isEmpty(), result.status().name, result.importErrors())
+        val errors = result.importErrors().map(::explainBambdaImportError)
+        return ScriptImportResult(errors.isEmpty(), result.status().name, errors)
     }
 
     fun importBCheck(script: String, enabled: Boolean): ScriptImportResult {
@@ -89,5 +90,19 @@ internal class ScriptImportFacade(
             errors = errors,
             findings = findings,
         )
+    }
+}
+
+private fun explainBambdaImportError(error: String): String {
+    val lower = error.lowercase()
+    return if (
+        "utf8" in lower ||
+        "constant string" in lower ||
+        "constant pool" in lower ||
+        "65535" in lower
+    ) {
+        "$error. Bambda compiles to JVM bytecode, whose CONSTANT_Utf8 entries are limited to 65,535 bytes; do not embed large bundles. Use burp_settings register_proxy_rule for bounded match/replace or an external streaming proxy."
+    } else {
+        error
     }
 }

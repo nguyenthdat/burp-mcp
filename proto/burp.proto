@@ -324,11 +324,15 @@ message InterceptedMessageResponse { InterceptedMessage message = 1; }
 message InterceptControllerConfigRequest {
   optional bool enabled = 1;
   optional uint32 timeout_seconds = 2;
+  optional string url_filter = 3;
+  optional bool in_scope_only = 4;
 }
 message InterceptControllerConfigResponse {
   bool enabled = 1;
   uint32 timeout_seconds = 2;
   uint32 pending = 3;
+  string url_filter = 4;
+  bool in_scope_only = 5;
 }
 message InterceptedWebSocketMessagesRequest { PageRequest page = 1; }
 message InterceptedWebSocketMessagesResponse {
