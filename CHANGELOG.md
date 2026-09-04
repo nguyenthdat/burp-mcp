@@ -72,7 +72,7 @@ This release represents a comprehensive overhaul of Burp MCP, transforming it fr
   - Excluded binary payloads from SQLite FTS5 index (`0004_history_fts.sql`), keeping database sizes lightweight and query times fast.
   - Paginated sitemap synchronization with `after_id` cursors and `PAGE_SIZE = 500`.
 - **Multi-Source Ingestion & Spec Support**:
-  - Integrated OpenAPI 3.0 / Swagger 2.0 parser (`crates/sitegraph/src/ingest/openapi.rs`) into tool interface via `import_spec` / `import_openapi` actions.
+  - Integrated OpenAPI 3.0 / Swagger 2.0 parser (`crates/sitegraph/src/ingest/openapi.rs`) into the tool interface via the canonical `import_spec` action.
 - **Pre-Computed Security Views & Visualizations**:
   - Added 4 pre-computed security analysis views: `unauthenticated_routes`, `auth_matrix`, `idor_candidates`, and `sensitive_parameters`.
   - Built-in graph visualization generators: Mermaid.js diagrams and ASCII trees for immediate context-efficient rendering in chat.
@@ -85,17 +85,17 @@ This release represents a comprehensive overhaul of Burp MCP, transforming it fr
 
 #### Key Implementations & Upgrades
 - **Burp Logger API Integration (`LoggerFacade.kt`)**:
-  - Added visibility across all Burp Suite traffic (Proxy, Repeater, Scanner, Intruder, Extensions) via `burp_logger_history`, `burp_logger_detail`, and `burp_clear_logger`.
+  - Added visibility across all Burp Suite traffic (Proxy, Repeater, Scanner, Intruder, Extensions) via `burp_logger` (`query`, `detail`, `clear`).
 - **Burp Organizer Integration (`OrganizerFacade.kt`)**:
-  - Seamlessly send requests/responses with notes and statuses directly into Burp Organizer via `burp_organizer_send`, and query entries via `burp_organizer_list`.
+  - Seamlessly send requests/responses with notes and statuses directly into Burp Organizer via `burp_organizer` (`add`, `list`).
 - **True Single-Packet Attack (Last-Byte Synchronization)**:
-  - Implemented synchronized race condition testing in `LongOperationFacade.kt` (`burp_race_condition` with `single_packet_attack: true`), holding the final byte across parallel TCP/TLS sockets to eliminate network jitter.
+  - Implemented synchronized race condition testing in `LongOperationFacade.kt` (`burp_fuzzer` action `race` with `single_packet_attack: true`), holding the final byte across parallel TCP/TLS sockets to eliminate network jitter.
 - **Multi-Marker Fuzzing Engine (`IntruderPayloadFacade.kt`)**:
-  - Upgraded `burp_inline_fuzzer` to support multiple injection markers (`§param§`) and classical matrix attack types: `pitchfork`, `cluster_bomb`, and `sniper`.
+  - Upgraded `burp_fuzzer` action `fuzz` to support multiple injection markers (`§param§`) and classical matrix attack types: `pitchfork`, `cluster_bomb`, and `sniper`.
 - **Collaborator Auto-Correlation Tracker (`CollaboratorFacade.kt`)**:
   - Maintained in-memory and persistent injection metadata tables `(payload_id, target_url, injection_point, timestamp)` to automatically correlate out-of-band DNS/HTTP interactions back to the originating injection vector.
 - **HTTP Response Comparer & Diff Engine (`diff_engine.rs`)**:
-  - Added `burp_diff_responses` / `burp_diff` supporting cosine similarity scoring, header difference mapping, and line-by-line unified diffs for Boolean-based and access control testing.
+  - Added `burp_diff` (`diff_responses`, `compare_exchanges`) supporting cosine similarity scoring, header difference mapping, and line-by-line unified diffs for Boolean-based and access control testing.
 - **BCheck Management & Scanner Issue Triage**:
   - Added BCheck import, validation, and dry-run execution against specific HTTP exchanges.
   - Enabled status updates on Burp Scanner issues (`False Positive`, `Ignored`, severity/confidence overrides).
@@ -116,11 +116,11 @@ This release represents a comprehensive overhaul of Burp MCP, transforming it fr
   - Defaulted traffic history queries to compact metadata only (`include_bodies: false`).
   - Added automatic payload truncation exceeding `max_body_length` and binary content stripping.
   - Added `headers_only` filtering flag.
-- **PEG Grammar Parsing (`pest`) for Field Projection (`body_filter.rs`)**:
-  - Replaced brittle regex parsing with strict PEG grammars:
-    - `jsonpath.pest`: AST-based extraction for JSON responses.
-    - `css.pest`: AST-based CSS selector extraction for HTML responses.
-
+- **Modular PEG Grammar Parsing (`pest`) for Field Projection (`src/body_filter/`)**:
+  - Replaced monolithic regex/parsers with modular Pest grammar definitions and modules:
+    - Grammars: `crates/burp-tools/src/grammars/json_path.pest` and `crates/burp-tools/src/grammars/css_selector.pest`.
+    - Parser modules: `src/body_filter/mod.rs`, `src/body_filter/css_selector.rs`, `src/body_filter/json_path.rs`, and `src/body_filter/payload.rs`.
+    - AST-based extraction for JSON responses (`extract_json`) and CSS selector extraction for HTML responses (`extract_css`).
 ---
 
 ### 5. Autonomous Compound Security Workflows (`workflows.rs`)

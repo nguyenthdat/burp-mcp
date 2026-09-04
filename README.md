@@ -54,21 +54,21 @@ Burp MCP has two runtime tiers:
 
 ## Features & Capabilities
 
-- **Proxy Traffic Inspection & Triage**: Search, filter (status, method, URL, regex), annotate, highlight, and view full raw HTTP/WebSocket traffic history with compact metadata by default (`include_bodies: false`) and smart field projection (`extract_css`, `extract_json`, `headers_only`, truncation).
-- **Logger API Integration**: Complete traffic visibility across all Burp tools (`Proxy`, `Repeater`, `Scanner`, `Intruder`, `Extensions`) via `burp_logger_history`, `burp_logger_detail`, and `burp_clear_logger`.
-- **Organizer Integration**: Send important request/response pairs directly into Burp Organizer and query/filter saved entries via `burp_organizer_send` and `burp_organizer_list`.
+- **Proxy Traffic Inspection & Triage**: Search, filter (status, method, URL, regex), annotate, highlight, and view full raw HTTP/WebSocket traffic history with compact metadata by default (`include_bodies: false`, `max_body_length: 4096` default) and smart field projection (`extract_css`, `extract_json`, `headers_only`, truncation metadata).
+- **Logger API Integration**: Complete traffic visibility across all Burp tools (`Proxy`, `Repeater`, `Scanner`, `Intruder`, `Extensions`) via `burp_logger` (`query`, `detail`, `clear`).
+- **Organizer Integration**: Send important request/response pairs directly into Burp Organizer and query/filter saved entries via `burp_organizer` (`add`, `list`).
 - **Active editor UI integration**: Capture and guardedly replace focused editable HTTP text editors with short-lived token/hash leases; edit WebSocket payloads through an MCP-provided extension tab with lossless Base64.
 - **Interception & HTTP Handlers**: Toggle master proxy interception, register custom request/response modifying handlers, and configure granular proxy rules (`forward`, `intercept`, `drop`, `edit`).
-- **True Single-Packet Attack (Last-Byte Sync)**: Synchronized race condition testing via `burp_race_condition` (`single_packet_attack: true`).
-- **Multi-Marker Fuzzing**: Advanced matrix fuzzing supporting `pitchfork`, `cluster_bomb`, and `sniper` attack modes via `burp_inline_fuzzer`.
+- **True Single-Packet Attack (Last-Byte Sync)**: Synchronized race condition testing via `burp_fuzzer` action `race` (`single_packet_attack: true`).
+- **Multi-Marker Fuzzing**: Advanced matrix fuzzing supporting `pitchfork`, `cluster_bomb`, and `sniper` attack modes via `burp_fuzzer` action `fuzz`.
 - **Collaborator Auto-Correlation Tracker**: Automatic mapping between injected parameter/URL origins and out-of-band DNS/HTTP interaction callbacks.
-- **Response Comparer & Diffing**: Compute similarity scores, header diffs, and unified line diffs between HTTP responses with `burp_diff_responses` and `burp_send_to_comparer`.
+- **Response Comparer & Diffing**: Compute similarity scores, header diffs, and unified line diffs between HTTP responses with `burp_diff` (`diff_responses`, `compare_exchanges`).
 - **Compound Security Workflows**: High-level automated workflows for IDOR verification (`burp_verify_idor`), CORS auditing (`burp_check_cors`), and Access Control Matrix testing (`burp_auth_matrix`).
 - **Action-Based Pentesting Suite**: Streamlined ~15 action-based tools for modern AI agents to dramatically reduce context-window overhead and tool hallucinations.
 - **Cookie Jar**: Inspect, filter by domain, and set cookies within Burp's active cookie jar.
 - **Session Handling & Macros**: Create, list, execute, update, and remove scoped session handling rules and multi-request macros with parameter extraction.
 - **In-Memory Payload Lists**: Create, import from file/JSON/text, update, paginate, and delete named payload lists for fuzzing and Intruder attacks.
-- **Scanner & Crawl Automation**: Launch bounded passive audits, active scans, and crawls; poll background jobs; triage and inspect issues; update issue statuses (False Positive/Ignored); and test/dry-run BCheck scripts via `burp_test_bcheck`.
+- **Scanner & Crawl Automation**: Launch bounded passive audits, active scans, and crawls; poll background jobs; triage and inspect issues; update issue statuses (False Positive/Ignored); and test/dry-run BCheck scripts via `burp_scanner` action `test_bcheck`.
 - **Sitegraph Engine (Advanced Opt-in)**: Project-scoped SQLite graph mapping endpoints, parameters, topology, shortest paths, clusters, downstream impact, diffs, and indexed HTTP/WebSocket evidence. Treat each graph as sensitive engagement data.
 - **Offline Utility Decoder Engine**: 40+ built-in operations for encoding/decoding (Base64, Hex, URL, HTML, Unicode), cryptographic hashes (MD5, SHA-1/256/512, BLAKE3, HMAC), compression (Gzip, Zlib, Deflate, Brotli), JWT decoding/verification, and HTTP parsing.
 Some capabilities require Burp Suite Professional or a Burp feature advertised
@@ -89,19 +89,19 @@ Burp MCP registers **43 tools by default** (42 Burp tools + 1 offline Decoder to
 
 | Tool | Key Actions | Description | Read-Only |
 |---|---|---|:---:|
-| `burp_proxy` | `history`, `detail`, `annotate`, `highlight`, `extract`, `websocket_history` | Proxy HTTP/WebSocket history inspection & annotation. | No |
-| `burp_http` | `send`, `send_batch`, `convert`, `export`, `send_to_repeater` | Send requests, batch testing, format export, and Repeater UI bridge. `send_to_repeater` accepts either an absolute `url` plus optional method/body/headers or a raw `request`; raw requests derive service authority from `Host` when possible. | No |
+| `burp_proxy` | `history`, `detail`, `annotate`, `highlight`, `extract`, `websocket_history` | Proxy HTTP/WebSocket history inspection & annotation. Defaults to metadata-only (`include_bodies: false`, `max_body_length: 4096`). | No |
+| `burp_http` | `send`, `send_batch`, `convert`, `export`, `send_to_repeater` | Send requests, batch testing, format export, and Repeater UI bridge. `send_to_repeater` accepts either an absolute `url` plus optional method/body/headers or a raw `request`; raw requests derive service authority from `Host` when possible. Payloads bound to 4096 bytes by default. | No |
 | `burp_target` | `get_scope`, `add_scope`, `remove_scope`, `info`, `sitemap` | Scope checking/mutation and Site Map exploration. | No |
 | `burp_scanner` | `start_audit`, `start_crawl`, `stop`, `list_issues`, `issue_detail`, `update_issue`, `report`, `test_bcheck`, `remove` | Automated scanning, issue triage, and BCheck test runner. | No |
 | `burp_scan_config` | `list_configs`, `get_config`, `upsert_config`, `delete_config`, `list_pools`, `get_pool`, `upsert_pool`, `delete_pool` | Full CRUD for scan configurations and resource pools. | No |
-| `burp_fuzzer` | `fuzz`, `race`, `send_to_intruder`, `list_payloads`, `upsert_payloads`, `register_payload_processor`, `register_payload_generator` | Multi-marker fuzzing (`pitchfork`/`cluster_bomb`/`sniper`), single-packet race attack, and payload management. | No |
+| `burp_fuzzer` | `fuzz`, `race`, `send_to_intruder`, `list_payloads`, `get_payload_list`, `create_payload_list`, `import_payload_list`, `upsert_payloads`, `delete_payload_list`, `register_payload_processor`, `list_payload_processors`, `remove_payload_processor`, `register_payload_generator`, `list_payload_generators`, `remove_payload_generator` | Multi-marker fuzzing (`pitchfork`/`cluster_bomb`/`sniper`), single-packet race attack, and payload management. | No |
 | `burp_collaborator` | `generate`, `poll`, `correlate` | Out-of-band OAST testing with origin correlation tracking. | No |
-| `burp_websocket` | `create`, `send_text`, `send_binary`, `history`, `close`, `list` | Outbound managed WebSocket connections. | No |
+| `burp_websocket` | `create`, `send_text`, `send_binary`, `history`, `close`, `list` | Outbound managed WebSocket connections with bounded frame listings (`max_body_length: 4096` default). | No |
 | `burp_session` | `list_rules`, `get_rule`, `upsert_rule`, `delete_rule`, `run_macro`, `upsert_macro`, `list_macros`, `delete_macro` | Session handling rules and multi-request macros. | No |
-| `burp_settings` | `get_proxy_settings`, `update_proxy_settings`, `export_config`, `inspect_config`, `import_config`, `intercept_state`, `set_intercept_state`, `proxy_intercept_config`, `update_proxy_intercept_config`, `register_http_handler`, `remove_http_handler`, `register_proxy_rule`, `list_proxy_rules`, `remove_proxy_rule` | Proxy listeners, intercept settings, handlers, and configuration. `register_proxy_rule` uses `match`/`replace` for body edits and `script_name`/`script` for header edits. | No |
-| `burp_logger` | `query`, `detail`, `clear` | Comprehensive traffic logger across all Burp tools. | No |
+| `burp_settings` | `get_proxy_settings`, `update_proxy_settings`, `export_config`, `inspect_config`, `import_config`, `intercept_state`, `set_intercept_state`, `proxy_intercept_config`, `update_proxy_intercept_config`, `register_http_handler`, `remove_http_handler`, `register_proxy_rule`, `list_proxy_rules`, `remove_proxy_rule` | Proxy listeners, intercept settings, handlers, and configuration. `register_proxy_rule` accepts `id`, `url_contains`, `phase`, `rule_action`, `match`, `replace`, `header_name`, `header_value`, `enabled`; `register_http_handler` uses `header_name`, `header_value`, `match`, `replace`. | No |
+| `burp_logger` | `query`, `detail`, `clear` | Comprehensive traffic logger across all Burp tools. Defaults to metadata-only (`include_bodies: false`, `max_body_length: 4096`). | No |
 | `burp_organizer` | `add`, `list` | Burp Organizer item storage and triage. | No |
-| `burp_diff` | `diff_responses`, `compare_exchanges` | HTTP response diffing, similarity scoring, and Comparer UI bridge. | Yes |
+| `burp_diff` | `compare_exchanges`, `diff_responses` | HTTP response diffing, similarity scoring, and Comparer UI bridge. | Yes |
 
 ### 3. Compound Security Workflows (9 tools)
 
@@ -151,11 +151,11 @@ Burp MCP registers **43 tools by default** (42 Burp tools + 1 offline Decoder to
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
 | `burp_intercept_controller` | `{enabled?, timeout_seconds?, url_filter?, in_scope_only?}` | Read or configure the MCP-owned HTTP interception queue. Enabling requires `url_filter` or `in_scope_only: true`; non-matching traffic continues normally and pending messages auto-forward on timeout. | No |
-| `burp_intercepted_messages` | `{limit?, cursor?}` | Page pending HTTP requests and responses, including lossless base64 messages. | Yes |
-| `burp_control_intercepted_message` | `{id, action, message_base64?}` | Forward, drop, or send one paused HTTP message to Burp's manual Intercept tab; optionally replace the full message. | No |
+| `burp_intercepted_messages` | `{limit?, cursor?, include_bodies?, max_body_length?}` | Page pending HTTP requests and responses. Defaults to metadata-only; explicit bodies are capped at 4096 bytes and report original length/truncation. | Yes |
+| `burp_control_intercepted_message` | `{id, action, message_base64?, max_body_length?}` | Forward, drop, or send one paused HTTP message to Burp's manual Intercept tab; optionally replace the full message. Returned bodies are capped at 4096 bytes by default. | No |
 | `burp_websocket_intercept_controller` | `{enabled?, timeout_seconds?}` | Read or configure MCP-owned WebSocket interception. | No |
-| `burp_intercepted_websocket_messages` | `{limit?, cursor?}` | Page pending intercepted WebSocket messages. | Yes |
-| `burp_control_intercepted_websocket_message` | `{id, action, payload_base64?}` | Forward, drop, or send one paused WebSocket message to Burp's manual Intercept tab; optionally replace its payload. | No |
+| `burp_intercepted_websocket_messages` | `{limit?, cursor?, include_bodies?, max_body_length?}` | Page pending intercepted WebSocket messages. Defaults to metadata-only; explicit payloads are capped at 4096 bytes and report original length/truncation. | Yes |
+| `burp_control_intercepted_websocket_message` | `{id, action, payload_base64?, max_body_length?}` | Forward, drop, or send one paused WebSocket message to Burp's manual Intercept tab; optionally replace its payload. Returned payloads are capped at 4096 bytes by default. | No |
 
 ### 9. Offline Decoder Engine (1 tool)
 
@@ -169,7 +169,7 @@ Burp MCP registers **43 tools by default** (42 Burp tools + 1 offline Decoder to
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
-| `sitegraph` | `{action, url_prefix?, query?, id?, from_id?, to_id?, limit?, cursor?, max_depth?, since?, profile?, format?, snapshot_id?}` | SiteGraph attack surface graph analyzer (`status`, `sync`, `search`, `neighbors`, `trace`, `shortest_path`, `clusters`, `impact`, `diff`, `export`, `history_search`, `endpoint_detail`, `projects`, `config`). | No |
+| `sitegraph` | `{action, url_prefix?, query?, id?, from_id?, to_id?, limit?, cursor?, max_depth?, since?, profile?, format?, snapshot_id?, view_name?, spec_content?}` | SiteGraph attack surface graph analyzer (`status`, `stats`, `sync`, `search`, `security_view`, `import_spec`, `neighbors`, `trace`, `shortest_path`, `clusters`, `impact`, `diff`, `export`, `history_search`, `endpoint_detail`, `projects`, `config`). | No |
 
 ---
 

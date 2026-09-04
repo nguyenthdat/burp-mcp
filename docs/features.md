@@ -43,22 +43,20 @@ Burp MCP registers **43 tools by default** (42 Burp tools + 1 offline Decoder to
 ### `burp_proxy`
 Burp Proxy tool.
 - **Actions**:
-  - `history`: Page and filter Proxy HTTP history with compact metadata (`include_bodies: false` by default), `headers_only`, `extract_css`, `extract_json`, `max_body_length`.
-  - `detail`: Get full request/response details for a specific Proxy history index with optional projection.
+  - `history`: Page and filter Proxy HTTP history with compact metadata (`include_bodies: false` by default, `max_body_length: 4096` default), `headers_only`, `extract_css`, `extract_json`. Emits original byte length and truncation/omission state.
+  - `detail`: Get full request/response details for a specific Proxy history index with optional projection (`max_body_length: 4096` default).
   - `annotate`: Add/edit notes on a Proxy history entry.
   - `highlight`: Set/clear color highlight on a Proxy history entry.
   - `extract`: Extract regex matches from a Proxy history response.
-  - `websocket_history`: Page observed WebSocket message history with base64 payloads.
-
+  - `websocket_history`: Page observed WebSocket message history with bounded base64 payloads (`max_body_length: 4096` default) and truncation metadata.
 ### `burp_http`
 Burp HTTP client & Repeater bridge.
 - **Actions**:
-  - `send`: Send one HTTP request through Burp with optional headers, projection, and extraction.
-  - `send_batch`: Send parallel HTTP requests (up to 32).
+  - `send`: Send one HTTP request through Burp with optional headers, projection, extraction, and bounded payload responses (`max_body_length: 4096` default).
+  - `send_batch`: Send parallel HTTP requests (up to 32) with bounded responses.
   - `convert`: Convert raw HTTP request method (e.g. GET ↔ POST).
   - `export`: Export request as raw text, `curl`, or Python `requests` code.
   - `send_to_repeater`: Open a request in Burp Repeater from either an absolute `url` plus optional `method`/`body`/`headers`, or a complete raw `request`; raw requests derive host/port from `Host` when omitted.
-
 ### `burp_target`
 Burp Target & Scope manager.
 - **Actions**:
@@ -78,9 +76,8 @@ Burp Scanner automation.
   - `issue_detail`: Get full details and evidence for one Scanner issue index.
   - `update_issue`: Update an issue status (`false_positive`, `ignored`, `confirmed`) and notes.
   - `report`: Generate HTML or XML Scanner reports.
-  - `test_bcheck` / `dry_run`: Dry-run a BCheck script against sample HTTP exchange.
+  - `test_bcheck`: Test/dry-run a BCheck script against sample HTTP exchange.
   - `remove`: Remove a completed/stopped scan job from the registry.
-
 ### `burp_scan_config`
 Scanner configurations and resource pools manager.
 - **Actions**:
@@ -147,25 +144,23 @@ Proxy Settings & Configuration manager.
   - `get_proxy_settings`: Read listeners, script filters, and intercept settings.
   - `update_proxy_settings`: Mutate listeners, filters, or rules (`operation`: `listener_upsert`, `listener_delete`, `script_filter_upsert`, `script_filter_delete`, `intercept_rule_upsert`, `intercept_rule_delete`, `intercept_toggle`).
   - `export_config`: Export project configuration as JSON.
-  - `inspect_config`: Inspect selected project options before import.
-  - `import_config`: Import project configuration JSON.
+  - `inspect_config`: Inspect selected project options before import (`paths`).
+  - `import_config`: Import project configuration JSON (`config`).
   - `intercept_state`: Read master Proxy intercept state.
-  - `set_intercept_state`: Enable/disable master Proxy intercept.
+  - `set_intercept_state`: Enable/disable master Proxy intercept (`enabled`).
   - `proxy_intercept_config`: Read legacy intercept filters and response modification.
   - `update_proxy_intercept_config`: Patch intercept filters and response modification.
-  - `register_http_handler`: Register bounded HTTP request handler rule.
+  - `register_http_handler`: Register bounded HTTP request handler rule (`header_name`, `header_value`, `match`, `replace`).
   - `remove_http_handler`: Remove/clear HTTP handler rules.
-  - `register_proxy_rule`: Register request/response Proxy rule (`forward`, `intercept`, `drop`, `edit`). Body edits use `match`/`replace`; header edits use `script_name`/`script`.
+  - `register_proxy_rule`: Register request/response Proxy rule (`id`, `url_contains`, `phase`, `rule_action`, `match`, `replace`, `header_name`, `header_value`, `enabled`).
   - `list_proxy_rules`: List runtime Proxy rules.
-  - `remove_proxy_rule`: Remove one or clear all Proxy rules.
-
+  - `remove_proxy_rule`: Remove one (`id`) or clear all Proxy rules.
 ### `burp_logger`
 Burp Logger traffic inspector.
 - **Actions**:
-  - `query`: Page HTTP traffic across all tools (`proxy`, `repeater`, `scanner`, `intruder`, `extension`) with compact metadata and extraction.
-  - `detail`: Read full request/response for one Logger index.
+  - `query`: Page HTTP traffic across all tools (`proxy`, `repeater`, `scanner`, `intruder`, `extension`) with compact metadata by default (`include_bodies: false`, `max_body_length: 4096` default), truncation state, and extraction.
+  - `detail`: Read full request/response for one Logger index (`max_body_length: 4096` default).
   - `clear`: Clear in-memory Logger traffic buffer.
-
 ### `burp_organizer`
 Burp Organizer interface.
 - **Actions**:
@@ -175,9 +170,8 @@ Burp Organizer interface.
 ### `burp_diff`
 Response Comparer & Diff engine.
 - **Actions**:
-  - `diff_responses`: Compare two responses (strings or indexes), computing similarity score ($0.0 \dots 1.0$), header diffs, and unified line diffs.
   - `compare_exchanges`: Send two raw payloads to Burp Comparer UI tab.
-
+  - `diff_responses`: Compare two responses (strings or indexes), computing similarity score ($0.0 \dots 1.0$), header diffs, and unified line diffs.
 ---
 
 ## 3. Compound Security Workflows (9 tools)
@@ -236,11 +230,11 @@ Response Comparer & Diff engine.
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
 | `burp_intercept_controller` | Read or configure MCP-controlled HTTP request/response interception. Enabling requires `url_filter` or `in_scope_only: true`; non-matching traffic bypasses the queue. | Configure a bounded timeout and narrow scope filter. |
-| `burp_intercepted_messages` | List HTTP messages currently paused by MCP intercept controller. | Inspect paused requests/responses. |
-| `burp_control_intercepted_message` | Forward, drop, or edit MCP-paused HTTP message. | Resolve paused message. |
+| `burp_intercepted_messages` | List HTTP messages currently paused by MCP intercept controller. `include_bodies` defaults to false; `max_body_length` defaults to 4096 bytes and outputs report original length/truncation. | Inspect paused requests/responses. |
+| `burp_control_intercepted_message` | Forward, drop, or edit an MCP-paused HTTP message. `max_body_length` caps the returned message at 4096 bytes by default. | Resolve paused message. |
 | `burp_websocket_intercept_controller` | Read or configure MCP-controlled WebSocket interception queue. | Configure WebSocket intercept queue. |
-| `burp_intercepted_websocket_messages` | List WebSocket messages currently paused by MCP controller. | Inspect paused text/binary frames. |
-| `burp_control_intercepted_websocket_message` | Forward, drop, or edit paused WebSocket frame. | Resolve paused WebSocket frame. |
+| `burp_intercepted_websocket_messages` | List WebSocket messages currently paused by MCP controller. `include_bodies` defaults to false; `max_body_length` defaults to 4096 bytes and outputs report original length/truncation. | Inspect paused text/binary frames. |
+| `burp_control_intercepted_websocket_message` | Forward, drop, or edit a paused WebSocket frame. `max_body_length` caps the returned payload at 4096 bytes by default. | Resolve paused WebSocket frame. |
 
 ---
 
@@ -255,5 +249,4 @@ Response Comparer & Diff engine.
 ## 10. SiteGraph (Advanced Opt-in) (1 tool)
 
 | Tool | Purpose | Preliminary live check |
-|---|---|---|
-| `sitegraph` | SiteGraph attack surface graph analyzer (`status`, `sync`, `search`, `neighbors`, `trace`, `shortest_path`, `clusters`, `impact`, `diff`, `export`, `history_search`, `endpoint_detail`, `projects`, `config`). | Enable with `--enable-sitegraph`, sync site map, and run graph traversals. |
+| `sitegraph` | SiteGraph attack surface graph analyzer (`status`, `stats`, `sync`, `search`, `security_view`, `import_spec`, `neighbors`, `trace`, `shortest_path`, `clusters`, `impact`, `diff`, `export`, `history_search`, `endpoint_detail`, `projects`, `config`). | Enable with `--enable-sitegraph`, sync site map, and run graph traversals. |

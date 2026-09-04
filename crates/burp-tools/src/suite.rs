@@ -1,7 +1,11 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+// ==========================================
+// Action Enums
+// ==========================================
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HttpAction {
     Send,
@@ -11,23 +15,148 @@ pub enum HttpAction {
     SendToRepeater,
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum SettingsAction {
-    GetProxySettings,
-    UpdateProxySettings,
-    ExportConfig,
-    InspectConfig,
-    ImportConfig,
-    InterceptState,
-    SetInterceptState,
-    ProxyInterceptConfig,
-    UpdateProxyInterceptConfig,
-    RegisterHttpHandler,
-    RemoveHttpHandler,
-    RegisterProxyRule,
-    ListProxyRules,
-    RemoveProxyRule,
+pub enum ProxyAction {
+    History,
+    Detail,
+    Annotate,
+    Highlight,
+    Extract,
+    WebsocketHistory,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetAction {
+    GetScope,
+    AddScope,
+    RemoveScope,
+    Info,
+    Sitemap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ScannerAction {
+    StartAudit,
+    StartCrawl,
+    Stop,
+    ListIssues,
+    IssueDetail,
+    UpdateIssue,
+    Report,
+    TestBcheck,
+    Remove,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ScanConfigAction {
+    ListConfigs,
+    GetConfig,
+    UpsertConfig,
+    DeleteConfig,
+    ListPools,
+    GetPool,
+    UpsertPool,
+    DeletePool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FuzzerAction {
+    Fuzz,
+    Race,
+    SendToIntruder,
+    ListPayloads,
+    GetPayloadList,
+    CreatePayloadList,
+    ImportPayloadList,
+    UpsertPayloads,
+    DeletePayloadList,
+    RegisterPayloadProcessor,
+    ListPayloadProcessors,
+    RemovePayloadProcessor,
+    RegisterPayloadGenerator,
+    ListPayloadGenerators,
+    RemovePayloadGenerator,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CollaboratorAction {
+    Generate,
+    Poll,
+    Correlate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WebSocketAction {
+    Create,
+    SendText,
+    SendBinary,
+    History,
+    Close,
+    List,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionAction {
+    ListRules,
+    GetRule,
+    UpsertRule,
+    DeleteRule,
+    RunMacro,
+    UpsertMacro,
+    ListMacros,
+    DeleteMacro,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LoggerAction {
+    Query,
+    Detail,
+    Clear,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OrganizerAction {
+    Add,
+    List,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DiffAction {
+    CompareExchanges,
+    DiffResponses,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SiteGraphAction {
+    Status,
+    Stats,
+    Sync,
+    Search,
+    SecurityView,
+    ImportSpec,
+    Neighbors,
+    Trace,
+    ShortestPath,
+    Clusters,
+    Impact,
+    Diff,
+    Export,
+    HistorySearch,
+    EndpointDetail,
+    Projects,
+    Config,
 }
 
 // ==========================================
@@ -35,7 +164,7 @@ pub enum SettingsAction {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ProxyActionInput {
-    pub action: String, // "history", "detail", "annotate", "highlight", "extract", "websocket_history"
+    pub action: ProxyAction,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
     pub cursor: Option<String>,
@@ -83,7 +212,7 @@ pub struct HttpActionInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct TargetActionInput {
-    pub action: String, // "get_scope", "add_scope", "remove_scope", "info", "sitemap"
+    pub action: TargetAction,
     pub url: Option<String>,
     pub url_prefix: Option<String>,
     pub limit: Option<u32>,
@@ -95,7 +224,7 @@ pub struct TargetActionInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ScannerActionInput {
-    pub action: String, // "start_audit", "start_crawl", "stop", "list_issues", "issue_detail", "update_issue", "report", "test_bcheck", "remove"
+    pub action: ScannerAction,
     pub url: Option<String>,
     pub audit_type: Option<String>,
     pub seed_urls: Option<Vec<String>>,
@@ -129,7 +258,7 @@ pub struct ScannerActionInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ScanConfigActionInput {
-    pub action: String, // "list_configs", "get_config", "upsert_config", "delete_config", "list_pools", "get_pool", "upsert_pool", "delete_pool"
+    pub action: ScanConfigAction,
     pub id: Option<String>,
     pub name: Option<String>,
     pub scan_type: Option<String>,
@@ -150,7 +279,7 @@ pub struct ScanConfigActionInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct FuzzerActionInput {
-    pub action: String, // "fuzz", "race", "send_to_intruder", "list_payloads", "get_payload_list", "create_payload_list", "import_payload_list", "upsert_payloads", "delete_payload_list", "register_payload_processor", "list_payload_processors", "remove_payload_processor", "register_payload_generator", "list_payload_generators", "remove_payload_generator"
+    pub action: FuzzerAction,
     pub template: Option<String>,
     pub host: Option<String>,
     pub port: Option<u32>,
@@ -175,7 +304,7 @@ pub struct FuzzerActionInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CollaboratorActionInput {
-    pub action: String, // "generate", "poll", "correlate"
+    pub action: CollaboratorAction,
     pub count: Option<u32>,
     pub target_url: Option<String>,
     pub injection_point: Option<String>,
@@ -188,7 +317,7 @@ pub struct CollaboratorActionInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct WebSocketActionInput {
-    pub action: String, // "create", "send_text", "send_binary", "history", "close", "list"
+    pub action: WebSocketAction,
     pub host: Option<String>,
     pub port: Option<u32>,
     pub https: Option<bool>,
@@ -198,6 +327,8 @@ pub struct WebSocketActionInput {
     pub data: Option<String>, // base64 binary payload
     pub limit: Option<u32>,
     pub cursor: Option<String>,
+    pub include_bodies: Option<bool>,
+    pub max_body_length: Option<usize>,
 }
 
 // ==========================================
@@ -205,7 +336,7 @@ pub struct WebSocketActionInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SessionActionInput {
-    pub action: String, // "list_rules", "get_rule", "upsert_rule", "delete_rule", "run_macro", "upsert_macro", "list_macros", "delete_macro"
+    pub action: SessionAction,
     pub id: Option<String>,
     pub description: Option<String>,
     pub action_type: Option<String>,
@@ -225,33 +356,71 @@ pub struct SessionActionInput {
 // 10. burp_settings
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct SettingsActionInput {
-    pub action: SettingsAction,
-    pub config: Option<String>,
-    pub paths: Option<Vec<String>>,
-    pub enabled: Option<bool>,
-    pub operation: Option<String>,
-    pub port: Option<u32>,
-    pub running: Option<bool>,
-    pub listen_mode: Option<String>,
-    pub listen_specific_address: Option<String>,
-    pub certificate_mode: Option<String>,
-    pub enable_http2: Option<bool>,
-    pub support_invisible_proxying: Option<bool>,
-    pub target: Option<String>,
-    pub mode: Option<String>,
-    pub script: Option<String>,
-    pub script_id: Option<String>,
-    pub script_name: Option<String>,
-    pub kind: Option<String>,
-    #[serde(rename = "match")]
-    pub match_text: Option<String>,
-    pub replace: Option<String>,
-    pub index: Option<u32>,
-    pub rule: Option<crate::ProxyInterceptRuleInput>,
-    pub master_enabled: Option<bool>,
-    pub request_enabled: Option<bool>,
-    pub response_enabled: Option<bool>,
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum SettingsActionInput {
+    GetProxySettings,
+    UpdateProxySettings {
+        operation: Option<String>,
+        port: Option<u32>,
+        running: Option<bool>,
+        listen_mode: Option<String>,
+        listen_specific_address: Option<String>,
+        certificate_mode: Option<String>,
+        enable_http2: Option<bool>,
+        support_invisible_proxying: Option<bool>,
+        target: Option<String>,
+        mode: Option<String>,
+        script: Option<String>,
+        script_id: Option<String>,
+        script_name: Option<String>,
+        kind: Option<String>,
+        index: Option<u32>,
+        rule: Option<crate::ProxyInterceptRuleInput>,
+        master_enabled: Option<bool>,
+        request_enabled: Option<bool>,
+        response_enabled: Option<bool>,
+    },
+    ExportConfig,
+    InspectConfig {
+        paths: Option<Vec<String>>,
+    },
+    ImportConfig {
+        config: Option<String>,
+    },
+    InterceptState,
+    SetInterceptState {
+        enabled: Option<bool>,
+    },
+    ProxyInterceptConfig,
+    UpdateProxyInterceptConfig {
+        master_enabled: Option<bool>,
+        request_enabled: Option<bool>,
+        response_enabled: Option<bool>,
+    },
+    RegisterHttpHandler {
+        header_name: Option<String>,
+        header_value: Option<String>,
+        #[serde(rename = "match")]
+        match_text: Option<String>,
+        replace: Option<String>,
+    },
+    RemoveHttpHandler,
+    RegisterProxyRule {
+        id: Option<String>,
+        url_contains: String,
+        phase: Option<crate::ProxyRulePhaseInput>,
+        rule_action: Option<crate::ProxyRuleActionInput>,
+        #[serde(rename = "match")]
+        match_text: Option<String>,
+        replace: Option<String>,
+        header_name: Option<String>,
+        header_value: Option<String>,
+        enabled: Option<bool>,
+    },
+    ListProxyRules,
+    RemoveProxyRule {
+        id: Option<String>,
+    },
 }
 
 // ==========================================
@@ -259,7 +428,7 @@ pub struct SettingsActionInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LoggerActionInput {
-    pub action: String, // "query", "detail", "clear"
+    pub action: LoggerAction,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
     pub cursor: Option<String>,
@@ -282,7 +451,7 @@ pub struct LoggerActionInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct OrganizerActionInput {
-    pub action: String, // "add", "list"
+    pub action: OrganizerAction,
     pub request: Option<String>,
     pub response: Option<String>,
     pub host: Option<String>,
@@ -301,7 +470,7 @@ pub struct OrganizerActionInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DiffActionInput {
-    pub action: String, // "compare_exchanges", "diff_responses"
+    pub action: DiffAction,
     pub response_a: Option<String>,
     pub response_b: Option<String>,
     pub index_a: Option<u32>,
@@ -353,7 +522,7 @@ pub struct EditorRenewInput {
 // ==========================================
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SiteGraphActionInput {
-    pub action: String, // "status", "sync", "search", "security_view", "neighbors", "trace", "shortest_path", "clusters", "impact", "diff", "export", "import_spec", "history_search", "endpoint_detail", "projects", "config"
+    pub action: SiteGraphAction,
     pub url_prefix: Option<String>,
     pub query: Option<String>,
     pub id: Option<String>,
