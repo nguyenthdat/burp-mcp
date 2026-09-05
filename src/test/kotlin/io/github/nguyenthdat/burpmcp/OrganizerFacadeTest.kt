@@ -38,28 +38,34 @@ class OrganizerFacadeTest {
     }
 
     @Test
-    fun `list skips malformed items before filtering and pagination`() {
+    fun `list skips malformed items and handles nullable metadata`() {
         val malformed = fake<OrganizerItem>(mapOf("request" to { throw IllegalStateException("malformed") }))
+        val nullUrl = fake<HttpRequest>(mapOf("url" to { null }))
+        val noUrlItem = fake<OrganizerItem>(mapOf("request" to { nullUrl }))
         val request = fake<HttpRequest>(mapOf("url" to { "https://example.test/ok" }, "method" to { "POST" }))
         val valid =
             fake<OrganizerItem>(
                 mapOf(
                     "id" to { 8 },
-                    "status" to { OrganizerItemStatus.DONE },
+                    "status" to { null },
                     "request" to { request },
                     "response" to { null },
                     "annotations" to { null },
                 ),
             )
-        val organizer = fake<Organizer>(mapOf("items" to { listOf(malformed, valid) }))
+        val organizer = fake<Organizer>(mapOf("items" to { listOf(malformed, noUrlItem, valid) }))
         val page =
             OrganizerFacade(fake(mapOf("organizer" to { organizer }))).list(
-                OrganizerQuery(limit = 1, statusFilter = "done", urlFilter = "/ok"),
+                OrganizerQuery(limit = 1, statusFilter = "unknown", urlFilter = "/ok"),
             )
 
         assertEquals(1, page.total)
-        assertEquals(1, page.items.single().index)
+        assertEquals(2, page.items.single().index)
         assertEquals("https://example.test/ok", page.items.single().url)
+        assertEquals("UNKNOWN", page.items.single().status)
+        assertEquals("", page.items.single().notes)
+        assertEquals("", page.items.single().highlight)
+        assertEquals(false, page.items.single().hasResponse)
     }
 
     @Suppress("UNCHECKED_CAST")

@@ -22,8 +22,8 @@ This release represents a comprehensive overhaul of Burp MCP, transforming it fr
 - HTTP interception requires `url_filter` or `in_scope_only`, so unrelated traffic bypasses the MCP queue.
 - MCP initialization now publishes usage instructions; tool and gRPC errors return corrective structured metadata.
 - Bambda import errors explain the JVM 65,535-byte `CONSTANT_Utf8` limit and supported alternatives.
-- Session-rule upsert now creates missing caller-supplied IDs, replaces existing rules idempotently, and avoids registering disabled handlers.
-- Organizer listings tolerate malformed or partially unavailable Montoya items instead of failing the entire page.
+- Session-rule upsert now creates missing caller-supplied IDs across both current and older extension behavior, replaces existing rules idempotently, and avoids registering disabled handlers.
+- Organizer listings tolerate null, malformed, or partially unavailable Montoya metadata instead of failing the entire page.
 - Payload-list `replace_all`, GraphQL audit flags/batch-body detection, and deterministic API-fuzz category selection now match their published contracts.
 
 ---

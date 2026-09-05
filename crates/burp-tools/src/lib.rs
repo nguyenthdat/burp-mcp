@@ -2498,19 +2498,22 @@ impl BurpTools {
         }
     }
 
-    async fn session_update_rule(
+    async fn session_upsert_rule_with_id(
         &self,
         Parameters(input): Parameters<SessionRuleUpsertInput>,
     ) -> String {
         if input.id.as_deref().unwrap_or_default().is_empty() {
             return serde_json::json!({"error": "id is required"}).to_string();
         }
-        match self
-            .client
-            .update_session_rule(session_rule_request(input))
-            .await
-        {
+        let request = session_rule_request(input);
+        match self.client.update_session_rule(request.clone()).await {
             Ok(rule) => session_rule_json(rule).to_string(),
+            Err(error) if is_missing_session_rule_error(&error) => {
+                match self.client.create_session_rule(request).await {
+                    Ok(rule) => session_rule_json(rule).to_string(),
+                    Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
+                }
+            }
             Err(error) => serde_json::json!({"error": error.to_string()}).to_string(),
         }
     }
@@ -3930,7 +3933,7 @@ impl BurpTools {
                     enabled: input.enabled,
                 };
                 if upsert.id.is_some() {
-                    self.session_update_rule(Parameters(upsert)).await
+                    self.session_upsert_rule_with_id(Parameters(upsert)).await
                 } else {
                     self.session_create_rule(Parameters(upsert)).await
                 }
@@ -6192,6 +6195,23 @@ fn proxy_intercept_rule_json(rule: ProxyInterceptRule) -> serde_json::Value {
     })
 }
 
+fn is_missing_session_rule_error(error: &burp_protocol::ClientError) -> bool {
+    let burp_protocol::ClientError::Rpc(status) = error else {
+        return false;
+    };
+    if !matches!(
+        status.code(),
+        tonic::Code::NotFound | tonic::Code::FailedPrecondition
+    ) {
+        return false;
+    }
+    let message = decode_rpc_error(status)
+        .map_or_else(|| status.message().to_owned(), |detail| detail.message);
+    message
+        .trim()
+        .eq_ignore_ascii_case("session rule not found")
+}
+
 fn session_rule_request(input: SessionRuleUpsertInput) -> UpsertSessionRuleRequest {
     UpsertSessionRuleRequest {
         id: input.id.unwrap_or_default(),
@@ -7549,6 +7569,37 @@ mod contract_tests {
         assert_eq!("url_filter is required", decoded.message);
         assert_eq!("set url_filter or in_scope_only=true", decoded.details);
         assert!(!decoded.retryable);
+    }
+
+    #[test]
+    fn session_upsert_falls_back_only_for_missing_session_rule() {
+        let detail = burp_protocol::protocol::RpcError {
+            code: burp_protocol::protocol::ErrorCode::Internal as i32,
+            message: "session rule not found".to_owned(),
+            retryable: false,
+            details: String::new(),
+        };
+        let google_status = super::GoogleRpcStatus {
+            code: tonic::Code::FailedPrecondition as i32,
+            message: detail.message.clone(),
+            details: vec![super::GoogleRpcAny {
+                type_url: "type.googleapis.com/burp.v1.RpcError".to_owned(),
+                value: detail.encode_to_vec(),
+            }],
+        };
+        let missing = tonic::Status::with_details(
+            tonic::Code::FailedPrecondition,
+            "operation cannot be completed",
+            google_status.encode_to_vec().into(),
+        );
+        assert!(super::is_missing_session_rule_error(
+            &burp_protocol::ClientError::Rpc(missing)
+        ));
+
+        let unrelated = tonic::Status::failed_precondition("macro not found");
+        assert!(!super::is_missing_session_rule_error(
+            &burp_protocol::ClientError::Rpc(unrelated)
+        ));
     }
 
     #[test]

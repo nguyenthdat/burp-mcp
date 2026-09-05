@@ -74,8 +74,13 @@ internal class OrganizerFacade(
         val allItems = api.organizer().items()
         val filtered = allItems.mapIndexedNotNull { index, item ->
             val request = runCatching { item.request() }.getOrNull() ?: return@mapIndexedNotNull null
-            val status = runCatching { item.status().name }.getOrDefault("UNKNOWN")
-            val url = runCatching { request.url() }.getOrNull() ?: return@mapIndexedNotNull null
+            val status =
+                runCatching { item.status()?.name }
+                    .getOrNull()
+                    .orEmpty()
+                    .ifEmpty { "UNKNOWN" }
+            val url = runCatching { request.url() }.getOrNull().orEmpty()
+            if (url.isEmpty()) return@mapIndexedNotNull null
             if (
                 !query.statusFilter.isNullOrBlank() &&
                 !query.statusFilter.equals("all", ignoreCase = true) &&
@@ -94,15 +99,16 @@ internal class OrganizerFacade(
         val items = filtered.subList(start, end).map { indexed ->
             val item = indexed.item
             val response = runCatching { item.response() }.getOrNull()
+            val annotations = runCatching { item.annotations() }.getOrNull()
             OrganizerItemDto(
                 id = runCatching { item.id() }.getOrDefault(indexed.index),
                 index = indexed.index,
                 url = indexed.url,
-                method = runCatching { indexed.request.method() }.getOrDefault(""),
+                method = runCatching { indexed.request.method() }.getOrNull().orEmpty(),
                 statusCode = runCatching { response?.statusCode()?.toInt() }.getOrNull() ?: 0,
                 status = indexed.status,
-                notes = runCatching { item.annotations().notes() }.getOrNull().orEmpty(),
-                highlight = runCatching { item.annotations().highlightColor().name }.getOrNull().orEmpty(),
+                notes = runCatching { annotations?.notes() }.getOrNull().orEmpty(),
+                highlight = runCatching { annotations?.highlightColor()?.name }.getOrNull().orEmpty(),
                 hasResponse = response != null,
                 contentType = runCatching { response?.statedMimeType()?.name }.getOrNull().orEmpty(),
             )
