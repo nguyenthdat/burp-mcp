@@ -80,6 +80,10 @@ internal class PayloadListFacade {
         val current = get(id)
         val values = current.payloads.toMutableList()
         when (operation) {
+            "replace_all" -> {
+                values.clear()
+                values.addAll(payloads)
+            }
             "append" -> values.addAll(payloads)
             "prepend" -> values.addAll(0, payloads)
             "insert" -> {
@@ -106,7 +110,7 @@ internal class PayloadListFacade {
                 values.clear()
             }
             "rename" -> require(!displayName.isNullOrBlank()) { "display_name is required for rename" }
-            else -> throw IllegalArgumentException("operation must be append, prepend, insert, replace, remove, remove_indexes, clear, or rename")
+            else -> throw IllegalArgumentException("operation must be append, prepend, insert, replace, replace_all, remove, remove_indexes, clear, or rename")
         }
         val updated = validatedPayloadList(id, displayName ?: current.displayName, values)
         lists[id] = updated

@@ -8,7 +8,6 @@ import java.lang.reflect.Proxy as ReflectionProxy
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class SessionRuleFacadeTest {
@@ -42,6 +41,32 @@ class SessionRuleFacadeTest {
         kotlin.test.assertFailsWith<IllegalArgumentException> {
             facade.create(rule(id = "rule-1"))
         }
+    }
+
+    @Test
+    fun `upsert creates caller supplied id then updates it`() {
+        val registrations = mutableListOf<FakeRegistration>()
+        val facade = SessionRuleFacade(fakeApi(registrations), {})
+
+        val created = facade.upsert(rule(id = "rule-1", description = "created"))
+        val updated = facade.upsert(created.copy(description = "updated", enabled = false))
+
+        assertEquals("rule-1", created.id)
+        assertEquals("updated", updated.description)
+        assertFalse(updated.enabled)
+        assertEquals(listOf(updated), facade.list())
+        assertEquals(2, registrations.count { it.deregistered })
+    }
+
+    @Test
+    fun `disabled rules avoid handlers and unchanged upsert is idempotent`() {
+        val registrations = mutableListOf<FakeRegistration>()
+        val facade = SessionRuleFacade(fakeApi(registrations), {})
+        val disabled = rule(id = "rule-1").copy(enabled = false)
+
+        assertEquals(disabled, facade.upsert(disabled))
+        assertEquals(disabled, facade.upsert(disabled))
+        assertTrue(registrations.isEmpty())
     }
 
     private fun rule(id: String = "", description: String = "test rule") =

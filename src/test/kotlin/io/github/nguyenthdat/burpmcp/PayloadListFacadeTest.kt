@@ -41,6 +41,25 @@ class PayloadListFacadeTest {
     }
 
     @Test
+    fun `replace_all replaces payloads atomically preserves order and renames`() {
+        val lists = PayloadListFacade()
+        lists.create("tokens", "Old Tokens", listOf("first", "second", "third"))
+
+        val replacement = listOf("alpha", "beta", "gamma", "delta")
+        val updated = lists.update("tokens", "replace_all", replacement, 0, emptyList(), "New Tokens")
+
+        assertEquals("New Tokens", updated.displayName)
+        assertEquals(replacement, updated.payloads)
+        assertEquals("New Tokens", lists.get("tokens").displayName)
+        assertEquals(replacement, lists.get("tokens").payloads)
+
+        val failure = assertFailsWith<IllegalArgumentException> {
+            lists.update("tokens", "unknown_op", emptyList(), 0, emptyList(), null)
+        }
+        assertTrue(failure.message.orEmpty().contains("replace_all"))
+    }
+
+    @Test
     fun `delete and bounded slices are safe`() {
         val lists = PayloadListFacade()
         lists.create("words", "Words", (1..600).map(Int::toString))

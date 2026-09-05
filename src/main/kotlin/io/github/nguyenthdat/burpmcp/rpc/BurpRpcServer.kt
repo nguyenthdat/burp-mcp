@@ -1420,7 +1420,7 @@ internal class BurpRpcService(
     override fun updateSessionRule(
         request: UpsertSessionRuleRequest,
         responseObserver: StreamObserver<SessionRuleEntry>,
-    ) = responseObserver.respond { sessionRuleFacade.update(request.toSessionRule()).toProto() }
+    ) = responseObserver.respond { sessionRuleFacade.upsert(request.toSessionRule()).toProto() }
 
     override fun listSessionRules(
         @Suppress("UNUSED_PARAMETER") request: ListSessionRulesRequest,

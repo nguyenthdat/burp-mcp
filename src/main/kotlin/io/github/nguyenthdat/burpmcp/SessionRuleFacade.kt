@@ -1,6 +1,5 @@
 package io.github.nguyenthdat.burpmcp
 
-import burp.api.montoya.core.ToolType
 import burp.api.montoya.MontoyaApi
 import burp.api.montoya.core.Registration
 import burp.api.montoya.http.sessions.ActionResult
@@ -58,14 +57,21 @@ internal class SessionRuleFacade(
         return rule
     }
 
+    @Synchronized
+    fun upsert(rule: SessionRule): SessionRule {
+        val existing = active[rule.id]
+        if (existing != null && existing.rule == rule) return rule
+        return if (rule.id.isBlank() || existing == null) create(rule) else update(rule)
+    }
+
     private fun register(rule: SessionRule): ActiveRule {
+        if (!rule.enabled) return ActiveRule(rule, NOOP_REGISTRATION, NOOP_REGISTRATION)
         val sessionRegistration =
             api.http().registerSessionHandlingAction(
                 object : SessionHandlingAction {
                     override fun name(): String = rule.description
 
                     override fun performAction(actionData: SessionHandlingActionData): ActionResult {
-                        if (!rule.enabled) return ActionResult.actionResult(actionData.request(), actionData.annotations())
                         if (rule.actionType == "run_macro") macroRunner(rule.macroDescription)
                         return ActionResult.actionResult(applyRule(actionData.request(), rule), actionData.annotations())
                     }
@@ -127,6 +133,10 @@ internal class SessionRuleFacade(
     }
 
     private companion object {
+        val NOOP_REGISTRATION = object : Registration {
+            override fun isRegistered(): Boolean = false
+            override fun deregister() = Unit
+        }
         val SUPPORTED_ACTIONS = setOf("replace_text", "set_header", "set_parameter", "run_macro")
         val SUPPORTED_TOOLS = setOf("proxy", "target", "scanner", "intruder", "repeater", "sequencer", "decoder", "comparer", "logger", "extensions")
     }

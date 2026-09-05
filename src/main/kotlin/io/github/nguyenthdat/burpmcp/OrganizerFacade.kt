@@ -36,6 +36,14 @@ internal data class OrganizerPage(
     val offset: Int,
 )
 
+private data class IndexedOrganizerItem(
+    val index: Int,
+    val item: burp.api.montoya.organizer.OrganizerItem,
+    val request: HttpRequest,
+    val url: String,
+    val status: String,
+)
+
 internal class OrganizerFacade(
     private val api: MontoyaApi,
 ) {
@@ -64,29 +72,39 @@ internal class OrganizerFacade(
         require(query.offset >= 0) { "offset must be non-negative" }
 
         val allItems = api.organizer().items()
-        val filtered = allItems.indices.filter { idx ->
-            val item = allItems[idx]
-            val itemStatus = item.status().name
-            val itemUrl = item.url()
-            (query.statusFilter.isNullOrBlank() || query.statusFilter.equals("all", ignoreCase = true) || itemStatus.equals(query.statusFilter, ignoreCase = true)) &&
-                (query.urlFilter.isNullOrBlank() || itemUrl.contains(query.urlFilter))
+        val filtered = allItems.mapIndexedNotNull { index, item ->
+            val request = runCatching { item.request() }.getOrNull() ?: return@mapIndexedNotNull null
+            val status = runCatching { item.status().name }.getOrDefault("UNKNOWN")
+            val url = runCatching { request.url() }.getOrNull() ?: return@mapIndexedNotNull null
+            if (
+                !query.statusFilter.isNullOrBlank() &&
+                !query.statusFilter.equals("all", ignoreCase = true) &&
+                !status.equals(query.statusFilter, ignoreCase = true)
+            ) {
+                return@mapIndexedNotNull null
+            }
+            if (!query.urlFilter.isNullOrBlank() && !url.contains(query.urlFilter)) {
+                return@mapIndexedNotNull null
+            }
+            IndexedOrganizerItem(index, item, request, url, status)
         }
 
         val start = min(query.offset, filtered.size)
         val end = min(start + query.limit, filtered.size)
-        val items = filtered.subList(start, end).map { idx ->
-            val item = allItems[idx]
+        val items = filtered.subList(start, end).map { indexed ->
+            val item = indexed.item
+            val response = runCatching { item.response() }.getOrNull()
             OrganizerItemDto(
-                id = item.id(),
-                index = idx,
-                url = item.url(),
-                method = runCatching { item.request().method() }.getOrDefault(""),
-                statusCode = item.statusCode().toInt(),
-                status = item.status().name,
-                notes = item.annotations().notes().orEmpty(),
-                highlight = item.annotations().highlightColor().name,
-                hasResponse = item.hasResponse(),
-                contentType = item.contentType()?.name.orEmpty(),
+                id = runCatching { item.id() }.getOrDefault(indexed.index),
+                index = indexed.index,
+                url = indexed.url,
+                method = runCatching { indexed.request.method() }.getOrDefault(""),
+                statusCode = runCatching { response?.statusCode()?.toInt() }.getOrNull() ?: 0,
+                status = indexed.status,
+                notes = runCatching { item.annotations().notes() }.getOrNull().orEmpty(),
+                highlight = runCatching { item.annotations().highlightColor().name }.getOrNull().orEmpty(),
+                hasResponse = response != null,
+                contentType = runCatching { response?.statedMimeType()?.name }.getOrNull().orEmpty(),
             )
         }
 

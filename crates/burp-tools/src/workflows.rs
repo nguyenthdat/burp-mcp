@@ -808,43 +808,66 @@ pub async fn run_audit_graphql(
     let mut issues = Vec::new();
     let base_headers = input.headers.unwrap_or_default();
 
+    let test_introspection = input.test_introspection.unwrap_or(true);
+    let test_field_suggestions = input.test_field_suggestions.unwrap_or(true);
+    let test_batching = input.test_batching.unwrap_or(true);
+
     // 1. Test Introspection
-    let intro_query = r#"{"query": "{__schema{types{name}}}"}"#;
-    let intro_resp = send_graphql_post(client, &input.endpoint, &base_headers, intro_query).await;
-    let introspection_enabled = intro_resp
-        .as_ref()
-        .map(|r| r.contains("__schema") && r.contains("types"))
-        .unwrap_or(false);
-    if introspection_enabled {
-        issues.push("GraphQL Introspection is publicly enabled (Full schema exposure)".to_string());
-    }
+    let introspection_enabled = if test_introspection {
+        let intro_query = r#"{"query": "{__schema{types{name}}}"}"#;
+        let intro_resp =
+            send_graphql_post(client, &input.endpoint, &base_headers, intro_query).await;
+        let enabled = intro_resp
+            .as_ref()
+            .map(|r| r.contains("__schema") && r.contains("types"))
+            .unwrap_or(false);
+        if enabled {
+            issues.push(
+                "GraphQL Introspection is publicly enabled (Full schema exposure)".to_string(),
+            );
+        }
+        enabled
+    } else {
+        false
+    };
 
     // 2. Test Field Suggestions
-    let suggestion_query = r#"{"query": "{__schema_invalid_query_field}"}"#;
-    let sugg_resp =
-        send_graphql_post(client, &input.endpoint, &base_headers, suggestion_query).await;
-    let field_suggestions = sugg_resp
-        .as_ref()
-        .map(|r| r.contains("Did you mean") || r.contains("suggestion"))
-        .unwrap_or(false);
-    if field_suggestions {
-        issues.push("GraphQL Field Suggestions are enabled in error responses".to_string());
-    }
+    let field_suggestions = if test_field_suggestions {
+        let suggestion_query = r#"{"query": "{__schema_invalid_query_field}"}"#;
+        let sugg_resp =
+            send_graphql_post(client, &input.endpoint, &base_headers, suggestion_query).await;
+        let enabled = sugg_resp
+            .as_ref()
+            .map(|r| r.contains("Did you mean") || r.contains("suggestion"))
+            .unwrap_or(false);
+        if enabled {
+            issues.push("GraphQL Field Suggestions are enabled in error responses".to_string());
+        }
+        enabled
+    } else {
+        false
+    };
 
     // 3. Test Batching Amplification
-    let batch_query =
-        r#"[{"query":"{__typename}"},{"query":"{__typename}"},{"query":"{__typename}"}]"#;
-    let batch_resp = send_graphql_post(client, &input.endpoint, &base_headers, batch_query).await;
-    let batching_supported = batch_resp
-        .as_ref()
-        .map(|r| r.starts_with('[') && r.contains("__typename"))
-        .unwrap_or(false);
-    if batching_supported {
-        issues.push(
-            "GraphQL Array Batching is supported (Potential rate limit / brute force bypass)"
-                .to_string(),
-        );
-    }
+    let batching_supported = if test_batching {
+        let batch_query =
+            r#"[{"query":"{__typename}"},{"query":"{__typename}"},{"query":"{__typename}"}]"#;
+        let batch_resp =
+            send_graphql_post(client, &input.endpoint, &base_headers, batch_query).await;
+        let supported = batch_resp
+            .as_deref()
+            .map(is_batching_supported_response)
+            .unwrap_or(false);
+        if supported {
+            issues.push(
+                "GraphQL Array Batching is supported (Potential rate limit / brute force bypass)"
+                    .to_string(),
+            );
+        }
+        supported
+    } else {
+        false
+    };
 
     let vulnerable = !issues.is_empty();
     Ok(AuditGraphqlOutput {
@@ -855,6 +878,18 @@ pub async fn run_audit_graphql(
         vulnerable,
         issues_found: issues,
     })
+}
+
+fn extract_http_response_body(raw: &str) -> &str {
+    raw.split_once("\r\n\r\n")
+        .or_else(|| raw.split_once("\n\n"))
+        .map(|(_, body)| body)
+        .unwrap_or(raw)
+}
+
+fn is_batching_supported_response(raw: &str) -> bool {
+    let body = extract_http_response_body(raw).trim_start();
+    body.starts_with('[') && body.contains("__typename")
 }
 
 async fn send_graphql_post(
@@ -969,10 +1004,53 @@ pub struct ApiFuzzOrchestratorOutput {
     pub summary: String,
 }
 
+const CANONICAL_FUZZ_CATEGORIES: [&str; 4] = ["sqli", "xss", "overflow", "traversal"];
+
+pub fn resolve_fuzz_categories(
+    requested: Option<&[String]>,
+) -> Result<Vec<(&'static str, &'static str)>, String> {
+    static OVERFLOW_PAYLOAD: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| "A".repeat(1024));
+
+    let available: [(&'static str, &'static str); 4] = [
+        ("sqli", "' OR '1'='1"),
+        ("xss", "<script>alert(1)</script>"),
+        ("overflow", OVERFLOW_PAYLOAD.as_str()),
+        ("traversal", "../../../../etc/passwd"),
+    ];
+
+    let Some(req) = requested else {
+        return Ok(available.to_vec());
+    };
+
+    let mut selected = std::collections::HashSet::new();
+    for cat in req {
+        let cat_trimmed = cat.trim();
+        if !CANONICAL_FUZZ_CATEGORIES.contains(&cat_trimmed) {
+            return Err(format!(
+                "Unknown fuzz category '{cat_trimmed}'. Supported categories are: {}",
+                CANONICAL_FUZZ_CATEGORIES.join(", ")
+            ));
+        }
+        selected.insert(cat_trimmed);
+    }
+
+    let mut result = Vec::new();
+    for (cat, payload) in available {
+        if selected.contains(cat) {
+            result.push((cat, payload));
+        }
+    }
+
+    Ok(result)
+}
+
 pub async fn run_api_fuzz_orchestrator(
     client: &BurpClient,
     input: ApiFuzzOrchestratorInput,
 ) -> Result<ApiFuzzOrchestratorOutput, String> {
+    let payloads = resolve_fuzz_categories(input.fuzz_categories.as_deref())?;
+
     let observations = sitegraph::ingest::openapi::observations(
         input.spec_content.as_bytes(),
         &input.target_base_url,
@@ -983,14 +1061,6 @@ pub async fn run_api_fuzz_orchestrator(
     let mut anomalies = Vec::new();
     let mut requests_sent = 0;
     let base_headers = input.auth_headers.unwrap_or_default();
-
-    let overflow_payload = "A".repeat(1024);
-    let payloads = vec![
-        ("sqli", "' OR '1'='1"),
-        ("xss", "<script>alert(1)</script>"),
-        ("overflow", overflow_payload.as_str()),
-        ("traversal", "../../../../etc/passwd"),
-    ];
 
     for obs in &observations {
         for (cat, p) in &payloads {
@@ -1046,4 +1116,65 @@ pub async fn run_api_fuzz_orchestrator(
         anomalies,
         summary,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_http_response_body_and_batching_detection() {
+        let raw_http_response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n[{\"data\":{\"__typename\":\"Query\"}}]";
+        assert!(is_batching_supported_response(raw_http_response));
+
+        let status_only_bracket = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"data\":{\"__typename\":\"Query\"}}";
+        assert!(!is_batching_supported_response(status_only_bracket));
+
+        // Leading HTTP status line should NOT be checked for '['
+        let raw_without_bracket_body = "HTTP/1.1 200 OK\r\n\r\nNot an array response";
+        assert!(!is_batching_supported_response(raw_without_bracket_body));
+
+        // Response with leading whitespace in body
+        let raw_whitespace = "HTTP/1.1 200 OK\r\n\r\n   [{\"__typename\":\"A\"}]";
+        assert!(is_batching_supported_response(raw_whitespace));
+
+        // Response with \n\n separator
+        let raw_lf = "HTTP/1.1 200 OK\n\n[{\"__typename\":\"B\"}]";
+        assert!(is_batching_supported_response(raw_lf));
+
+        // Bare body without headers
+        let bare = "[{\"__typename\":\"C\"}]";
+        assert!(is_batching_supported_response(bare));
+    }
+
+    #[test]
+    fn test_resolve_fuzz_categories_defaults_and_filtering() {
+        // Absent categories defaults to all four
+        let default_cats = resolve_fuzz_categories(None).expect("defaults must resolve");
+        let names: Vec<&str> = default_cats.iter().map(|(c, _)| *c).collect();
+        assert_eq!(names, vec!["sqli", "xss", "overflow", "traversal"]);
+
+        // Filtered subset retaining canonical order regardless of input order
+        let input = vec!["traversal".to_string(), "sqli".to_string()];
+        let resolved = resolve_fuzz_categories(Some(&input)).expect("subset must resolve");
+        let resolved_names: Vec<&str> = resolved.iter().map(|(c, _)| *c).collect();
+        assert_eq!(resolved_names, vec!["sqli", "traversal"]);
+
+        // Deduplication
+        let input_dup = vec![
+            "xss".to_string(),
+            "overflow".to_string(),
+            "xss".to_string(),
+            "overflow".to_string(),
+        ];
+        let resolved_dup = resolve_fuzz_categories(Some(&input_dup)).expect("dedup must resolve");
+        let dup_names: Vec<&str> = resolved_dup.iter().map(|(c, _)| *c).collect();
+        assert_eq!(dup_names, vec!["xss", "overflow"]);
+
+        // Unknown category is rejected with clear error
+        let input_unknown = vec!["sqli".to_string(), "unknown_cat".to_string()];
+        let err = resolve_fuzz_categories(Some(&input_unknown)).unwrap_err();
+        assert!(err.contains("Unknown fuzz category 'unknown_cat'"));
+        assert!(err.contains("Supported categories are: sqli, xss, overflow, traversal"));
+    }
 }
