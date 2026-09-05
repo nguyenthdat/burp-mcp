@@ -85,7 +85,7 @@ pub fn default_path() -> PathBuf {
 }
 
 pub fn default_rules_path() -> PathBuf {
-    default_path().with_file_name("default-rules.rules")
+    default_path().with_file_name("default-rules.toml")
 }
 
 pub fn ensure_rules_file(path: &Path) -> Result<()> {
@@ -99,7 +99,7 @@ pub fn ensure_rules_file(path: &Path) -> Result<()> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("failed to create rules directory {}", parent.display()))?;
     }
-    let temporary = path.with_extension("rules.new");
+    let temporary = path.with_extension("toml.new");
     std::fs::write(&temporary, DEFAULT_RULE_PACK.as_bytes())
         .with_context(|| format!("failed to initialize rules file {}", path.display()))?;
     std::fs::rename(&temporary, path)
@@ -167,7 +167,7 @@ interval_seconds = 45
     #[test]
     fn initializes_default_rules_once_without_overwriting_custom_rules() {
         let directory = tempfile::tempdir().expect("temporary directory must exist");
-        let path = directory.path().join("default-rules.rules");
+        let path = directory.path().join("default-rules.toml");
 
         super::ensure_rules_file(&path).expect("default rules must initialize");
         assert_eq!(
@@ -176,18 +176,18 @@ interval_seconds = 45
         );
 
         let custom = r#"
-        pack {
-            id = "custom"
-            version = "1"
-            max_matches = 1
-        }
-        rule "custom" {
-            pattern = r"custom"
-            capture_group = 0
-            severity = "low"
-            surfaces = ["response_body"]
-        }
-        "#;
+[pack]
+id = "custom"
+version = "1"
+max_matches = 1
+
+[[rules]]
+id = "custom"
+pattern = 'custom'
+capture_group = 0
+severity = "low"
+surfaces = ["response_body"]
+"#;
         std::fs::write(&path, custom).unwrap();
         super::ensure_rules_file(&path).expect("custom rules must be retained");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), custom);

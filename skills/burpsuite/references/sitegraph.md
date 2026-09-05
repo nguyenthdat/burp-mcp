@@ -34,40 +34,53 @@ BURP_MCP_ENABLE_SITEGRAPH=true burp-mcp serve
 | `--sitegraph-project-root <PATH>` | `BURP_MCP_SITEGRAPH_PROJECT_ROOT` | Platform data directory | Parent directory for project-scoped SQLite databases. |
 | `--sitegraph-mode <MODE>` | `BURP_MCP_SITEGRAPH_MODE` | `off` | Sync mode: `off`, `startup`, or `watch`. |
 | `--sitegraph-interval-seconds <SECS>` | `BURP_MCP_SITEGRAPH_INTERVAL_SECONDS` | `30` | Delay between bounded `watch` sync attempts. |
-| `--sitegraph-rules-path <PATH>` | `BURP_MCP_SITEGRAPH_RULES` | `~/.config/burp-mcp/default-rules.rules` | Sitegraph enrichment rules file (`.rules` DSL format). |
+| `--sitegraph-rules-path <PATH>` | `BURP_MCP_SITEGRAPH_RULES` | `~/.config/burp-mcp/default-rules.toml` | Sitegraph enrichment rules file (typed TOML format). |
 
 *Note: Merely specifying `--sitegraph-project-root` or `--sitegraph-mode` does not enable sitegraph without `--enable-sitegraph`.*
 
-### 1.1 Enrichment Rule DSL
+### 1.1 Enrichment Rules (Typed TOML)
 
-Enrichment rules are defined in declarative `.rules` files parsed by a custom Pest grammar. Once parsed into typed pack and rule structs, pattern evaluation executes via `regex::bytes::RegexSet` and `regex::bytes::Regex`, preserving byte-exact offsets and capture groups across arbitrary payloads without lossy UTF-8 conversion.
+Enrichment rules are defined in declarative TOML files (`.toml`). The embedded `2026.09.05` pack contains 105 rules: 28 original rules plus 77 bounded detectors for cloud credentials, authentication, frameworks, disclosures, infrastructure, vulnerability-prone parameters, PII, and security misconfigurations.
 
-The DSL supports `pack` metadata blocks, `rule` blocks, raw string literals (`r"..."` or `r#"..."#`), standard escaped strings (`"..."`), capture group indexes, severity ratings (`critical`, `high`, `medium`, `low`), and surface filters (`request_message`, `response_message`, `response_body`, `websocket_payload`, `websocket_edited_payload`). Comments start with `#` or `//`.
+The schema uses a `[pack]` table for metadata and `[[rules]]` array-of-tables for individual rule detectors. TOML literal strings (`'...'`) allow regex patterns without escape complications. Typed deserialization strictly denies unknown fields at document, pack, and rule levels. Supported fields include capture group indexes, severity ratings (`critical`, `high`, `medium`, `low`), and surface filters (`request_message`, `response_message`, `response_body`, `websocket_payload`, `websocket_edited_payload`). All 105 rules are ordinary regex entries without engine condition systems or absence inference; `missing_content_type_options` detects only explicitly insecure header values (`none|0|false|off`). Matching uses surface-partitioned byte-safe `RegexSet` instances, preserving exact present captures in finding metadata.
 
-Example `default-rules.rules` DSL snippet:
+Example `default-rules.toml` snippet:
 
-```text
-pack {
-    id = "burp-mcp-sitegraph"
-    version = "2026.08.25"
-    max_matches = 256
-}
+```toml
+[pack]
+id = "burp-mcp-sitegraph"
+version = "2026.09.05"
+max_matches = 512
 
-rule "jwt" {
-    pattern = r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
-    capture_group = 0
-    severity = "high"
-    surfaces = [
-        "request_message",
-        "response_message",
-        "response_body",
-        "websocket_payload",
-        "websocket_edited_payload",
-    ]
-}
+[[rules]]
+id = "jwt"
+pattern = 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "cors_wildcard_credentials"
+pattern = '(?im)(?:^access-control-allow-origin:\s*\*\s*$[\s\S]{1,512}?^access-control-allow-credentials:\s*true\b|^access-control-allow-credentials:\s*true\b[\s\S]{1,512}?^access-control-allow-origin:\s*\*\s*$)'
+capture_group = 0
+severity = "high"
+surfaces = ["response_message"]
+
+[[rules]]
+id = "missing_content_type_options"
+pattern = '(?im)^x-content-type-options:\s*(?:none|0|false|off)\b'
+capture_group = 0
+severity = "low"
+surfaces = ["response_message"]
 ```
 
-Legacy JSON rule files (`default-rules.json`) are strictly rejected following a clean cutover.
+Dual-format compatibility is not supported: old `.rules` DSL and legacy JSON files fail to load. Unknown fields at the document, pack, or rule level are rejected.
 
 ---
 

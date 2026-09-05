@@ -69,7 +69,7 @@ Burp MCP has two runtime tiers:
 - **Session Handling & Macros**: Create, list, execute, update, and remove scoped session handling rules and multi-request macros with parameter extraction.
 - **In-Memory Payload Lists**: Create, import from file/JSON/text, update, paginate, and delete named payload lists for fuzzing and Intruder attacks.
 - **Scanner & Crawl Automation**: Launch bounded passive audits, active scans, and crawls; poll background jobs; triage and inspect issues; update issue statuses (False Positive/Ignored); and test/dry-run BCheck scripts via `burp_scanner` action `test_bcheck`.
-- **Sitegraph Engine (Advanced Opt-in)**: Project-scoped SQLite graph mapping endpoints, parameters, topology, shortest paths, clusters, downstream impact, diffs, and indexed HTTP/WebSocket evidence. Treat each graph as sensitive engagement data.
+- **Sitegraph Engine (Advanced Opt-in)**: Project-scoped SQLite graph mapping endpoints, parameters, topology, shortest paths, clusters, downstream impact, diffs, and indexed HTTP/WebSocket evidence. Its 105 standard regex rules use surface-partitioned byte-safe `RegexSet` matching. Treat each graph as sensitive engagement data.
 - **Offline Utility Decoder Engine**: 40+ built-in operations for encoding/decoding (Base64, Hex, URL, HTML, Unicode), cryptographic hashes (MD5, SHA-1/256/512, BLAKE3, HMAC), compression (Gzip, Zlib, Deflate, Brotli), JWT decoding/verification, and HTTP parsing.
 Some capabilities require Burp Suite Professional or a Burp feature advertised
 by the connected extension. The runtime tool schema and
@@ -169,7 +169,7 @@ Burp MCP registers **42 tools by default** (41 Burp tools + 1 offline Decoder to
 
 | Tool | Parameters | Description | Read-Only |
 |---|---|---|:---:|
-| `sitegraph` | `{action, url_prefix?, query?, id?, from_id?, to_id?, limit?, cursor?, max_depth?, since?, profile?, format?, snapshot_id?, view_name?, spec_content?}` | SiteGraph attack surface graph analyzer (`status`, `stats`, `sync`, `search`, `security_view`, `import_spec`, `neighbors`, `trace`, `shortest_path`, `clusters`, `impact`, `diff`, `export`, `history_search`, `endpoint_detail`, `projects`, `config`). | No |
+| `sitegraph` | `{action, url_prefix?, query?, id?, from_id?, to_id?, limit?, cursor?, max_depth?, since?, profile?, format?, snapshot_id?, view_name?, spec_content?}` | SiteGraph attack surface graph analyzer (`status`, `stats`, `sync`, `search`, `security_view`, `import_spec`, `neighbors`, `trace`, `shortest_path`, `clusters`, `impact`, `diff`, `export`, `history_search`, `endpoint_detail`, `projects`, `config`). The embedded `2026.09.05` pack contains 105 standard regex rules evaluated by surface-partitioned byte-safe `RegexSet` matching. | No |
 
 ---
 
@@ -287,7 +287,7 @@ is [`config.example.toml`](config.example.toml).
 | `--tls-dir <PATH>` / `[burp].tls_dir` | `BURP_MCP_TLS_DIR` | `~/.config/burp-mcp/tls` | mTLS directory for HTTPS endpoints. |
 | `--enable-sitegraph` / `[sitegraph].enabled` | `BURP_MCP_ENABLE_SITEGRAPH` | `false` | Enable the 15 `sitegraph_*` tools. |
 | `--sitegraph-project-root <PATH>` / `[sitegraph].project_root` | `BURP_MCP_SITEGRAPH_PROJECT_ROOT` | `~/.local/share/burp-mcp/sitegraph` | Parent directory for project-scoped SQLite databases. |
-| `--sitegraph-rules-path <PATH>` / `[sitegraph].rules_path` | `BURP_MCP_SITEGRAPH_RULES` | `~/.config/burp-mcp/default-rules.rules` | Sitegraph enrichment rules. |
+| `--sitegraph-rules-path <PATH>` / `[sitegraph].rules_path` | `BURP_MCP_SITEGRAPH_RULES` | `~/.config/burp-mcp/default-rules.toml` | Sitegraph enrichment rules. The embedded `2026.09.05` default contains 105 rules. Existing customized files are never overwritten. |
 | `--sitegraph-mode <MODE>` / `[sitegraph].mode` | `BURP_MCP_SITEGRAPH_MODE` | `off` | Auto-index mode: `off`, `startup`, or `watch`. |
 | `--sitegraph-interval-seconds <SECS>` / `[sitegraph].interval_seconds` | `BURP_MCP_SITEGRAPH_INTERVAL_SECONDS` | `30` | Poll interval for `watch` mode. |
 

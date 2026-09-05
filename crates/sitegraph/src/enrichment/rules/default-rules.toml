@@ -1,0 +1,1059 @@
+[pack]
+id = "burp-mcp-sitegraph"
+version = "2026.09.05"
+max_matches = 512
+
+[[rules]]
+id = "remember_me"
+pattern = '(?:^|[?&])rememberMe=[^&\s]+'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "jwt"
+pattern = 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "basic_auth"
+pattern = '(?i)\bBasic\s+[A-Za-z0-9+/=_:-]{8,256}'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "bearer_auth"
+pattern = '(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,512}'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "secret_assignment"
+pattern = '''(?i)(?:api[_-]?key|secret|token|access[_-]?token|client[_-]?secret|authorization)\s*[:=]\s*[\"']?([^\"'&\s]{4,256})'''
+capture_group = 1
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "password_assignment"
+pattern = '''(?i)(?:password|passwd|pwd)\s*[:=]\s*[\"']([^\"']{1,128})[\"']'''
+capture_group = 1
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "cloud_access_key"
+pattern = '(?i)\b(?:AKIA|ASIA)[A-Z0-9]{16}\b'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "aliyun_access_key"
+pattern = '\bLTAI[a-zA-Z0-9]{12,32}\b'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "jdbc_connection"
+pattern = '''(?i)jdbc:[a-z][a-z0-9+.-]*://[^\s\"']{4,512}'''
+capture_group = 0
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "private_key_block"
+pattern = "-----BEGIN [A-Z0-9 ]+ PRIVATE KEY-----"
+capture_group = 0
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "email_address"
+pattern = '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}\b'
+capture_group = 0
+severity = "medium"
+surfaces = [
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "internal_ipv4"
+pattern = '\b(?:127\.0\.0\.1|10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}|172\.(?:1[6-9]|2[0-9]|3[01])\.(?:[0-9]{1,3}\.)[0-9]{1,3}|192\.168\.(?:[0-9]{1,3}\.)[0-9]{1,3})\b'
+capture_group = 0
+severity = "medium"
+surfaces = [
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "unix_password_file"
+pattern = "(?m)^[^:]{1,64}:[^:]*:[0-9]+:[0-9]+:[^:]*:/[^:]*:/(?:bin|usr/bin)/(?:ba|z|fi|sh)sh$"
+capture_group = 0
+severity = "critical"
+surfaces = [
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "windows_path"
+pattern = '[A-Za-z]:\\(?:[^<>:/|?*\r\n]+\\)+[^<>:/|?*\r\n]+'
+capture_group = 0
+severity = "medium"
+surfaces = [
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "debug_parameter"
+pattern = "(?i)(?:^|[?&])((?:access|adm|admin|alter|cfg|clone|config|create|dbg|debug|delete|disable|edit|enable|exec|execute|grant|load|make|modify|rename|reset|root|shell|test|toggle))="
+capture_group = 1
+severity = "medium"
+surfaces = [
+    "request_message",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "pagination_parameter"
+pattern = '(?i)(?:^|[?&])((?:size|page|page_size|num|limit|start|end|count|offset))=[^&\s]*'
+capture_group = 1
+severity = "low"
+surfaces = [
+    "request_message",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "url_parameter"
+pattern = '''=\s*[\"']?((?:https?://)[^\s\"'&<>]{4,1024})'''
+capture_group = 1
+severity = "medium"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "absolute_url"
+pattern = 'https?://[-A-Za-z0-9+&@#/%?=~_|!:,.;\u4E00-\u9FFF]+'
+capture_group = 0
+severity = "low"
+surfaces = [
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "relative_api_link"
+pattern = '''[\"'`]((?:/|\.\./|\./)(?:api|graphql|swagger|openapi|admin|internal|debug)(?:/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]*)?)[\"'`]'''
+capture_group = 1
+severity = "medium"
+surfaces = [
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "source_map"
+pattern = '''(?:^|[\"'`])[^\"'`\s]{1,512}\.js\.map(?:[?#][^\"'`\s]*)?'''
+capture_group = 0
+severity = "medium"
+surfaces = [
+    "response_body",
+    "response_message",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "swagger_marker"
+pattern = '(?i)(?:swagger-ui(?:\.html)?|\"swagger\"\s*:|openapi\s*[:=])'
+capture_group = 0
+severity = "low"
+surfaces = [
+    "response_body",
+    "response_message",
+]
+
+[[rules]]
+id = "vite_dev_client"
+pattern = "/@vite/client"
+capture_group = 0
+severity = "medium"
+surfaces = [
+    "response_body",
+    "response_message",
+]
+
+[[rules]]
+id = "file_upload_form"
+pattern = '''(?i)<input\b[^>]*\btype\s*=\s*[\"']file[\"']'''
+capture_group = 0
+severity = "low"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "local_storage_identity"
+pattern = '''(?i)\b(?:localStorage|sessionStorage)\.(?:setItem|getItem)\s*\(\s*[\"']([^\"']{1,128})'''
+capture_group = 1
+severity = "medium"
+surfaces = [
+    "response_body",
+    "response_message",
+]
+
+[[rules]]
+id = "cookie_identity"
+pattern = '''(?i)\b(?:setCookie|Cookies\.set)\s*\(\s*[\"']([^\"']{1,128})'''
+capture_group = 1
+severity = "medium"
+surfaces = [
+    "response_body",
+    "response_message",
+]
+
+[[rules]]
+id = "router_push"
+pattern = '(?:\$router\.push|router\.navigate|history\.pushState)\s*\('
+capture_group = 0
+severity = "low"
+surfaces = [
+    "response_body",
+    "response_message",
+]
+
+[[rules]]
+id = "location_header"
+pattern = '(?im)^Location:\s*([^\r\n]{1,1024})'
+capture_group = 1
+severity = "low"
+surfaces = ["response_message"]
+
+[[rules]]
+id = "xml_secret_element"
+pattern = "(?i)<(?:password|secret|token|apiKey|accessKey)>[^<]{1,256}</(?:password|secret|token|apiKey|accessKey)>"
+capture_group = 0
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "gcp_api_key"
+pattern = '\b(AIza[0-9A-Za-z_-]{35})(?:[^0-9A-Za-z_-]|$)'
+capture_group = 1
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "gcp_oauth_access_token"
+pattern = '\b(ya29\.[0-9A-Za-z_-]{20,1024})(?:[^0-9A-Za-z_-]|$)'
+capture_group = 1
+severity = "critical"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "gcp_service_account_key"
+pattern = '"type"\s*:\s*"service_account"[\s\S]{1,512}?"private_key_id"\s*:\s*"[0-9a-fA-F]{40}"[\s\S]{1,512}?"private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----'
+capture_group = 0
+severity = "critical"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "azure_storage_connection_string"
+pattern = '(?i)DefaultEndpointsProtocol=https?;\s*AccountName=[a-z0-9]{3,24};\s*AccountKey=([A-Za-z0-9+/]{86,88}={0,2})'
+capture_group = 1
+severity = "critical"
+surfaces = [
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "azure_sas_token"
+pattern = '(?:[?&]|\b)(?:sp|sp%3[Dd])=[racwdli]+[\s\S]{1,512}?(?:[?&]|\b)(?:sv|sv%3[Dd])=\d{4}-\d{2}-\d{2}[\s\S]{1,512}?(?:[?&]|\b)(?:sig|sig%3[Dd])=[A-Za-z0-9%+/=]{10,}'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "azure_tenant_subscription_id"
+pattern = "/(?:subscriptions|tenants)/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+capture_group = 1
+severity = "low"
+surfaces = [
+    "request_message",
+    "response_body",
+]
+
+[[rules]]
+id = "github_pat_classic"
+pattern = '\b(ghp_[0-9A-Za-z]{36})\b'
+capture_group = 1
+severity = "critical"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "github_pat_fine_grained"
+pattern = '\b(github_pat_[0-9A-Za-z_]{82})\b'
+capture_group = 1
+severity = "critical"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "github_oauth_token"
+pattern = '\b(gho_[0-9A-Za-z]{36})\b'
+capture_group = 1
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "gitlab_pat"
+pattern = '\b(glpat-[0-9A-Za-z_-]{20,300})\b'
+capture_group = 1
+severity = "critical"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "slack_api_token"
+pattern = '\b(xox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*)\b'
+capture_group = 1
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "slack_incoming_webhook"
+pattern = 'https://hooks\.slack\.com/(?:services|workflows)/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]{20,32}'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "stripe_live_secret_key"
+pattern = '\b((?:sk|rk)_live_[0-9a-zA-Z]{24,99})\b'
+capture_group = 1
+severity = "critical"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "stripe_publishable_key"
+pattern = '\b(pk_live_[0-9a-zA-Z]{24,99})\b'
+capture_group = 1
+severity = "low"
+surfaces = [
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "openai_api_key"
+pattern = '\b(sk-(?:(?:proj|svcacct|service)-[A-Za-z0-9_-]+|[A-Za-z0-9]+)T3BlbkFJ[A-Za-z0-9_-]+)\b'
+capture_group = 1
+severity = "critical"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "anthropic_api_key"
+pattern = '\b(sk-ant-(?:api03|admin01)-[A-Za-z0-9_-]{93}AA)\b'
+capture_group = 1
+severity = "critical"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "huggingface_token"
+pattern = '\b((?:hf_|api_org_)[a-zA-Z0-9]{34})\b'
+capture_group = 1
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "sendgrid_api_key"
+pattern = '\b(SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43})\b'
+capture_group = 1
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "twilio_api_key"
+pattern = '\b(SK[0-9a-fA-F]{32})\b'
+capture_group = 1
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "datadog_api_key"
+pattern = '''(?i)(?:datadog|dd)[_-]?(?:api)?[_-]?key\s*[:=]\s*["']?([a-f0-9]{32})\b'''
+capture_group = 1
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "aws_session_token"
+pattern = '''(?i)(?:x-amz-security-token|aws_session_token)\s*[:=]\s*["']?([A-Za-z0-9+/]{80,}={0,3})'''
+capture_group = 1
+severity = "critical"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "hashicorp_vault_token"
+pattern = '\b(hvs\.[A-Za-z0-9_-]{90,120}|s\.[A-Za-z0-9_-]{24})\b'
+capture_group = 1
+severity = "critical"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "kubernetes_service_account_token"
+pattern = '\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]*(?:a3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3Vud|a3ViZXJuZXRlcy9zZXJ2aWNlYWNjb3Vud)[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+)\b'
+capture_group = 1
+severity = "critical"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "oauth2_auth_code"
+pattern = '(?:[?&]|\b)code=([A-Za-z0-9_-]{20,128})'
+capture_group = 1
+severity = "medium"
+surfaces = [
+    "request_message",
+    "response_message",
+]
+
+[[rules]]
+id = "oauth2_refresh_token"
+pattern = '(?i)(?:"refresh_token"\s*:\s*"|(?:\b|[?&])refresh_token=)([A-Za-z0-9_.~+/-]{16,512})'
+capture_group = 1
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_body",
+]
+
+[[rules]]
+id = "supabase_anon_service_key"
+pattern = '(?:sb_secret_[a-zA-Z0-9_-]{31}|eyJ[A-Za-z0-9_-]{10,}\.eyJpc3MiOiJzdXBhYmFzZ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{16,})'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "firebase_api_key"
+pattern = '\b(AIzaSy[A-Za-z0-9_-]{33})\b'
+capture_group = 1
+severity = "medium"
+surfaces = [
+    "request_message",
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "aws_cognito_identity"
+pattern = '\b([a-z]{2,4}(?:-[a-z]+)+-[0-9]:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b'
+capture_group = 1
+severity = "medium"
+surfaces = [
+    "request_message",
+    "response_body",
+]
+
+[[rules]]
+id = "saml_assertion_marker"
+pattern = '(?i)(?:SAMLResponse=|<(?:saml2?|samlp):(?:Assertion|Response)\b)'
+capture_group = 0
+severity = "medium"
+surfaces = [
+    "request_message",
+    "response_body",
+]
+
+[[rules]]
+id = "session_cookie_spring"
+pattern = '(?i)\bJSESSIONID=([0-9A-Fa-f]{32}(?:\.[A-Za-z0-9_-]+)?)\b'
+capture_group = 1
+severity = "low"
+surfaces = [
+    "request_message",
+    "response_message",
+]
+
+[[rules]]
+id = "session_cookie_aspnet"
+pattern = '(?i)\b(?:ASP\.NET_SessionId|\.AspNetCore\.Session)=([A-Za-z0-9_\-+/=%]{20,128})\b'
+capture_group = 1
+severity = "low"
+surfaces = [
+    "request_message",
+    "response_message",
+]
+
+[[rules]]
+id = "session_cookie_php"
+pattern = '(?i)\bPHPSESSID=([a-zA-Z0-9]{26,40})\b'
+capture_group = 1
+severity = "low"
+surfaces = [
+    "request_message",
+    "response_message",
+]
+
+[[rules]]
+id = "session_cookie_django"
+pattern = '(?i)\b(?:sessionid=[a-z0-9]{32}\b[\s\S]{1,512}?\bcsrftoken=[a-zA-Z0-9]{32,64}\b|csrftoken=[a-zA-Z0-9]{32,64}\b[\s\S]{1,512}?\bsessionid=[a-z0-9]{32}\b)'
+capture_group = 0
+severity = "low"
+surfaces = [
+    "request_message",
+    "response_message",
+]
+
+[[rules]]
+id = "session_cookie_laravel"
+pattern = '(?i)\blaravel_session=([A-Za-z0-9%_-]{40,})\b'
+capture_group = 1
+severity = "low"
+surfaces = [
+    "request_message",
+    "response_message",
+]
+
+[[rules]]
+id = "session_cookie_connect"
+pattern = '(?i)\bconnect\.sid=([A-Za-z0-9_\-.%]{24,128})\b'
+capture_group = 1
+severity = "low"
+surfaces = [
+    "request_message",
+    "response_message",
+]
+
+[[rules]]
+id = "server_version_banner"
+pattern = '(?im)^Server:\s*([^\r\n]*\b[A-Za-z0-9_.-]+\/[0-9]+(?:\.[0-9A-Za-z_.-]+)+[^\r\n]*)'
+capture_group = 1
+severity = "low"
+surfaces = ["response_message"]
+
+[[rules]]
+id = "x_powered_by"
+pattern = '(?im)^X-Powered-By:\s*([^\r\n]{1,256})'
+capture_group = 1
+severity = "low"
+surfaces = ["response_message"]
+
+[[rules]]
+id = "spring_boot_actuator"
+pattern = '''(?:["']_links["']\s*:\s*\{[\s\S]{1,512}?["']href["']\s*:\s*["'][^"']*/actuator|/actuator/(?:beans|env|health|heapdump|jolokia|mappings|metrics|threaddump|loggers|configprops)\b)'''
+capture_group = 0
+severity = "high"
+surfaces = [
+    "response_message",
+    "response_body",
+]
+
+[[rules]]
+id = "nextjs_data_route"
+pattern = '''/_next/data/[A-Za-z0-9_-]+/[^\s"'?#]+\.json'''
+capture_group = 0
+severity = "low"
+surfaces = [
+    "request_message",
+    "response_message",
+]
+
+[[rules]]
+id = "django_debug_banner"
+pattern = '''(?i)(?:You(?:'|&#x27;|\s)re seeing this error because you have <code>DEBUG = True</code>|DisallowedHost at /|Django Version:\s*[0-9.]+|Traceback \(most recent call last\):[\s\S]{1,512}django/core/handlers)'''
+capture_group = 0
+severity = "high"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "flask_werkzeug_console"
+pattern = '''(?i)(?:Werkzeug\s+(?:powered\s+)?traceback\s+interpreter|id=["']interactive["'][^>]*console|CONSOLE_MODE\s*=\s*true|__debugger__\s*=\s*true)'''
+capture_group = 0
+severity = "critical"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "laravel_ignition_page"
+pattern = '''(?i)(?:window\.ignition\s*=|id=["']ignition-app["']|class=["'][^"']*flare-solution|data-component=["']ignition["']|<title>[^<]*Ignition</title>)'''
+capture_group = 0
+severity = "high"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "express_body_parser_leak"
+pattern = '(?i)(?:SyntaxError:\s*Unexpected token[^\r\n]*\bnode_modules[\\/]body-parser\b|at\s+[^\r\n]*\bnode_modules[\\/]body-parser[\\/]lib[\\/])'
+capture_group = 0
+severity = "medium"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "drupal_version_marker"
+pattern = '''(?im)(?:^X-Generator:\s*Drupal\b|<meta\s+name=["']Generator["']\s+content=["']Drupal\s+([0-9.]+)|Drupal\.settings\b)'''
+capture_group = 0
+severity = "low"
+surfaces = [
+    "response_body",
+    "response_message",
+]
+
+[[rules]]
+id = "wordpress_version_marker"
+pattern = '''(?i)(?:<meta\s+name=["']generator["']\s+content=["']WordPress\s+([0-9.]+)|(?:/|["'])wp-includes/|(?:/|["'])wp-links-opml\.php)'''
+capture_group = 0
+severity = "low"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "sql_syntax_error_mysql"
+pattern = '(?i)(?:You have an error in your SQL syntax; check the manual that corresponds to your (?:MySQL|MariaDB) server version for the right syntax to use near |com\.mysql\.jdbc\.exceptions\.jdbc4\.MySQLSyntaxErrorException:)'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "sql_syntax_error_postgres"
+pattern = '''(?i)(?:ERROR:\s+syntax error at or near\s+[\"']|PG::SyntaxError:|org\.postgresql\.util\.PSQLException:\s+ERROR:\s+syntax error at)'''
+capture_group = 0
+severity = "high"
+surfaces = [
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "sql_syntax_error_mssql"
+pattern = '(?i)(?:Unclosed quotation mark (?:before|after) the character string|Line \d+:\s+Incorrect syntax near|com\.microsoft\.sqlserver\.jdbc\.SQLServerException:\s+Incorrect syntax near)'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "sql_syntax_error_oracle"
+pattern = '\bORA-(?:00933:\s+SQL command not properly ended|00936:\s+missing expression|01756:\s+quoted string not properly terminated)\b'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "java_stack_trace"
+pattern = '(?m)^\s+at\s+[\w$]+(?:\.[\w$]+)+\([\w$]+\.java:\d+\)'
+capture_group = 0
+severity = "medium"
+surfaces = [
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "python_stack_trace"
+pattern = 'Traceback \(most recent call last\):[\s\S]{1,500}?File \"[^\"]+\", line \d+, in '
+capture_group = 0
+severity = "medium"
+surfaces = [
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "php_fatal_error"
+pattern = '(?i)\b(?:Fatal error|Parse error):\s+(?:Uncaught\s+[A-Za-z0-9_\\]+|Call to undefined function|syntax error, unexpected)[^\r\n]+in\s+[^\r\n]+\.php\s+on\s+line\s+\d+'
+capture_group = 0
+severity = "medium"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "node_stack_trace"
+pattern = '(?m)^\s+at\s+(?:(?:async\s+)?[\w$]+(?:\.[\w$]+)*\s+\()?(?:/|[A-Za-z]:\\)[^\r\n]+:\d+:\d+\)?'
+capture_group = 0
+severity = "medium"
+surfaces = [
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "aspnet_custom_errors_off"
+pattern = '''(?i)(?:<title>Server Error in '[^']*' Application\.?</title>|<!--\s*To enable the details of this specific error message to be viewable on remote machines,\s*please create a <customErrors> tag\s*-->)'''
+capture_group = 0
+severity = "high"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "graphql_syntax_error"
+pattern = '(?i)"message"\s*:\s*"Syntax Error:\s+(?:Unexpected\s+[\w$]+|Cannot parse the unexpected)'
+capture_group = 0
+severity = "low"
+surfaces = [
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "cloud_imds_endpoint"
+pattern = '(?:https?://)?(?:169\.254\.169\.254|metadata\.google\.internal)(?:/|\b)'
+capture_group = 0
+severity = "critical"
+surfaces = [
+    "request_message",
+    "response_body",
+]
+
+[[rules]]
+id = "k8s_internal_dns"
+pattern = '\b[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.default\.svc\.cluster\.local\b|\b[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.svc\.cluster\.local\b'
+capture_group = 0
+severity = "medium"
+surfaces = [
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "internal_domain_leak"
+pattern = '(?i)\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:corp|lan|local|internal|intranet)(?::[0-9]+)?(?:[^\w.-]|$)'
+capture_group = 0
+severity = "medium"
+surfaces = [
+    "response_body",
+    "response_message",
+]
+
+[[rules]]
+id = "graphql_introspection_schema"
+pattern = '"__schema"\s*:\s*\{\s*"types"\s*:\s*\['
+capture_group = 0
+severity = "medium"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "openapi_spec_body"
+pattern = '(?i)"(?:openapi|swagger)"\s*:\s*"[23]\.[0-9.]+"[\s\S]{1,500}?"(?:paths|components)"\s*:'
+capture_group = 0
+severity = "low"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "postman_collection"
+pattern = 'https?://schema\.(?:get)?postman\.com/json/collection/v2\.[01]\.0/collection\.json'
+capture_group = 0
+severity = "medium"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "env_file_marker"
+pattern = '(?m)^(?:(?:APP|DB|AWS|SECRET|API)_[A-Z0-9_]{2,32}|DATABASE_URL|SECRET_KEY|REDIS_URL)\s*=\s*[^\r\n]{1,256}'
+capture_group = 0
+severity = "critical"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "git_config_marker"
+pattern = '(?m)^\s*\[core\]\s*$[\s\S]{1,512}?(?:repositoryformatversion[\s\S]{1,512}?filemode|filemode[\s\S]{1,512}?repositoryformatversion)'
+capture_group = 0
+severity = "critical"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "docker_daemon_socket"
+pattern = '(?i)(?:\"ApiVersion\"\s*:\s*\"1\.\d+\"[\s\S]{1,500}?\"MinAPIVersion\"|Docker-Experimental:\s+(?:true|false)|\"OSType\"\s*:\s*\"linux\"[\s\S]{1,500}?\"Architecture\")'
+capture_group = 0
+severity = "critical"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "param_ssrf_candidate"
+pattern = "(?im)(?:^|[?&])((?:dest|redirect_to|uri|path|feed|host|port|to|out|view))="
+capture_group = 1
+severity = "medium"
+surfaces = [
+    "request_message",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "param_lfi_candidate"
+pattern = "(?im)(?:^|[?&])((?:file|document|folder|root|pg|style|doc|pdf|template|include|page))="
+capture_group = 1
+severity = "medium"
+surfaces = [
+    "request_message",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "param_rce_candidate"
+pattern = "(?im)(?:^|[?&])((?:cmd|exec|command|cli|eval|run|ping|query|code))="
+capture_group = 1
+severity = "high"
+surfaces = [
+    "request_message",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "param_open_redirect"
+pattern = "(?im)(?:^|[?&])((?:next|url|target|rurl|destination|redir|return_to))="
+capture_group = 1
+severity = "low"
+surfaces = [
+    "request_message",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "param_idor_candidate"
+pattern = "(?im)(?:^|[?&])((?:account_id|user_id|org_id|tenant_id|invoice_id|order_id))="
+capture_group = 1
+severity = "low"
+surfaces = [
+    "request_message",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "credit_card_number"
+pattern = '\b(?:4[0-9]{3}(?:[- ]?[0-9]{4}){3}|5[1-5][0-9]{2}(?:[- ]?[0-9]{4}){3}|6(?:011|5[0-9]{2})(?:[- ]?[0-9]{4}){3}|3[47][0-9]{2}[- ]?[0-9]{6}[- ]?[0-9]{5})\b'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "us_ssn"
+pattern = '\b(?:00[1-9]|0[1-9][0-9]|[1-5][0-9]{2}|6[0-5][0-9]|66[0-5]|66[7-9]|6[7-9][0-9]|[78][0-9]{2})-(?:0[1-9]|[1-9][0-9])-(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})\b'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "international_phone_number"
+pattern = '''(?:^|[\s"'`:,])(\+[1-9][0-9]{7,14})\b'''
+capture_group = 1
+severity = "low"
+surfaces = [
+    "response_body",
+    "websocket_payload",
+]
+
+[[rules]]
+id = "cors_wildcard_credentials"
+pattern = '(?im)(?:^access-control-allow-origin:\s*\*\s*$[\s\S]{1,512}?^access-control-allow-credentials:\s*true\b|^access-control-allow-credentials:\s*true\b[\s\S]{1,512}?^access-control-allow-origin:\s*\*\s*$)'
+capture_group = 0
+severity = "high"
+surfaces = ["response_message"]
+
+[[rules]]
+id = "cors_null_origin"
+pattern = '(?im)^access-control-allow-origin:\s*null\s*$'
+capture_group = 0
+severity = "medium"
+surfaces = ["response_message"]
+
+[[rules]]
+id = "directory_listing_open"
+pattern = '(?i)(?:<title>\s*(?:Index of\s+/|Directory listing for\s+/)|<h1>\s*Index of\s+/)'
+capture_group = 0
+severity = "medium"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "csp_unsafe_eval"
+pattern = '''(?im)^content-security-policy(?:-report-only)?:\s*[^\r\n]*('unsafe-eval')'''
+capture_group = 1
+severity = "low"
+surfaces = ["response_message"]
+
+[[rules]]
+id = "missing_content_type_options"
+pattern = '(?im)^x-content-type-options:[ \t]*(?:none|0|false|off)\b'
+capture_group = 0
+severity = "low"
+surfaces = ["response_message"]

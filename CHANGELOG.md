@@ -65,10 +65,11 @@ This release represents a comprehensive overhaul of Burp MCP, transforming it fr
 - **Smart Path Parameter Inference (`normalize/url.rs`)**:
   - Introduced `parameterize_path` with regex classifiers for Integer IDs, UUIDs, Hex Hashes, and Slugs (e.g., `/api/v1/users/{user_id}/orders/{order_id}`).
   - Cuts graph node noise by 85–90% on large RESTful surfaces.
-- **Enrichment Rule DSL & Byte-Safe RegexSet Matching (`enrichment/`)**:
-  - Migrated rule pack definitions from JSON to a custom Pest-parsed DSL (`default-rules.rules`); legacy JSON rule definitions are rejected without dual-format shims.
-  - The DSL supports `pack` metadata, `rule` blocks, raw string literals (`r"..."` or `r#"..."#`), standard escaped strings, capture groups, severity ratings, and target surface lists (`request_message`, `response_message`, `response_body`, `websocket_payload`, `websocket_edited_payload`).
-  - Pattern matching compiles into Rust's `regex::bytes::RegexSet` and individual `regex::bytes::Regex` instances, preserving byte-exact offsets and capture groups across arbitrary payloads without lossy UTF-8 conversions.
+- **Enrichment Rule Migration to Typed TOML & Byte-Safe Surface Matching (`enrichment/`)**:
+  - Migrated rule pack definitions to canonical typed TOML (`default-rules.toml`) with strict unknown-field rejection; legacy Pest DSL and JSON rule definitions are rejected without dual-format compatibility.
+  - Expanded the embedded `2026.09.05` pack from 28 to 105 rules, adding 77 validated detectors across cloud credentials, authentication/session state, framework fingerprints, error disclosure, infrastructure reconnaissance, vulnerability-prone parameters, PII, and security misconfiguration.
+  - Standardized all 105 rules into ordinary regex entries evaluated by surface-partitioned byte-safe `RegexSet` matching. No absence inference: `missing_content_type_options` detects only explicitly insecure header values (`none|0|false|off`).
+  - Matching compiles into surface-partitioned `regex::bytes::RegexSet` instances plus individual `regex::bytes::Regex` matchers, preserving byte-exact offsets and capture groups across arbitrary payloads without lossy UTF-8 conversion.
 - **Automatic HTTP-History Proxy Annotations (`sitegraph/sync.rs`, `AnnotationFacade.kt`)**:
   - `sitegraph_sync` automatically annotates interesting newly indexed HTTP Proxy history entries matching medium+ severity rules (`medium`, `high`, `critical`).
   - Annotations resolve entries by permanent stable Burp history `id` rather than transient relative indexes.

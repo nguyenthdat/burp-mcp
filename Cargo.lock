@@ -2387,8 +2387,6 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "http",
- "pest",
- "pest_derive",
  "proptest",
  "regex",
  "serde",
@@ -2399,6 +2397,7 @@ dependencies = [
  "thiserror",
  "time",
  "tokio",
+ "toml",
  "tracing",
  "url",
 ]

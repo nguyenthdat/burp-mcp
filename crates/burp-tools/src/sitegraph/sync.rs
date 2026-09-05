@@ -480,32 +480,34 @@ mod tests {
 
     #[test]
     fn test_evaluate_annotation_medium_plus_filter() {
-        let dsl = r#"
-pack {
-    id = "test_pack"
-    version = "1.0.0"
-    max_matches = 100
-}
-rule "low_rule" {
-    pattern = "low_marker"
-    capture_group = 0
-    severity = "low"
-    surfaces = ["request_message", "response_body"]
-}
-rule "med_rule" {
-    pattern = "med_marker"
-    capture_group = 0
-    severity = "medium"
-    surfaces = ["response_body"]
-}
-rule "crit_rule" {
-    pattern = "crit_marker"
-    capture_group = 0
-    severity = "critical"
-    surfaces = ["request_message"]
-}
+        let toml = r#"
+[pack]
+id = "test_pack"
+version = "1.0.0"
+max_matches = 100
+
+[[rules]]
+id = "low_rule"
+pattern = 'low_marker'
+capture_group = 0
+severity = "low"
+surfaces = ["request_message", "response_body"]
+
+[[rules]]
+id = "med_rule"
+pattern = 'med_marker'
+capture_group = 0
+severity = "medium"
+surfaces = ["response_body"]
+
+[[rules]]
+id = "crit_rule"
+pattern = 'crit_marker'
+capture_group = 0
+severity = "critical"
+surfaces = ["request_message"]
 "#;
-        let pack = RulePack::from_dsl(dsl).expect("dsl parses");
+        let pack = RulePack::from_toml(toml).expect("toml parses");
 
         // Low-only should return None
         let res_low =

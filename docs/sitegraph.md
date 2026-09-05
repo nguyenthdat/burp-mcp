@@ -11,7 +11,7 @@ Sitegraph is disabled by default. Enable it only when the target, retention poli
 enabled = true
 mode = "off"
 project_root = "/absolute/path/to/burp-mcp/sitegraph"
-rules_path = "/absolute/path/to/default-rules.rules"
+rules_path = "/absolute/path/to/default-rules.toml"
 ```
 
 The file is loaded from `~/.config/burp-mcp/config.toml`; use `burp-mcp --config PATH serve` to select another file. The equivalent environment and CLI opt-in remain available:
@@ -24,49 +24,53 @@ BURP_MCP_ENABLE_SITEGRAPH=true burp-mcp serve
 `project_root` is a directory, not a database filename. Burp MCP reads the active Burp project's stable `graph_id` and resolves the database as `<project_root>/<graph_id>.sqlite`; unsaved temporary projects use `<project_root>/temp-<graph_id>.sqlite`. Each project therefore has an independent database and daemon endpoint.
 CLI flags and environment variables override TOML values. A project root or indexing mode does not enable sitegraph by itself. Restart the server after changing the enable flag.
 
-On first SiteGraph enablement, Burp MCP initializes `~/.config/burp-mcp/default-rules.rules` from its embedded rule pack. Customize enrichment rules in that file, or select another file with `[sitegraph].rules_path`. Existing rule files are validated and never overwritten. Following a clean cutover, rule definitions use a Pest-parsed DSL; legacy JSON rule files are strictly rejected. `sitegraph_config` only reports the effective runtime settings; it does not mutate them.
+On first SiteGraph enablement, Burp MCP initializes `~/.config/burp-mcp/default-rules.toml` from its embedded rule pack. Customize enrichment rules in that file, or select another file with `[sitegraph].rules_path`. Existing rule files are validated and never overwritten. Following a clean cutover, rule definitions use a canonical typed TOML format with strict unknown-field rejection; legacy Pest DSL and JSON rule files are strictly rejected without dual-format compatibility. `sitegraph_config` only reports the effective runtime settings; it does not mutate them.
 
-### Enrichment Rule DSL
+### Enrichment Rules (Typed TOML)
 
-Rules are defined in declarative `.rules` files parsed by a custom Pest grammar. Once parsed into typed pack and rule structs, pattern evaluation executes via `regex::bytes::RegexSet` and `regex::bytes::Regex`, preserving byte-exact offsets and capture groups across arbitrary payloads without lossy UTF-8 conversion.
+Rules are defined in declarative TOML files (`.toml`). The embedded `2026.09.05` pack contains 105 rules: the 28 original rules plus 77 bounded cloud credential, authentication, framework, disclosure, infrastructure, parameter, PII, and security-misconfiguration detectors.
 
-The DSL supports `pack` metadata blocks, `rule` blocks, raw string literals (`r"..."` or `r#"..."#`), standard escaped strings (`"..."`), capture group indexes, severity ratings (`critical`, `high`, `medium`, `low`), and surface filters (`request_message`, `response_message`, `response_body`, `websocket_payload`, `websocket_edited_payload`). Comments start with `#` or `//`.
+The schema uses a `[pack]` table for metadata and `[[rules]]` array-of-tables for individual rule detectors. TOML literal strings (`'...'`) allow regex patterns without escape complications. Typed deserialization strictly denies unknown fields at document, pack, and rule levels. Supported fields include capture group indexes, severity ratings (`critical`, `high`, `medium`, `low`), and surface filters (`request_message`, `response_message`, `response_body`, `websocket_payload`, `websocket_edited_payload`). All 105 rules are ordinary regex entries without engine condition systems or absence inference; `missing_content_type_options` detects only explicitly insecure header values (`none|0|false|off`).
 
-Example `default-rules.rules` definition:
+Rules compile into surface-partitioned `regex::bytes::RegexSet` instances plus individual `regex::bytes::Regex` matchers. Findings preserve byte-exact captures and offsets across arbitrary payloads without lossy UTF-8 conversion.
 
-```text
-pack {
-    id = "burp-mcp-sitegraph"
-    version = "2026.08.25"
-    max_matches = 256
-}
+Example `default-rules.toml` definition:
 
-rule "jwt" {
-    pattern = r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
-    capture_group = 0
-    severity = "high"
-    surfaces = [
-        "request_message",
-        "response_message",
-        "response_body",
-        "websocket_payload",
-        "websocket_edited_payload",
-    ]
-}
+```toml
+[pack]
+id = "burp-mcp-sitegraph"
+version = "2026.09.05"
+max_matches = 512
 
-rule "bearer_auth" {
-    pattern = r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,512}"
-    capture_group = 0
-    severity = "high"
-    surfaces = [
-        "request_message",
-        "response_message",
-        "response_body",
-    ]
-}
+[[rules]]
+id = "jwt"
+pattern = 'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}'
+capture_group = 0
+severity = "high"
+surfaces = [
+    "request_message",
+    "response_message",
+    "response_body",
+    "websocket_payload",
+    "websocket_edited_payload",
+]
+
+[[rules]]
+id = "cors_wildcard_credentials"
+pattern = '(?im)(?:^access-control-allow-origin:\s*\*\s*$[\s\S]{1,512}?^access-control-allow-credentials:\s*true\b|^access-control-allow-credentials:\s*true\b[\s\S]{1,512}?^access-control-allow-origin:\s*\*\s*$)'
+capture_group = 0
+severity = "high"
+surfaces = ["response_message"]
+
+[[rules]]
+id = "missing_content_type_options"
+pattern = '(?im)^x-content-type-options:\s*(?:none|0|false|off)\b'
+capture_group = 0
+severity = "low"
+surfaces = ["response_message"]
 ```
 
-Dual-format JSON/DSL compatibility is not supported; JSON rule files will fail to load with a parse error.
+Dual-format compatibility is not supported: old `.rules` DSL and legacy JSON files will fail to load. Unknown fields at the document, pack, or rule level are rejected.
 
 ## Endpoint TLS
 

@@ -24,17 +24,17 @@ printf '%s\n' 'burp-mcp 3.0.2'
 EOF
 chmod +x "$TMP/$asset"
 cp "$TMP/$asset" "$TMP/$daemon_asset"
-cp "$ROOT/crates/sitegraph/src/enrichment/rules/default-rules.rules" "$TMP/default-rules.rules"
+cp "$ROOT/crates/sitegraph/src/enrichment/rules/default-rules.toml" "$TMP/default-rules.toml"
 if command -v sha256sum >/dev/null 2>&1; then
   digest="$(sha256sum "$TMP/$asset" | awk '{print $1}')"
   daemon_digest="$(sha256sum "$TMP/$daemon_asset" | awk '{print $1}')"
-  rules_digest="$(sha256sum "$TMP/default-rules.rules" | awk '{print $1}')"
+  rules_digest="$(sha256sum "$TMP/default-rules.toml" | awk '{print $1}')"
 else
   digest="$(shasum -a 256 "$TMP/$asset" | awk '{print $1}')"
   daemon_digest="$(shasum -a 256 "$TMP/$daemon_asset" | awk '{print $1}')"
-  rules_digest="$(shasum -a 256 "$TMP/default-rules.rules" | awk '{print $1}')"
+  rules_digest="$(shasum -a 256 "$TMP/default-rules.toml" | awk '{print $1}')"
 fi
-printf '%s  %s\n%s  %s\n%s  %s\n' "$digest" "$asset" "$daemon_digest" "$daemon_asset" "$rules_digest" "default-rules.rules" >"$TMP/SHA256SUMS"
+printf '%s  %s\n%s  %s\n%s  %s\n' "$digest" "$asset" "$daemon_digest" "$daemon_asset" "$rules_digest" "default-rules.toml" >"$TMP/SHA256SUMS"
 
 python3 -m http.server 18473 --bind 127.0.0.1 --directory "$TMP" >"$TMP/http.log" 2>&1 &
 SERVER_PID="$!"
@@ -55,6 +55,6 @@ BURP_MCP_CONFIG_DIR="$TMP/config" \
   bash "$TEST_INSTALLER" --dir "$TMP/bin" >"$TMP/install.log"
 "$TMP/bin/burp-mcp" --version | grep -q '3.0.2'
 test -x "$TMP/bin/sitegraph-daemon"
-test -f "$TMP/config/default-rules.rules"
+test -f "$TMP/config/default-rules.toml"
 
 echo "installer smoke test passed"
