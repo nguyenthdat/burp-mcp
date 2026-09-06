@@ -20,7 +20,7 @@ esac
 cat >"$TMP/$asset" <<'EOF'
 #!/usr/bin/env bash
 [ "${1:-}" = "--version" ] || exit 1
-printf '%s\n' 'burp-mcp 3.0.2'
+printf '%s\n' 'burp-mcp 3.3.0'
 EOF
 chmod +x "$TMP/$asset"
 cp "$TMP/$asset" "$TMP/$daemon_asset"
@@ -53,7 +53,7 @@ sed -e 's#case "$DOWNLOAD_BASE" in#case "$DOWNLOAD_BASE" in\n    http://127.0.0.
 BURP_MCP_DOWNLOAD_BASE="http://127.0.0.1:18473" \
 BURP_MCP_CONFIG_DIR="$TMP/config" \
   bash "$TEST_INSTALLER" --dir "$TMP/bin" >"$TMP/install.log"
-"$TMP/bin/burp-mcp" --version | grep -q '3.0.2'
+"$TMP/bin/burp-mcp" --version | grep -q '3.3.0'
 test -x "$TMP/bin/sitegraph-daemon"
 test -f "$TMP/config/default-rules.toml"
 

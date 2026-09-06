@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [3.3.0] - 2026-09-06
+
+### Highlights
+- Expanded body filtering with bounded Pest grammars and structural CSS/JSONPath evaluation, including selector combinators, logical/structural pseudos, recursive JSONPath, slices, unions, and explicit malformed-input errors.
+- Migrated SiteGraph enrichment to the typed `default-rules.toml` pack with 105 byte-safe rules and no legacy JSON/DSL compatibility path.
+- Added bounded, idempotent SiteGraph annotations for medium/high/critical HTTP Proxy findings while preserving operator notes and existing non-default highlights.
+- **Next-Gen Attack Surface Graph (SiteGraph v3.3)**: Smart URL parameter inference (`parameterize_path`), `RegexSet` single-pass enrichment, OpenAPI/Swagger ingestion, scale ceiling expansion (250,000 nodes / 1,000,000 edges), and visual graph rendering (Mermaid & ASCII tree).
+- Improved action-discriminated MCP schemas, active editor leases, scoped HTTP/WebSocket interception, metadata-first payload handling, and corrective structured errors for LLM clients.
+
+### Verification
+- Rust workspace tests, formatting, locked checks, and strict Clippy pass locally.
+- Kotlin extension tests and gRPC interop pass locally.
+- Live Burp replay requires the extension JAR loaded in Burp Suite; hosted CI does not provide a Burp Pro instance.
+
+---
+
 ## [3.2.0] - 2026-08-28
 
 ### Summary of Major Enhancements
