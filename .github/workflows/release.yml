@@ -39,7 +39,7 @@ jobs:
             *-*) echo "Prerelease versions are not supported by this stable release workflow" >&2; exit 1 ;;
           esac
       - name: Set up Java
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c
         with:
           distribution: temurin
           java-version: "25"
