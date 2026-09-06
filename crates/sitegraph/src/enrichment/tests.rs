@@ -407,7 +407,10 @@ const NEW_RULE_FIXTURES: &[RuleFixture] = &[
         capture_group: 0,
         severity: "high",
         surfaces: &["response_message", "response_body"],
-        positive: concat!("https://hooks.slack.com/services/T12345678/B12345678/", "abcdefghijklmnopqrstuvwx"),
+        positive: concat!(
+            "https://hooks.slack.com/services/T12345678/B12345678/",
+            "abcdefghijklmnopqrstuvwx"
+        ),
         negative: "https://hooks.slack.com/services/fake",
     },
     RuleFixture {
@@ -416,7 +419,10 @@ const NEW_RULE_FIXTURES: &[RuleFixture] = &[
         capture_group: 1,
         severity: "critical",
         surfaces: &["request_message", "response_message", "response_body"],
-        positive: concat!("sk_", "live_51AbCdeFghIjKlMnOpQrStUvWxYz012345678901234567890"),
+        positive: concat!(
+            "sk_",
+            "live_51AbCdeFghIjKlMnOpQrStUvWxYz012345678901234567890"
+        ),
         negative: "sk_test_51AbCdeFghIjKlMnOpQrStUvWxYz012345678901234567890",
     },
     RuleFixture {
@@ -434,7 +440,10 @@ const NEW_RULE_FIXTURES: &[RuleFixture] = &[
         capture_group: 1,
         severity: "critical",
         surfaces: &["request_message", "response_message", "response_body"],
-        positive: concat!("sk-proj-abc12345678901234567890", "T3BlbkFJabc12345678901234567890"),
+        positive: concat!(
+            "sk-proj-abc12345678901234567890",
+            "T3BlbkFJabc12345678901234567890"
+        ),
         negative: "sk-proj-abc12345678901234567890notvalidsecret",
     },
     RuleFixture {
