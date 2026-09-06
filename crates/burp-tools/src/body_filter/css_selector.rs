@@ -628,7 +628,7 @@ pub fn parse_html_document(html: &str) -> HtmlDocument {
 
             // Raw text elements: script, style
             if is_raw_text_element(&tag_name_lower) {
-                let close_str = format!("</{}>", tag_name_lower);
+                let close_str = format!("</{tag_name_lower}>");
                 let close_chars: Vec<char> = close_str.chars().collect();
                 let text_start = pos;
 
