@@ -52,15 +52,15 @@ Fields ending in `?` are optional. `{}` means no arguments.
 
 | Tool | Input | Purpose |
 |---|---|---|
-| `burp_verify_idor` | `{url, method?, body?, headers?, original_auth_header, victim_auth_header, auth_header_name?, match_pattern?}` | Automated IDOR verification across two user authorization contexts (User A vs User B). |
-| `burp_check_cors` | `{url, method?, test_origins?, headers?}` | Automated CORS vulnerability auditing with origin reflections, wildcard checks, and credentials evaluation. |
-| `burp_auth_matrix` | `{endpoints, method?, body?, roles}` | Automated role-based access control matrix across multiple endpoints. |
-| `burp_audit_jwt` | `{url, method?, headers?, jwt_token, auth_header_name?, public_key_pem?, tamper_claims?}` | Automated JWT vulnerability audit (None algorithm, RS256 -> HS256 key confusion, and claim tampering). |
-| `burp_verify_ssrf` | `{target_url, method?, headers?, body?, injection_points, wait_seconds?}` | Automated SSRF verification with Collaborator interaction polling and payload correlation. |
-| `burp_verify_sqli_blind` | `{url, method?, param_name, param_type?, sleep_seconds?}` | Differential boolean-based and timing statistical blind SQL injection verification. |
-| `burp_audit_graphql` | `{endpoint, headers?, test_batching?, test_introspection?, test_field_suggestions?}` | Automated GraphQL security audit (Introspection, Field Suggestions, and Query Batching). |
-| `burp_verify_csrf_samesite` | `{url, method?, body?, session_cookie_name}` | Automated CSRF risk audit, SameSite cookie evaluation, and auto-generated HTML PoC form. |
-| `burp_api_fuzz_orchestrator` | `{spec_content, target_base_url, auth_headers?, fuzz_categories?}` | Automated specification-driven API fuzzing from OpenAPI 2.0 / 3.0 or Swagger documents. |
+| `burp_verify_idor` | `{url, method?, body?, headers?, original_auth_header, victim_auth_header, auth_header_name?, match_pattern?}` | Confirmation requires successful 2xx responses for both contexts; denied/error bodies never confirm. |
+| `burp_check_cors` | `{url, method?, test_origins?, headers?}` | Parses CORS fields from response headers only; origins are bounded and probe failures are explicit. |
+| `burp_auth_matrix` | `{endpoints, method?, body?, roles}` | Bounded role-by-endpoint matrix; each cell requires a real HTTP response. |
+| `burp_audit_jwt` | `{url, method?, headers?, jwt_token, auth_header_name?, public_key_pem?, tamper_claims?}` | Requires exactly three JWT segments; reports status and response length per malicious vector. |
+| `burp_verify_ssrf` | `{target_url, method?, headers?, body?, injection_points, wait_seconds?}` | Use `header:NAME`, `param:NAME`, `body`, or a bare body parameter name; only callbacks matching generated payloads count. |
+| `burp_verify_sqli_blind` | `{url, method?, param_name, param_type?: "query"|"body", sleep_seconds?}` | Bounded true/false/timing probes; query parameters are preserved and body mode is form-encoded. |
+| `burp_audit_graphql` | `{endpoint, headers?, test_batching?, test_introspection?, test_field_suggestions?}` | Uses structural JSON evidence rather than substring matches. |
+| `burp_verify_csrf_samesite` | `{url, method, body?, session_cookie_name}` | Requires a state-changing method; sends a real request and inspects the named cookie's SameSite attribute. |
+| `burp_api_fuzz_orchestrator` | `{spec_content, target_base_url, auth_headers?, fuzz_categories?}` | Reports completed requests and HTTP 5xx anomalies; transport/no-response failures stop explicitly. |
 ---
 
 ## 4. Active UI & Desktop Editor Integration (3 tools)

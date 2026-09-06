@@ -1,8 +1,370 @@
 use crate::diff_engine;
 use burp_protocol::BurpClient;
-use burp_protocol::protocol::{HttpHeaderEntry, SendRequestRequest};
+use burp_protocol::protocol::{HttpHeaderEntry, SendRequestRequest, SendRequestResponse};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use url::Url;
+
+const MAX_URL_BYTES: usize = 8 * 1024;
+const MAX_HEADER_COUNT: usize = 128;
+const MAX_HEADER_BYTES: usize = 16 * 1024;
+const MAX_CORS_ORIGINS: usize = 16;
+const MAX_AUTH_ENDPOINTS: usize = 32;
+const MAX_AUTH_ROLES: usize = 16;
+const MAX_AUTH_MATRIX_REQUESTS: usize = 128;
+const MAX_SSRF_INJECTION_POINTS: usize = 32;
+const MAX_SSRF_WAIT_SECONDS: u64 = 30;
+const MAX_SQLI_SLEEP_SECONDS: u64 = 10;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ParameterLocation {
+    Query,
+    Body,
+}
+
+impl ParameterLocation {
+    fn resolve(value: Option<Self>) -> Self {
+        value.unwrap_or(Self::Query)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HttpResponseParts<'a> {
+    headers: Vec<(&'a str, &'a str)>,
+    body: &'a str,
+}
+
+fn validate_http_url(value: &str, field: &str) -> Result<(), String> {
+    if value.is_empty() || value.len() > MAX_URL_BYTES {
+        return Err(format!(
+            "{field} must contain between 1 and {MAX_URL_BYTES} bytes"
+        ));
+    }
+    let url = Url::parse(value)
+        .map_err(|error| format!("{field} must be an absolute HTTP(S) URL: {error}"))?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err(format!(
+            "{field} must be an absolute HTTP(S) URL with a host"
+        ));
+    }
+    Ok(())
+}
+
+fn normalize_method(method: Option<String>, default: &str) -> Result<String, String> {
+    let method = method
+        .unwrap_or_else(|| default.to_owned())
+        .trim()
+        .to_ascii_uppercase();
+    if method.is_empty()
+        || method.len() > 32
+        || !method.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'!' | b'#'
+                        | b'$'
+                        | b'%'
+                        | b'&'
+                        | b'\''
+                        | b'*'
+                        | b'+'
+                        | b'-'
+                        | b'.'
+                        | b'^'
+                        | b'_'
+                        | b'`'
+                        | b'|'
+                        | b'~'
+                )
+        })
+    {
+        return Err("method must be a valid HTTP token of at most 32 bytes".to_owned());
+    }
+    Ok(method)
+}
+
+fn validate_name(value: &str, field: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value.len() > 256
+        || !value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'!' | b'#'
+                        | b'$'
+                        | b'%'
+                        | b'&'
+                        | b'\''
+                        | b'*'
+                        | b'+'
+                        | b'-'
+                        | b'.'
+                        | b'^'
+                        | b'_'
+                        | b'`'
+                        | b'|'
+                        | b'~'
+                )
+        })
+    {
+        return Err(format!(
+            "{field} must be a non-empty HTTP token of at most 256 bytes"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_headers(headers: &HashMap<String, String>) -> Result<(), String> {
+    if headers.len() > MAX_HEADER_COUNT {
+        return Err(format!(
+            "headers must contain at most {MAX_HEADER_COUNT} entries"
+        ));
+    }
+    for (name, value) in headers {
+        validate_name(name, "header name")?;
+        if value.len() > MAX_HEADER_BYTES || value.contains(['\r', '\n']) {
+            return Err(format!(
+                "header `{name}` must contain at most {MAX_HEADER_BYTES} bytes and no CR/LF"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn proto_headers(headers: &HashMap<String, String>) -> Vec<HttpHeaderEntry> {
+    headers
+        .iter()
+        .map(|(name, value)| HttpHeaderEntry {
+            name: name.clone(),
+            value: value.clone(),
+        })
+        .collect()
+}
+
+fn require_response(
+    response: SendRequestResponse,
+    context: &str,
+) -> Result<SendRequestResponse, String> {
+    if response.has_response {
+        Ok(response)
+    } else {
+        Err(format!(
+            "{context}: Burp completed the request without an HTTP response"
+        ))
+    }
+}
+
+fn split_http_response(raw: &str) -> HttpResponseParts<'_> {
+    let (head, body) = raw
+        .split_once("\r\n\r\n")
+        .or_else(|| raw.split_once("\n\n"))
+        .unwrap_or(("", raw));
+    let headers = if head.is_empty() {
+        Vec::new()
+    } else {
+        head.lines()
+            .skip_while(|line| line.starts_with("HTTP/"))
+            .filter_map(|line| line.split_once(':'))
+            .map(|(name, value)| (name.trim(), value.trim()))
+            .collect()
+    };
+    HttpResponseParts { headers, body }
+}
+
+fn header_values<'a>(
+    parts: &'a HttpResponseParts<'a>,
+    name: &str,
+) -> impl Iterator<Item = &'a str> {
+    parts
+        .headers
+        .iter()
+        .filter(move |(candidate, _)| candidate.eq_ignore_ascii_case(name))
+        .map(|(_, value)| *value)
+}
+
+fn body_contains(response: &SendRequestResponse, pattern: &str) -> bool {
+    let text = String::from_utf8_lossy(&response.response);
+    split_http_response(&text).body.contains(pattern)
+}
+
+fn is_success(status: u32) -> bool {
+    (200..300).contains(&status)
+}
+
+fn classify_idor(
+    baseline: &SendRequestResponse,
+    candidate: &SendRequestResponse,
+    pattern: Option<&str>,
+    similarity: f64,
+) -> (bool, bool, &'static str) {
+    let both_successful = is_success(baseline.status) && is_success(candidate.status);
+    let pattern_matched =
+        both_successful && pattern.is_some_and(|value| body_contains(candidate, value));
+    let vulnerable = both_successful && (similarity > 0.85 || pattern_matched);
+    let verdict = if vulnerable {
+        "POTENTIAL_IDOR_CONFIRMED: both authorization contexts received successful matching resource responses"
+    } else if matches!(candidate.status, 401 | 403) {
+        "PROTECTED: victim request returned access denied"
+    } else {
+        "INCONCLUSIVE_OR_DIFFERENT: responses did not provide decisive IDOR evidence"
+    };
+    (vulnerable, pattern_matched, verdict)
+}
+
+fn cors_headers(raw: &str) -> (Option<String>, Option<String>) {
+    let parts = split_http_response(raw);
+    let origin = header_values(&parts, "access-control-allow-origin")
+        .next()
+        .map(str::to_owned);
+    let credentials = header_values(&parts, "access-control-allow-credentials")
+        .next()
+        .map(str::to_owned);
+    (origin, credentials)
+}
+
+fn correlated_interaction_count<'a>(
+    payloads: &HashSet<&str>,
+    interaction_payloads: impl IntoIterator<Item = &'a str>,
+) -> usize {
+    interaction_payloads
+        .into_iter()
+        .filter(|payload| payloads.contains(*payload))
+        .count()
+}
+
+fn append_query_parameter(url: &str, name: &str, value: &str) -> Result<String, String> {
+    validate_name(name, "parameter name")?;
+    let mut parsed = Url::parse(url).map_err(|error| format!("invalid URL: {error}"))?;
+    parsed.query_pairs_mut().append_pair(name, value);
+    Ok(parsed.into())
+}
+
+fn form_body(name: &str, value: &str) -> Result<Vec<u8>, String> {
+    validate_name(name, "parameter name")?;
+    Ok(url::form_urlencoded::Serializer::new(String::new())
+        .append_pair(name, value)
+        .finish()
+        .into_bytes())
+}
+
+fn parameterized_request(
+    method: &str,
+    url: &str,
+    name: &str,
+    value: &str,
+    location: ParameterLocation,
+) -> Result<SendRequestRequest, String> {
+    match location {
+        ParameterLocation::Query => Ok(SendRequestRequest {
+            method: method.to_owned(),
+            url: append_query_parameter(url, name, value)?,
+            body: Vec::new(),
+            headers: Vec::new(),
+        }),
+        ParameterLocation::Body => Ok(SendRequestRequest {
+            method: method.to_owned(),
+            url: url.to_owned(),
+            body: form_body(name, value)?,
+            headers: vec![HttpHeaderEntry {
+                name: "Content-Type".to_owned(),
+                value: "application/x-www-form-urlencoded".to_owned(),
+            }],
+        }),
+    }
+}
+
+fn graphql_json(raw: &str) -> Option<serde_json::Value> {
+    let parts = split_http_response(raw);
+    serde_json::from_str(parts.body.trim()).ok()
+}
+
+fn graphql_has_introspection(value: &serde_json::Value) -> bool {
+    value
+        .pointer("/data/__schema/types")
+        .is_some_and(serde_json::Value::is_array)
+}
+
+fn graphql_has_suggestions(value: &serde_json::Value) -> bool {
+    value
+        .get("errors")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|errors| {
+            errors.iter().any(|error| {
+                error
+                    .get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|message| message.contains("Did you mean"))
+                    || error
+                        .get("suggestions")
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|items| !items.is_empty())
+                    || error
+                        .pointer("/extensions/suggestions")
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|items| !items.is_empty())
+            })
+        })
+}
+
+fn graphql_batch_supported(value: &serde_json::Value) -> bool {
+    value.as_array().is_some_and(|items| {
+        items.len() == 3
+            && items.iter().all(|item| {
+                item.pointer("/data/__typename")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some()
+            })
+    })
+}
+
+fn cookie_samesite(raw: &str, cookie_name: &str) -> Option<String> {
+    let parts = split_http_response(raw);
+    header_values(&parts, "set-cookie")
+        .filter_map(|header| {
+            let mut attributes = header.split(';').map(str::trim);
+            let cookie = attributes.next()?;
+            let (name, _) = cookie.split_once('=')?;
+            if !name.trim().eq_ignore_ascii_case(cookie_name) {
+                return None;
+            }
+            Some(
+                attributes
+                    .find_map(|attribute| {
+                        let (name, value) = attribute.split_once('=')?;
+                        name.trim()
+                            .eq_ignore_ascii_case("samesite")
+                            .then(|| value.trim().to_owned())
+                    })
+                    .unwrap_or_else(|| "Unset".to_owned()),
+            )
+        })
+        .next()
+}
+
+fn csrf_is_vulnerable(status: u32, same_site: &str) -> bool {
+    is_success(status)
+        && (same_site.eq_ignore_ascii_case("none") || same_site.eq_ignore_ascii_case("unset"))
+}
+
+fn csrf_poc(url: &str, method: &str, body: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html>
+<head><title>CSRF PoC</title></head>
+<body onload="document.forms[0].submit()">
+  <h3>Cross-Site Request Forgery PoC</h3>
+  <form action="{}" method="{}" enctype="application/x-www-form-urlencoded">
+    <input type="hidden" name="payload" value="{}" />
+    <input type="submit" value="Submit Request" />
+  </form>
+</body>
+</html>"#,
+        html_escape::encode_double_quoted_attribute(url),
+        html_escape::encode_double_quoted_attribute(method),
+        html_escape::encode_double_quoted_attribute(body),
+    )
+}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct VerifyIdorInput {
@@ -80,76 +442,67 @@ pub async fn run_verify_idor(
     client: &BurpClient,
     input: VerifyIdorInput,
 ) -> Result<VerifyIdorOutput, String> {
-    let method = input.method.unwrap_or_else(|| "GET".to_string());
+    validate_http_url(&input.url, "url")?;
+    let method = normalize_method(input.method, "GET")?;
     let auth_header = input
         .auth_header_name
-        .unwrap_or_else(|| "Authorization".to_string());
+        .unwrap_or_else(|| "Authorization".to_owned());
+    validate_name(&auth_header, "auth_header_name")?;
+    if input.original_auth_header.is_empty() || input.victim_auth_header.is_empty() {
+        return Err("original_auth_header and victim_auth_header must not be empty".to_owned());
+    }
+    if input
+        .match_pattern
+        .as_ref()
+        .is_some_and(|pattern| pattern.is_empty() || pattern.len() > 4096)
+    {
+        return Err("match_pattern must contain between 1 and 4096 bytes".to_owned());
+    }
     let base_headers = input.headers.unwrap_or_default();
+    validate_headers(&base_headers)?;
+    let body = input.body.unwrap_or_default().into_bytes();
 
-    // 1. Send Request as User A (Original)
     let mut headers_a = base_headers.clone();
     headers_a.insert(auth_header.clone(), input.original_auth_header);
-    let proto_headers_a = headers_a
-        .into_iter()
-        .map(|(name, value)| HttpHeaderEntry { name, value })
-        .collect();
-
     let resp_a = client
         .send_request(SendRequestRequest {
             method: method.clone(),
             url: input.url.clone(),
-            body: input.body.clone().unwrap_or_default().into_bytes(),
-            headers: proto_headers_a,
+            body: body.clone(),
+            headers: proto_headers(&headers_a),
         })
         .await
-        .map_err(|e| format!("Failed to send request for User A: {e}"))?;
+        .map_err(|error| format!("User A request failed: {error}"))?;
+    let resp_a = require_response(resp_a, "User A request failed")?;
 
-    // 2. Send Request as User B (Victim)
     let mut headers_b = base_headers;
     headers_b.insert(auth_header, input.victim_auth_header);
-    let proto_headers_b = headers_b
-        .into_iter()
-        .map(|(name, value)| HttpHeaderEntry { name, value })
-        .collect();
-
     let resp_b = client
         .send_request(SendRequestRequest {
             method,
             url: input.url,
-            body: input.body.unwrap_or_default().into_bytes(),
-            headers: proto_headers_b,
+            body,
+            headers: proto_headers(&headers_b),
         })
         .await
-        .map_err(|e| format!("Failed to send request for User B: {e}"))?;
+        .map_err(|error| format!("User B request failed: {error}"))?;
+    let resp_b = require_response(resp_b, "User B request failed")?;
 
-    let text_a = String::from_utf8_lossy(&resp_a.response).into_owned();
-    let text_b = String::from_utf8_lossy(&resp_b.response).into_owned();
-
+    let text_a = String::from_utf8_lossy(&resp_a.response);
+    let text_b = String::from_utf8_lossy(&resp_b.response);
     let diff = diff_engine::compare_http_messages(&text_a, &text_b);
-
-    let pattern_matched = if let Some(ref pat) = input.match_pattern {
-        text_b.contains(pat)
-    } else {
-        false
-    };
-
-    let is_vulnerable =
-        (resp_b.has_response && resp_b.status == 200 && diff.similarity_score > 0.85)
-            || pattern_matched;
-
-    let verdict = if is_vulnerable {
-        "POTENTIAL_IDOR_CONFIRMED: Victim token accessed resource with identical response or pattern match".to_string()
-    } else if resp_b.status == 401 || resp_b.status == 403 {
-        "PROTECTED: Victim request returned Access Denied".to_string()
-    } else {
-        "INCONCLUSIVE_OR_DIFFERENT: Response difference detected between roles".to_string()
-    };
+    let (vulnerable, pattern_matched, verdict) = classify_idor(
+        &resp_a,
+        &resp_b,
+        input.match_pattern.as_deref(),
+        diff.similarity_score,
+    );
 
     Ok(VerifyIdorOutput {
-        vulnerable: is_vulnerable,
-        verdict,
-        user_a_status: resp_a.has_response.then_some(resp_a.status),
-        user_b_status: resp_b.has_response.then_some(resp_b.status),
+        vulnerable,
+        verdict: verdict.to_owned(),
+        user_a_status: Some(resp_a.status),
+        user_b_status: Some(resp_b.status),
         similarity_score: diff.similarity_score,
         pattern_matched_in_victim: pattern_matched,
         header_diffs: diff.headers_diff,
@@ -166,89 +519,81 @@ pub async fn run_check_cors(
     client: &BurpClient,
     input: CheckCorsInput,
 ) -> Result<CheckCorsOutput, String> {
-    let method = input.method.unwrap_or_else(|| "GET".to_string());
-    let default_origins = vec![
-        "https://evil.com".to_string(),
-        "null".to_string(),
-        "https://target.com.evil.com".to_string(),
-    ];
-    let origins = input.test_origins.unwrap_or(default_origins);
-    let mut findings = Vec::new();
+    validate_http_url(&input.url, "url")?;
+    let method = normalize_method(input.method, "GET")?;
+    let origins = input.test_origins.unwrap_or_else(|| {
+        vec![
+            "https://evil.com".to_owned(),
+            "null".to_owned(),
+            "https://target.com.evil.com".to_owned(),
+        ]
+    });
+    if origins.is_empty() || origins.len() > MAX_CORS_ORIGINS {
+        return Err(format!(
+            "test_origins must contain between 1 and {MAX_CORS_ORIGINS} entries"
+        ));
+    }
+    let base_headers = input.headers.unwrap_or_default();
+    validate_headers(&base_headers)?;
+    let mut findings = Vec::with_capacity(origins.len());
     let mut overall_vulnerable = false;
 
     for origin in origins {
-        let mut headers = input.headers.clone().unwrap_or_default();
-        headers.insert("Origin".to_string(), origin.clone());
-
-        let proto_headers = headers
-            .into_iter()
-            .map(|(name, value)| HttpHeaderEntry { name, value })
-            .collect();
-
-        if let Ok(resp) = client
+        if origin.is_empty() || origin.len() > MAX_URL_BYTES || origin.contains(['\r', '\n']) {
+            return Err(
+                "each test origin must be non-empty, bounded, and contain no CR/LF".to_owned(),
+            );
+        }
+        let mut headers = base_headers.clone();
+        headers.insert("Origin".to_owned(), origin.clone());
+        let response = client
             .send_request(SendRequestRequest {
                 method: method.clone(),
                 url: input.url.clone(),
-                body: vec![],
-                headers: proto_headers,
+                body: Vec::new(),
+                headers: proto_headers(&headers),
             })
             .await
-        {
-            let text = String::from_utf8_lossy(&resp.response).to_lowercase();
-            let mut acao = None;
-            let mut acac = None;
+            .map_err(|error| format!("CORS probe for `{origin}` failed: {error}"))?;
+        let response = require_response(response, &format!("CORS probe for `{origin}` failed"))?;
+        let text = String::from_utf8_lossy(&response.response);
+        let (acao, acac) = cors_headers(&text);
+        let credentials = acac
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("true"));
 
-            for line in text.lines() {
-                if line.starts_with("access-control-allow-origin:") {
-                    acao = Some(line.split_once(':').unwrap().1.trim().to_string());
-                } else if line.starts_with("access-control-allow-credentials:") {
-                    acac = Some(line.split_once(':').unwrap().1.trim().to_string());
-                }
-            }
-
-            let mut vuln = false;
-            let mut severity = "INFO".to_string();
-            let mut desc = "Origin rejected or restricted.".to_string();
-
-            if let Some(ref allow_orig) = acao {
-                if allow_orig == "*" {
-                    if acac.as_deref() == Some("true") {
-                        vuln = true;
-                        severity = "HIGH".to_string();
-                        desc = "Wildcard '*' origin with credentials enabled!".to_string();
-                    } else {
-                        vuln = true;
-                        severity = "LOW".to_string();
-                        desc = "Wildcard '*' origin allows public embedding.".to_string();
-                    }
-                } else if allow_orig.eq_ignore_ascii_case(&origin) {
-                    if acac.as_deref() == Some("true") {
-                        vuln = true;
-                        severity = "CRITICAL".to_string();
-                        desc = format!(
-                            "Arbitrary origin reflection for '{origin}' with credentials enabled!"
-                        );
-                    } else {
-                        vuln = true;
-                        severity = "MEDIUM".to_string();
-                        desc = format!("Origin reflection for '{origin}' without credentials.");
-                    }
-                }
-            }
-
-            if vuln && (severity == "HIGH" || severity == "CRITICAL" || severity == "MEDIUM") {
-                overall_vulnerable = true;
-            }
-
-            findings.push(CorsFinding {
-                origin,
-                allowed_origin: acao,
-                allow_credentials: acac,
-                vulnerable: vuln,
-                severity,
-                description: desc,
-            });
-        }
+        let (vulnerable, severity, description) = match acao.as_deref() {
+            Some("*") if credentials => (
+                true,
+                "HIGH",
+                "Wildcard origin is combined with credential support.",
+            ),
+            Some("*") => (
+                true,
+                "LOW",
+                "Wildcard origin permits cross-origin reads of public responses.",
+            ),
+            Some(allowed) if allowed.eq_ignore_ascii_case(&origin) && credentials => (
+                true,
+                "CRITICAL",
+                "The supplied untrusted origin is reflected with credentials enabled.",
+            ),
+            Some(allowed) if allowed.eq_ignore_ascii_case(&origin) => (
+                true,
+                "MEDIUM",
+                "The supplied untrusted origin is reflected.",
+            ),
+            _ => (false, "INFO", "Origin was rejected or restricted."),
+        };
+        overall_vulnerable |= vulnerable && severity != "LOW";
+        findings.push(CorsFinding {
+            origin,
+            allowed_origin: acao,
+            allow_credentials: acac,
+            vulnerable,
+            severity: severity.to_owned(),
+            description: description.to_owned(),
+        });
     }
 
     Ok(CheckCorsOutput {
@@ -262,50 +607,75 @@ pub async fn run_auth_matrix(
     client: &BurpClient,
     input: AuthMatrixInput,
 ) -> Result<AuthMatrixOutput, String> {
-    let method = input.method.unwrap_or_else(|| "GET".to_string());
-    let mut matrix = Vec::new();
+    if input.endpoints.is_empty() || input.endpoints.len() > MAX_AUTH_ENDPOINTS {
+        return Err(format!(
+            "endpoints must contain between 1 and {MAX_AUTH_ENDPOINTS} entries"
+        ));
+    }
+    if input.roles.is_empty() || input.roles.len() > MAX_AUTH_ROLES {
+        return Err(format!(
+            "roles must contain between 1 and {MAX_AUTH_ROLES} entries"
+        ));
+    }
+    let request_count = input
+        .endpoints
+        .len()
+        .checked_mul(input.roles.len())
+        .ok_or_else(|| "auth matrix request count overflowed".to_owned())?;
+    if request_count > MAX_AUTH_MATRIX_REQUESTS {
+        return Err(format!(
+            "endpoint × role combinations must not exceed {MAX_AUTH_MATRIX_REQUESTS}"
+        ));
+    }
+    for endpoint in &input.endpoints {
+        validate_http_url(endpoint, "endpoint")?;
+    }
+    for (role, headers) in &input.roles {
+        if role.trim().is_empty() || role.len() > 128 {
+            return Err("role names must contain between 1 and 128 bytes".to_owned());
+        }
+        validate_headers(headers)?;
+    }
+    let method = normalize_method(input.method, "GET")?;
+    let body = input.body.unwrap_or_default().into_bytes();
+    let mut matrix = Vec::with_capacity(request_count);
     let mut violations = Vec::new();
 
     for endpoint in &input.endpoints {
         for (role_name, role_headers) in &input.roles {
-            let proto_headers = role_headers
-                .iter()
-                .map(|(k, v)| HttpHeaderEntry {
-                    name: k.clone(),
-                    value: v.clone(),
-                })
-                .collect();
-
-            let resp = client
+            let response = client
                 .send_request(SendRequestRequest {
                     method: method.clone(),
                     url: endpoint.clone(),
-                    body: input.body.clone().unwrap_or_default().into_bytes(),
-                    headers: proto_headers,
+                    body: body.clone(),
+                    headers: proto_headers(role_headers),
                 })
-                .await;
-
-            let (status, length, accessible) = match resp {
-                Ok(r) if r.has_response => {
-                    let acc = r.status < 400;
-                    (Some(r.status), r.response.len(), acc)
-                }
-                _ => (None, 0, false),
-            };
-
+                .await
+                .map_err(|error| {
+                    format!(
+                        "auth matrix request for role `{role_name}` at `{endpoint}` failed: {error}"
+                    )
+                })?;
+            let response = require_response(
+                response,
+                &format!("auth matrix request for role `{role_name}` at `{endpoint}` failed"),
+            )?;
+            let accessible = response.status < 400;
             if accessible
-                && (role_name.eq_ignore_ascii_case("anonymous")
-                    || role_name.eq_ignore_ascii_case("guest")
-                    || role_name.eq_ignore_ascii_case("unauthenticated"))
+                && ["anonymous", "guest", "unauthenticated"]
+                    .iter()
+                    .any(|candidate| role_name.eq_ignore_ascii_case(candidate))
             {
-                violations.push(format!("Endpoint `{endpoint}` is accessible by unauthenticated role: {role_name} (HTTP {:?})", status));
+                violations.push(format!(
+                    "Endpoint `{endpoint}` is accessible by unauthenticated role `{role_name}` (HTTP {})",
+                    response.status
+                ));
             }
-
             matrix.push(AuthMatrixCell {
                 endpoint: endpoint.clone(),
                 role: role_name.clone(),
-                status,
-                length,
+                status: Some(response.status),
+                length: response.response.len(),
                 accessible,
             });
         }
@@ -349,6 +719,14 @@ pub struct AuditJwtOutput {
     pub summary: String,
 }
 
+struct JwtProbeContext<'a> {
+    client: &'a BurpClient,
+    url: &'a str,
+    method: &'a str,
+    base_headers: &'a HashMap<String, String>,
+    auth_header: &'a str,
+}
+
 pub async fn run_audit_jwt(
     client: &BurpClient,
     input: AuditJwtInput,
@@ -358,170 +736,157 @@ pub async fn run_audit_jwt(
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
 
-    let method = input.method.unwrap_or_else(|| "GET".to_string());
+    validate_http_url(&input.url, "url")?;
+    let method = normalize_method(input.method, "GET")?;
     let auth_header = input
         .auth_header_name
-        .unwrap_or_else(|| "Authorization".to_string());
+        .unwrap_or_else(|| "Authorization".to_owned());
+    validate_name(&auth_header, "auth_header_name")?;
     let base_headers = input.headers.unwrap_or_default();
-    let token_parts: Vec<&str> = input.jwt_token.split('.').collect();
-    if token_parts.len() < 2 {
-        return Err(
-            "invalid JWT format: must have at least header and payload separated by dot"
-                .to_string(),
+    validate_headers(&base_headers)?;
+    if input.jwt_token.len() > 64 * 1024 {
+        return Err("jwt_token must not exceed 65536 bytes".to_owned());
+    }
+    let token_parts = input.jwt_token.split('.').collect::<Vec<_>>();
+    if token_parts.len() != 3 || token_parts.iter().any(|part| part.is_empty()) {
+        return Err("invalid JWT format: expected exactly three non-empty segments".to_owned());
+    }
+    let header_bytes = URL_SAFE_NO_PAD
+        .decode(token_parts[0])
+        .map_err(|error| format!("invalid JWT header base64: {error}"))?;
+    let payload_bytes = URL_SAFE_NO_PAD
+        .decode(token_parts[1])
+        .map_err(|error| format!("invalid JWT payload base64: {error}"))?;
+    let mut header_json: serde_json::Value = serde_json::from_slice(&header_bytes)
+        .map_err(|error| format!("invalid JWT header JSON: {error}"))?;
+    let mut payload_json: serde_json::Value = serde_json::from_slice(&payload_bytes)
+        .map_err(|error| format!("invalid JWT payload JSON: {error}"))?;
+    if !header_json.is_object() || !payload_json.is_object() {
+        return Err("JWT header and payload must both be JSON objects".to_owned());
+    }
+
+    let probe = JwtProbeContext {
+        client,
+        url: &input.url,
+        method: &method,
+        base_headers: &base_headers,
+        auth_header: &auth_header,
+    };
+    let mut results = Vec::new();
+    header_json["alg"] = serde_json::json!("none");
+    let none_header = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&header_json)
+            .map_err(|error| format!("failed to encode JWT header: {error}"))?,
+    );
+    let none_jwt = format!("{none_header}.{}.", token_parts[1]);
+    results.push(
+        jwt_probe_result(
+            &probe,
+            "alg_none",
+            none_jwt,
+            "Checked whether the server accepts an unsigned token with alg=none",
+        )
+        .await?,
+    );
+
+    if let Some(public_key) = input.public_key_pem.as_ref() {
+        if public_key.len() > 1024 * 1024 {
+            return Err("public_key_pem must not exceed 1048576 bytes".to_owned());
+        }
+        header_json["alg"] = serde_json::json!("HS256");
+        let confused_header = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&header_json)
+                .map_err(|error| format!("failed to encode JWT header: {error}"))?,
+        );
+        let signing_input = format!("{confused_header}.{}", token_parts[1]);
+        let mut mac = Hmac::<Sha256>::new_from_slice(public_key.as_bytes())
+            .map_err(|error| format!("invalid public key material for HS256 probe: {error}"))?;
+        mac.update(signing_input.as_bytes());
+        let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+        results.push(
+            jwt_probe_result(
+                &probe,
+                "algorithm_confusion_hs256",
+                format!("{signing_input}.{signature}"),
+                "Checked whether the server accepts HS256 signed with supplied public key bytes",
+            )
+            .await?,
         );
     }
 
-    let header_bytes = URL_SAFE_NO_PAD
-        .decode(token_parts[0])
-        .map_err(|e| format!("invalid JWT header base64: {e}"))?;
-    let payload_bytes = URL_SAFE_NO_PAD
-        .decode(token_parts[1])
-        .map_err(|e| format!("invalid JWT payload base64: {e}"))?;
-    let mut header_json: serde_json::Value = serde_json::from_slice(&header_bytes)
-        .map_err(|e| format!("invalid JWT header JSON: {e}"))?;
-    let mut payload_json: serde_json::Value = serde_json::from_slice(&payload_bytes)
-        .map_err(|e| format!("invalid JWT payload JSON: {e}"))?;
-
-    let mut results = Vec::new();
-
-    // 1. None Algorithm Attack
-    header_json["alg"] = serde_json::json!("none");
-    let none_hdr = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header_json).unwrap());
-    let none_jwt = format!("{}.{}.", none_hdr, token_parts[1]);
-    let status_none = send_jwt_probe(
-        client,
-        &input.url,
-        &method,
-        &base_headers,
-        &auth_header,
-        &none_jwt,
-    )
-    .await;
-    let none_bypass = status_none.map(|s| s < 400).unwrap_or(false);
-    results.push(JwtTestResult {
-        vector: "alg_none".to_string(),
-        modified_jwt: none_jwt,
-        status: status_none,
-        length: 0,
-        bypass_detected: none_bypass,
-        description: "Checked if server accepts unsigned tokens with alg: none".to_string(),
-    });
-
-    // 2. Algorithm Confusion (RS256 -> HS256 with Public Key)
-    if let Some(pubkey) = &input.public_key_pem {
-        header_json["alg"] = serde_json::json!("HS256");
-        let hs_hdr = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header_json).unwrap());
-        let sign_input = format!("{}.{}", hs_hdr, token_parts[1]);
-        if let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(pubkey.as_bytes()) {
-            mac.update(sign_input.as_bytes());
-            let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
-            let confusion_jwt = format!("{}.{}", sign_input, signature);
-            let status_conf = send_jwt_probe(
-                client,
-                &input.url,
-                &method,
-                &base_headers,
-                &auth_header,
-                &confusion_jwt,
+    if let Some(tamper) = input.tamper_claims.as_ref() {
+        if tamper.is_empty() || tamper.len() > 128 {
+            return Err("tamper_claims must contain between 1 and 128 entries".to_owned());
+        }
+        let payload = payload_json
+            .as_object_mut()
+            .ok_or_else(|| "JWT payload must be a JSON object".to_owned())?;
+        for (name, value) in tamper {
+            payload.insert(name.clone(), value.clone());
+        }
+        let tampered_payload = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&payload_json)
+                .map_err(|error| format!("failed to encode JWT payload: {error}"))?,
+        );
+        results.push(
+            jwt_probe_result(
+                &probe,
+                "tampered_claims_invalid_signature",
+                format!("{}.{tampered_payload}.{}", token_parts[0], token_parts[2]),
+                "Checked whether the server accepts modified claims with the original signature",
             )
-            .await;
-            let conf_bypass = status_conf.map(|s| s < 400).unwrap_or(false);
-            results.push(JwtTestResult {
-                vector: "algorithm_confusion_hs256".to_string(),
-                modified_jwt: confusion_jwt,
-                status: status_conf,
-                length: 0,
-                bypass_detected: conf_bypass,
-                description:
-                    "Checked if server accepts HMAC-SHA256 signature signed with public key"
-                        .to_string(),
-            });
-        }
+            .await?,
+        );
     }
 
-    // 3. Claim Tampering without signature update
-    if let Some(tamper) = &input.tamper_claims {
-        if let Some(obj) = payload_json.as_object_mut() {
-            for (k, v) in tamper {
-                obj.insert(k.clone(), v.clone());
-            }
-        }
-        let tampered_payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload_json).unwrap());
-        let sig_part = if token_parts.len() > 2 {
-            token_parts[2]
-        } else {
-            ""
-        };
-        let tampered_jwt = format!("{}.{}.{}", token_parts[0], tampered_payload, sig_part);
-        let status_tamper = send_jwt_probe(
-            client,
-            &input.url,
-            &method,
-            &base_headers,
-            &auth_header,
-            &tampered_jwt,
-        )
-        .await;
-        let tamper_bypass = status_tamper.map(|s| s < 400).unwrap_or(false);
-        results.push(JwtTestResult {
-            vector: "tampered_claims_invalid_signature".to_string(),
-            modified_jwt: tampered_jwt,
-            status: status_tamper,
-            length: 0,
-            bypass_detected: tamper_bypass,
-            description: "Checked if server fails to verify signature on tampered payload claims"
-                .to_string(),
-        });
-    }
-
-    let vulnerable = results.iter().any(|r| r.bypass_detected);
+    let vulnerable = results.iter().any(|result| result.bypass_detected);
     let summary = if vulnerable {
-        "VULNERABILITY DETECTED: Server accepted unverified or tampered JWT tokens".to_string()
+        "VULNERABILITY DETECTED: server accepted at least one malicious JWT test vector"
     } else {
-        "SECURE: All malicious JWT test vectors were rejected by the server".to_string()
+        "No tested malicious JWT vector received a successful HTTP response"
     };
-
     Ok(AuditJwtOutput {
         original_jwt: input.jwt_token,
         results,
         vulnerable,
-        summary,
+        summary: summary.to_owned(),
     })
 }
 
-async fn send_jwt_probe(
-    client: &BurpClient,
-    url: &str,
-    method: &str,
-    base_headers: &HashMap<String, String>,
-    auth_header: &str,
-    jwt: &str,
-) -> Option<u32> {
-    let mut headers = base_headers.clone();
+async fn jwt_probe_result(
+    context: &JwtProbeContext<'_>,
+    vector: &str,
+    token: String,
+    description: &str,
+) -> Result<JwtTestResult, String> {
+    let mut headers = context.base_headers.clone();
     headers.insert(
-        auth_header.to_string(),
-        if auth_header.eq_ignore_ascii_case("authorization") {
-            format!("Bearer {jwt}")
+        context.auth_header.to_owned(),
+        if context.auth_header.eq_ignore_ascii_case("authorization") {
+            format!("Bearer {token}")
         } else {
-            jwt.to_string()
+            token.clone()
         },
     );
-    let proto_headers = headers
-        .into_iter()
-        .map(|(name, value)| HttpHeaderEntry { name, value })
-        .collect();
-
-    client
+    let response = context
+        .client
         .send_request(SendRequestRequest {
-            method: method.to_string(),
-            url: url.to_string(),
+            method: context.method.to_owned(),
+            url: context.url.to_owned(),
             body: Vec::new(),
-            headers: proto_headers,
+            headers: proto_headers(&headers),
         })
         .await
-        .ok()
-        .filter(|r| r.has_response)
-        .map(|r| r.status)
+        .map_err(|error| format!("JWT `{vector}` probe failed: {error}"))?;
+    let response = require_response(response, &format!("JWT `{vector}` probe failed"))?;
+    Ok(JwtTestResult {
+        vector: vector.to_owned(),
+        modified_jwt: token,
+        status: Some(response.status),
+        length: response.response.len(),
+        bypass_detected: is_success(response.status),
+        description: description.to_owned(),
+    })
 }
 
 // =========================================================================
@@ -551,78 +916,109 @@ pub async fn run_verify_ssrf(
     input: VerifySsrfInput,
 ) -> Result<VerifySsrfOutput, String> {
     use burp_protocol::protocol::{
-        GenerateCollaboratorPayloadsRequest, PollCollaboratorInteractionsRequest,
+        GenerateCollaboratorPayloadsRequest, PageRequest, PollCollaboratorInteractionsRequest,
     };
 
-    let method = input.method.unwrap_or_else(|| "GET".to_string());
-    let count = input.injection_points.len().max(1) as u32;
-    let payloads_resp = client
+    validate_http_url(&input.target_url, "target_url")?;
+    let method = normalize_method(input.method, "GET")?;
+    let base_headers = input.headers.unwrap_or_default();
+    validate_headers(&base_headers)?;
+    if input.injection_points.is_empty() || input.injection_points.len() > MAX_SSRF_INJECTION_POINTS
+    {
+        return Err(format!(
+            "injection_points must contain between 1 and {MAX_SSRF_INJECTION_POINTS} entries"
+        ));
+    }
+    let wait = input.wait_seconds.unwrap_or(4);
+    if wait > MAX_SSRF_WAIT_SECONDS {
+        return Err(format!(
+            "wait_seconds must not exceed {MAX_SSRF_WAIT_SECONDS}"
+        ));
+    }
+    let payloads = client
         .generate_collaborator_payloads(GenerateCollaboratorPayloadsRequest {
-            count,
+            count: input.injection_points.len() as u32,
             target_url: input.target_url.clone(),
-            injection_point: "ssrf_workflow".to_string(),
+            injection_point: "ssrf_workflow".to_owned(),
         })
         .await
-        .map_err(|e| format!("Failed to generate Collaborator payloads: {e}"))?;
-
-    let payloads = payloads_resp.payloads;
-    if payloads.is_empty() {
-        return Err(
-            "no Collaborator payloads available; ensure Collaborator is enabled in Burp"
-                .to_string(),
-        );
+        .map_err(|error| format!("failed to generate Collaborator payloads: {error}"))?
+        .payloads;
+    if payloads.len() != input.injection_points.len() {
+        return Err(format!(
+            "Collaborator generated {} payloads for {} injection points",
+            payloads.len(),
+            input.injection_points.len()
+        ));
     }
 
-    for (i, pt) in input.injection_points.iter().enumerate() {
-        let payload = payloads.get(i).unwrap_or(&payloads[0]);
-        let mut headers = input.headers.clone().unwrap_or_default();
+    for (index, point) in input.injection_points.iter().enumerate() {
+        let payload_url = format!("http://{}", payloads[index]);
+        let mut headers = base_headers.clone();
         let mut target = input.target_url.clone();
-        let mut body_str = input.body.clone().unwrap_or_default();
-
-        if pt.starts_with("header:") {
-            let hdr_name = pt.strip_prefix("header:").unwrap();
-            headers.insert(hdr_name.to_string(), format!("http://{payload}"));
-        } else if pt.starts_with("param:") {
-            let param = pt.strip_prefix("param:").unwrap();
-            let sep = if target.contains('?') { "&" } else { "?" };
-            target = format!("{target}{sep}{param}=http://{payload}");
+        let mut body = input.body.clone().unwrap_or_default();
+        if let Some(name) = point.strip_prefix("header:") {
+            validate_name(name, "SSRF header injection name")?;
+            headers.insert(name.to_owned(), payload_url);
+        } else if let Some(name) = point.strip_prefix("param:") {
+            target = append_query_parameter(&target, name, &payload_url)?;
+        } else if point == "body" || !point.contains(':') {
+            if body.contains("{{ssrf}}") {
+                body = body.replacen("{{ssrf}}", &payload_url, 1);
+            } else {
+                let name = if point == "body" {
+                    "url"
+                } else {
+                    point.as_str()
+                };
+                body = String::from_utf8(form_body(name, &payload_url)?)
+                    .map_err(|error| format!("failed to build SSRF form body: {error}"))?;
+                headers
+                    .entry("Content-Type".to_owned())
+                    .or_insert_with(|| "application/x-www-form-urlencoded".to_owned());
+            }
         } else {
-            body_str = body_str.replace("{{ssrf}}", &format!("http://{payload}"));
+            return Err(format!(
+                "unsupported injection point `{point}`; use header:NAME, param:NAME, body, or a bare body parameter name"
+            ));
         }
-
-        let proto_headers = headers
-            .into_iter()
-            .map(|(name, value)| HttpHeaderEntry { name, value })
-            .collect();
-
-        let _ = client
+        let response = client
             .send_request(SendRequestRequest {
                 method: method.clone(),
                 url: target,
-                body: body_str.into_bytes(),
-                headers: proto_headers,
+                body: body.into_bytes(),
+                headers: proto_headers(&headers),
             })
-            .await;
+            .await
+            .map_err(|error| format!("SSRF probe `{point}` failed: {error}"))?;
+        require_response(response, &format!("SSRF probe `{point}` failed"))?;
     }
 
-    let wait = input.wait_seconds.unwrap_or(4);
     tokio::time::sleep(tokio::time::Duration::from_secs(wait)).await;
-
     let poll = client
-        .poll_collaborator_interactions(PollCollaboratorInteractionsRequest { page: None })
+        .poll_collaborator_interactions(PollCollaboratorInteractionsRequest {
+            page: Some(PageRequest {
+                limit: 100,
+                cursor: String::new(),
+            }),
+        })
         .await
-        .map_err(|e| format!("Failed to poll Collaborator interactions: {e}"))?;
-
-    let interactions_count = poll.items.len();
+        .map_err(|error| format!("failed to poll Collaborator interactions: {error}"))?;
+    let generated = payloads.iter().map(String::as_str).collect::<HashSet<_>>();
+    let interactions_count = correlated_interaction_count(
+        &generated,
+        poll.items
+            .iter()
+            .map(|interaction| interaction.payload.as_str()),
+    );
     let vulnerable = interactions_count > 0;
     let verdict = if vulnerable {
         format!(
-            "CONFIRMED SSRF: Received {interactions_count} interaction(s) via Burp Collaborator"
+            "CONFIRMED SSRF: received {interactions_count} interaction(s) correlated to this workflow's payloads"
         )
     } else {
-        "NO SSRF INTERACTION: No DNS or HTTP callbacks received within timeout".to_string()
+        "NO CORRELATED SSRF INTERACTION: no callback for this workflow's payloads arrived within the wait window".to_owned()
     };
-
     Ok(VerifySsrfOutput {
         target_url: input.target_url,
         payloads_sent: payloads,
@@ -640,7 +1036,7 @@ pub struct VerifySqliBlindInput {
     pub url: String,
     pub method: Option<String>,
     pub param_name: String,
-    pub param_type: Option<String>,
+    pub param_type: Option<ParameterLocation>,
     pub sleep_seconds: Option<u64>,
 }
 
@@ -659,111 +1055,104 @@ pub async fn run_verify_sqli_blind(
     client: &BurpClient,
     input: VerifySqliBlindInput,
 ) -> Result<VerifySqliBlindOutput, String> {
-    let method = input.method.unwrap_or_else(|| "GET".to_string());
+    validate_http_url(&input.url, "url")?;
+    validate_name(&input.param_name, "param_name")?;
+    let method = normalize_method(input.method, "GET")?;
+    let location = ParameterLocation::resolve(input.param_type);
     let sleep_sec = input.sleep_seconds.unwrap_or(4);
+    if sleep_sec == 0 || sleep_sec > MAX_SQLI_SLEEP_SECONDS {
+        return Err(format!(
+            "sleep_seconds must be between 1 and {MAX_SQLI_SLEEP_SECONDS}"
+        ));
+    }
 
-    // 1. Base Request Latency
     let start_base = std::time::Instant::now();
-    let _base_resp = client
-        .send_request(SendRequestRequest {
-            method: method.clone(),
-            url: format!("{}?{}=1", input.url, input.param_name),
-            body: Vec::new(),
-            headers: Vec::new(),
-        })
+    let base = client
+        .send_request(parameterized_request(
+            &method,
+            &input.url,
+            &input.param_name,
+            "1",
+            location,
+        )?)
         .await
-        .map_err(|e| format!("Base SQLi probe failed: {e}"))?;
+        .map_err(|error| format!("baseline SQLi probe failed: {error}"))?;
+    require_response(base, "baseline SQLi probe failed")?;
     let base_latency = start_base.elapsed().as_millis();
 
-    // 2. Boolean True vs False Condition
-    let true_url = format!(
-        "{}?{}={}",
-        input.url,
-        input.param_name,
-        urlencoding_encode("1' AND 1=1-- -")
-    );
-    let false_url = format!(
-        "{}?{}={}",
-        input.url,
-        input.param_name,
-        urlencoding_encode("1' AND 1=2-- -")
-    );
-
-    let true_resp = client
-        .send_request(SendRequestRequest {
-            method: method.clone(),
-            url: true_url,
-            body: Vec::new(),
-            headers: Vec::new(),
-        })
+    let true_response = client
+        .send_request(parameterized_request(
+            &method,
+            &input.url,
+            &input.param_name,
+            "1' AND 1=1-- -",
+            location,
+        )?)
         .await
-        .ok();
-
-    let false_resp = client
-        .send_request(SendRequestRequest {
-            method: method.clone(),
-            url: false_url,
-            body: Vec::new(),
-            headers: Vec::new(),
-        })
+        .map_err(|error| format!("boolean-true SQLi probe failed: {error}"))?;
+    let true_response = require_response(true_response, "boolean-true SQLi probe failed")?;
+    let false_response = client
+        .send_request(parameterized_request(
+            &method,
+            &input.url,
+            &input.param_name,
+            "1' AND 1=2-- -",
+            location,
+        )?)
         .await
-        .ok();
+        .map_err(|error| format!("boolean-false SQLi probe failed: {error}"))?;
+    let false_response = require_response(false_response, "boolean-false SQLi probe failed")?;
+    let true_text = String::from_utf8_lossy(&true_response.response);
+    let false_text = String::from_utf8_lossy(&false_response.response);
+    let diff_score = diff_engine::calculate_similarity(
+        split_http_response(&true_text).body,
+        split_http_response(&false_text).body,
+    );
 
-    let mut diff_score = 1.0;
-    if let (Some(t), Some(f)) = (true_resp, false_resp) {
-        let t_str = String::from_utf8_lossy(&t.response);
-        let f_str = String::from_utf8_lossy(&f.response);
-        diff_score = diff_engine::calculate_similarity(&t_str, &f_str);
-    }
-    // 3. Time-Based Sleep Condition
     let sleep_payload = format!("1' AND SLEEP({sleep_sec})-- -");
-    let sleep_url = format!(
-        "{}?{}={}",
-        input.url,
-        input.param_name,
-        urlencoding_encode(&sleep_payload)
-    );
     let start_sleep = std::time::Instant::now();
-    let _ = client
-        .send_request(SendRequestRequest {
-            method,
-            url: sleep_url,
-            body: Vec::new(),
-            headers: Vec::new(),
-        })
-        .await;
+    let sleep_response = client
+        .send_request(parameterized_request(
+            &method,
+            &input.url,
+            &input.param_name,
+            &sleep_payload,
+            location,
+        )?)
+        .await
+        .map_err(|error| format!("time-based SQLi probe failed: {error}"))?;
+    require_response(sleep_response, "time-based SQLi probe failed")?;
     let sleep_latency = start_sleep.elapsed().as_millis();
 
-    let is_time_sqli =
-        sleep_latency >= (base_latency + (sleep_sec as u128 * 1000).saturating_sub(500));
+    let expected_delay = (sleep_sec as u128 * 1000).saturating_sub(500);
+    let is_time_sqli = sleep_latency.saturating_sub(base_latency) >= expected_delay;
     let is_bool_sqli = diff_score < 0.75;
-
     let (vulnerable, technique, verdict) = if is_time_sqli {
         (
             true,
-            "Time-Based Blind SQLi".to_string(),
+            "Time-Based Blind SQLi".to_owned(),
             format!(
-                "CONFIRMED TIME-BASED SQLI: Sleep payload induced {}ms delay (Base: {}ms)",
-                sleep_latency, base_latency
+                "CONFIRMED TIME-BASED SQLI: sleep probe added {}ms over the {}ms baseline",
+                sleep_latency.saturating_sub(base_latency),
+                base_latency
             ),
         )
     } else if is_bool_sqli {
         (
             true,
-            "Boolean-Based Differential SQLi".to_string(),
+            "Boolean-Based Differential SQLi".to_owned(),
             format!(
-                "CONFIRMED BOOLEAN SQLI: True vs False response similarity dropped to {:.2}",
-                diff_score
+                "CONFIRMED BOOLEAN SQLI: true and false response similarity was {diff_score:.2}"
             ),
         )
     } else {
         (
             false,
-            "None".to_string(),
-            "NO SQLI DETECTED: Responses and latency were within normal baseline".to_string(),
+            "None".to_owned(),
+            "NO SQLI EVIDENCE: response similarity and added latency stayed within thresholds"
+                .to_owned(),
         )
     };
-
     Ok(VerifySqliBlindOutput {
         url: input.url,
         boolean_diff_score: diff_score,
@@ -773,10 +1162,6 @@ pub async fn run_verify_sqli_blind(
         technique,
         verdict,
     })
-}
-
-fn urlencoding_encode(s: &str) -> String {
-    url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
 }
 
 // =========================================================================
@@ -805,63 +1190,67 @@ pub async fn run_audit_graphql(
     client: &BurpClient,
     input: AuditGraphqlInput,
 ) -> Result<AuditGraphqlOutput, String> {
-    let mut issues = Vec::new();
+    validate_http_url(&input.endpoint, "endpoint")?;
     let base_headers = input.headers.unwrap_or_default();
-
+    validate_headers(&base_headers)?;
     let test_introspection = input.test_introspection.unwrap_or(true);
     let test_field_suggestions = input.test_field_suggestions.unwrap_or(true);
     let test_batching = input.test_batching.unwrap_or(true);
+    if !test_introspection && !test_field_suggestions && !test_batching {
+        return Err("at least one GraphQL audit check must be enabled".to_owned());
+    }
+    let mut issues = Vec::new();
 
-    // 1. Test Introspection
     let introspection_enabled = if test_introspection {
-        let intro_query = r#"{"query": "{__schema{types{name}}}"}"#;
-        let intro_resp =
-            send_graphql_post(client, &input.endpoint, &base_headers, intro_query).await;
-        let enabled = intro_resp
-            .as_ref()
-            .map(|r| r.contains("__schema") && r.contains("types"))
-            .unwrap_or(false);
+        let response = send_graphql_post(
+            client,
+            &input.endpoint,
+            &base_headers,
+            r#"{"query":"{__schema{types{name}}}"}"#,
+            "introspection",
+        )
+        .await?;
+        let enabled = graphql_json(&response).is_some_and(|json| graphql_has_introspection(&json));
         if enabled {
-            issues.push(
-                "GraphQL Introspection is publicly enabled (Full schema exposure)".to_string(),
-            );
+            issues.push("GraphQL introspection is enabled and exposed the schema".to_owned());
         }
         enabled
     } else {
         false
     };
 
-    // 2. Test Field Suggestions
-    let field_suggestions = if test_field_suggestions {
-        let suggestion_query = r#"{"query": "{__schema_invalid_query_field}"}"#;
-        let sugg_resp =
-            send_graphql_post(client, &input.endpoint, &base_headers, suggestion_query).await;
-        let enabled = sugg_resp
-            .as_ref()
-            .map(|r| r.contains("Did you mean") || r.contains("suggestion"))
-            .unwrap_or(false);
+    let field_suggestions_enabled = if test_field_suggestions {
+        let response = send_graphql_post(
+            client,
+            &input.endpoint,
+            &base_headers,
+            r#"{"query":"{__schema_invalid_query_field}"}"#,
+            "field-suggestion",
+        )
+        .await?;
+        let enabled = graphql_json(&response).is_some_and(|json| graphql_has_suggestions(&json));
         if enabled {
-            issues.push("GraphQL Field Suggestions are enabled in error responses".to_string());
+            issues.push("GraphQL error responses expose field suggestions".to_owned());
         }
         enabled
     } else {
         false
     };
 
-    // 3. Test Batching Amplification
     let batching_supported = if test_batching {
-        let batch_query =
-            r#"[{"query":"{__typename}"},{"query":"{__typename}"},{"query":"{__typename}"}]"#;
-        let batch_resp =
-            send_graphql_post(client, &input.endpoint, &base_headers, batch_query).await;
-        let supported = batch_resp
-            .as_deref()
-            .map(is_batching_supported_response)
-            .unwrap_or(false);
+        let response = send_graphql_post(
+            client,
+            &input.endpoint,
+            &base_headers,
+            r#"[{"query":"{__typename}"},{"query":"{__typename}"},{"query":"{__typename}"}]"#,
+            "batching",
+        )
+        .await?;
+        let supported = graphql_json(&response).is_some_and(|json| graphql_batch_supported(&json));
         if supported {
             issues.push(
-                "GraphQL Array Batching is supported (Potential rate limit / brute force bypass)"
-                    .to_string(),
+                "GraphQL array batching is supported and may amplify rate-limit bypasses"
+                    .to_owned(),
             );
         }
         supported
@@ -869,27 +1258,14 @@ pub async fn run_audit_graphql(
         false
     };
 
-    let vulnerable = !issues.is_empty();
     Ok(AuditGraphqlOutput {
         endpoint: input.endpoint,
         introspection_enabled,
-        field_suggestions_enabled: field_suggestions,
+        field_suggestions_enabled,
         batching_supported,
-        vulnerable,
+        vulnerable: !issues.is_empty(),
         issues_found: issues,
     })
-}
-
-fn extract_http_response_body(raw: &str) -> &str {
-    raw.split_once("\r\n\r\n")
-        .or_else(|| raw.split_once("\n\n"))
-        .map(|(_, body)| body)
-        .unwrap_or(raw)
-}
-
-fn is_batching_supported_response(raw: &str) -> bool {
-    let body = extract_http_response_body(raw).trim_start();
-    body.starts_with('[') && body.contains("__typename")
 }
 
 async fn send_graphql_post(
@@ -897,25 +1273,27 @@ async fn send_graphql_post(
     endpoint: &str,
     base_headers: &HashMap<String, String>,
     body: &str,
-) -> Option<String> {
+    probe: &str,
+) -> Result<String, String> {
     let mut headers = base_headers.clone();
-    headers.insert("Content-Type".to_string(), "application/json".to_string());
-    let proto_headers = headers
-        .into_iter()
-        .map(|(name, value)| HttpHeaderEntry { name, value })
-        .collect();
-
-    client
+    headers.insert("Content-Type".to_owned(), "application/json".to_owned());
+    let response = client
         .send_request(SendRequestRequest {
-            method: "POST".to_string(),
-            url: endpoint.to_string(),
+            method: "POST".to_owned(),
+            url: endpoint.to_owned(),
             body: body.as_bytes().to_vec(),
-            headers: proto_headers,
+            headers: proto_headers(&headers),
         })
         .await
-        .ok()
-        .filter(|r| r.has_response)
-        .map(|r| String::from_utf8_lossy(&r.response).into_owned())
+        .map_err(|error| format!("GraphQL {probe} probe failed: {error}"))?;
+    let response = require_response(response, &format!("GraphQL {probe} probe failed"))?;
+    if response.status >= 500 {
+        return Err(format!(
+            "GraphQL {probe} probe returned server error HTTP {}",
+            response.status
+        ));
+    }
+    Ok(String::from_utf8_lossy(&response.response).into_owned())
 }
 
 // =========================================================================
@@ -939,40 +1317,49 @@ pub struct VerifyCsrfOutput {
 }
 
 pub async fn run_verify_csrf_samesite(
-    _client: &BurpClient,
+    client: &BurpClient,
     input: VerifyCsrfInput,
 ) -> Result<VerifyCsrfOutput, String> {
-    let method = input
-        .method
-        .unwrap_or_else(|| "POST".to_string())
-        .to_ascii_uppercase();
+    validate_http_url(&input.url, "url")?;
+    validate_name(&input.session_cookie_name, "session_cookie_name")?;
+    let method = normalize_method(input.method, "POST")?;
+    if matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS" | "TRACE") {
+        return Err(
+            "method must be state-changing; use POST, PUT, PATCH, DELETE, or another mutating method"
+                .to_owned(),
+        );
+    }
     let body = input.body.unwrap_or_default();
-
-    let poc_html = format!(
-        r#"<!DOCTYPE html>
-<html>
-<head><title>CSRF PoC</title></head>
-<body onload="document.forms[0].submit()">
-  <h3>Cross-Site Request Forgery PoC</h3>
-  <form action="{}" method="{}" enctype="application/x-www-form-urlencoded">
-    <input type="hidden" name="payload" value="{}" />
-    <input type="submit" value="Submit Request" />
-  </form>
-</body>
-</html>"#,
-        input.url,
-        method,
-        html_escape::encode_text(&body)
-    );
-
+    let response = client
+        .send_request(SendRequestRequest {
+            method: method.clone(),
+            url: input.url.clone(),
+            body: body.as_bytes().to_vec(),
+            headers: vec![HttpHeaderEntry {
+                name: "Content-Type".to_owned(),
+                value: "application/x-www-form-urlencoded".to_owned(),
+            }],
+        })
+        .await
+        .map_err(|error| format!("CSRF probe failed: {error}"))?;
+    let response = require_response(response, "CSRF probe failed")?;
+    let raw_response = String::from_utf8_lossy(&response.response);
+    let same_site = cookie_samesite(&raw_response, &input.session_cookie_name)
+        .unwrap_or_else(|| "Unknown".to_owned());
+    let vulnerable = csrf_is_vulnerable(response.status, &same_site);
+    let remediation = if matches!(response.status, 401 | 403) {
+        "The unauthenticated cross-site-style request was denied; retain token/origin validation and verify every mutating endpoint."
+    } else if same_site.eq_ignore_ascii_case("unknown") {
+        "No matching Set-Cookie was observed. Inspect the active session cookie and require anti-CSRF tokens or strict Origin validation before drawing a conclusion."
+    } else {
+        "Enforce SameSite=Lax or SameSite=Strict where compatible and require anti-CSRF tokens or strict Origin validation for mutating requests."
+    };
     Ok(VerifyCsrfOutput {
-        url: input.url,
-        samesite_attribute: "None/Unset".to_string(),
-        is_vulnerable: true,
-        poc_html,
-        remediation:
-            "Enforce SameSite=Lax or SameSite=Strict and implement anti-CSRF synchronizer tokens"
-                .to_string(),
+        url: input.url.clone(),
+        samesite_attribute: same_site,
+        is_vulnerable: vulnerable,
+        poc_html: csrf_poc(&input.url, &method, &body),
+        remediation: remediation.to_owned(),
     })
 }
 
@@ -1049,72 +1436,75 @@ pub async fn run_api_fuzz_orchestrator(
     client: &BurpClient,
     input: ApiFuzzOrchestratorInput,
 ) -> Result<ApiFuzzOrchestratorOutput, String> {
+    validate_http_url(&input.target_base_url, "target_base_url")?;
+    let base_headers = input.auth_headers.unwrap_or_default();
+    validate_headers(&base_headers)?;
     let payloads = resolve_fuzz_categories(input.fuzz_categories.as_deref())?;
-
+    if payloads.is_empty() {
+        return Err("fuzz_categories must select at least one category".to_owned());
+    }
     let observations = sitegraph::ingest::openapi::observations(
         input.spec_content.as_bytes(),
         &input.target_base_url,
         100,
     )
-    .map_err(|e| format!("Failed to parse OpenAPI spec: {e}"))?;
+    .map_err(|error| format!("failed to parse OpenAPI spec: {error}"))?;
+    if observations.is_empty() {
+        return Err("OpenAPI spec contains no supported HTTP operations".to_owned());
+    }
 
     let mut anomalies = Vec::new();
     let mut requests_sent = 0;
-    let base_headers = input.auth_headers.unwrap_or_default();
-
-    for obs in &observations {
-        for (cat, p) in &payloads {
-            requests_sent += 1;
-            let sep = if obs.url.contains('?') { "&" } else { "?" };
-            let fuzz_url = format!("{}{sep}fuzz={}", obs.url, urlencoding_encode(p));
-            let proto_headers = base_headers
-                .iter()
-                .map(|(k, v)| HttpHeaderEntry {
-                    name: k.clone(),
-                    value: v.clone(),
-                })
-                .collect();
-
-            let send_result = client
+    for observation in &observations {
+        for (category, payload) in &payloads {
+            let fuzz_url = append_query_parameter(&observation.url, "fuzz", payload)?;
+            let response = client
                 .send_request(SendRequestRequest {
-                    method: obs.method.clone(),
+                    method: observation.method.clone(),
                     url: fuzz_url,
                     body: Vec::new(),
-                    headers: proto_headers,
+                    headers: proto_headers(&base_headers),
                 })
-                .await;
-
-            if let Some(resp) = send_result
-                .ok()
-                .filter(|r| r.has_response && r.status >= 500)
-            {
+                .await
+                .map_err(|error| {
+                    format!(
+                        "API fuzz request for {} {} ({category}) failed: {error}",
+                        observation.method, observation.url
+                    )
+                })?;
+            let response = require_response(
+                response,
+                &format!(
+                    "API fuzz request for {} {} ({category}) failed",
+                    observation.method, observation.url
+                ),
+            )?;
+            requests_sent += 1;
+            if response.status >= 500 {
                 anomalies.push(ApiFuzzAnomaly {
-                    method: obs.method.clone(),
-                    endpoint: obs.url.clone(),
-                    status: resp.status,
-                    payload_category: cat.to_string(),
+                    method: observation.method.clone(),
+                    endpoint: observation.url.clone(),
+                    status: response.status,
+                    payload_category: (*category).to_owned(),
                     description: format!(
-                        "Server returned HTTP {} (Internal Error) for {} mutation",
-                        resp.status, cat
+                        "Server returned HTTP {} for the {category} mutation",
+                        response.status
                     ),
                 });
             }
         }
     }
 
-    let total_endpoints = observations.len();
-    let summary = format!(
-        "Fuzzed {} endpoints with {} requests. Found {} anomalies.",
-        total_endpoints,
-        requests_sent,
-        anomalies.len()
-    );
-
     Ok(ApiFuzzOrchestratorOutput {
-        total_endpoints_fuzzed: total_endpoints,
+        total_endpoints_fuzzed: observations.len(),
         total_requests_sent: requests_sent,
+        summary: format!(
+            "Fuzzed {} endpoints with {} completed requests; found {} server-error anomalies.",
+            observations.len(),
+            requests_sent,
+            anomalies.len()
+        ),
         anomalies,
-        summary,
     })
 }
 
@@ -1122,59 +1512,187 @@ pub async fn run_api_fuzz_orchestrator(
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_extract_http_response_body_and_batching_detection() {
-        let raw_http_response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n[{\"data\":{\"__typename\":\"Query\"}}]";
-        assert!(is_batching_supported_response(raw_http_response));
-
-        let status_only_bracket = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"data\":{\"__typename\":\"Query\"}}";
-        assert!(!is_batching_supported_response(status_only_bracket));
-
-        // Leading HTTP status line should NOT be checked for '['
-        let raw_without_bracket_body = "HTTP/1.1 200 OK\r\n\r\nNot an array response";
-        assert!(!is_batching_supported_response(raw_without_bracket_body));
-
-        // Response with leading whitespace in body
-        let raw_whitespace = "HTTP/1.1 200 OK\r\n\r\n   [{\"__typename\":\"A\"}]";
-        assert!(is_batching_supported_response(raw_whitespace));
-
-        // Response with \n\n separator
-        let raw_lf = "HTTP/1.1 200 OK\n\n[{\"__typename\":\"B\"}]";
-        assert!(is_batching_supported_response(raw_lf));
-
-        // Bare body without headers
-        let bare = "[{\"__typename\":\"C\"}]";
-        assert!(is_batching_supported_response(bare));
+    fn response(status: u32, raw: &str) -> SendRequestResponse {
+        SendRequestResponse {
+            request: Vec::new(),
+            response: raw.as_bytes().to_vec(),
+            status,
+            has_response: true,
+        }
     }
 
     #[test]
-    fn test_resolve_fuzz_categories_defaults_and_filtering() {
-        // Absent categories defaults to all four
-        let default_cats = resolve_fuzz_categories(None).expect("defaults must resolve");
-        let names: Vec<&str> = default_cats.iter().map(|(c, _)| *c).collect();
-        assert_eq!(names, vec!["sqli", "xss", "overflow", "traversal"]);
+    fn idor_pattern_on_denied_response_is_not_confirmation() {
+        let baseline = response(200, "HTTP/1.1 200 OK\r\n\r\nsecret resource");
+        let denied = response(
+            403,
+            "HTTP/1.1 403 Forbidden\r\n\r\nsecret marker in error message",
+        );
+        let (vulnerable, pattern_matched, verdict) =
+            classify_idor(&baseline, &denied, Some("secret"), 0.95);
+        assert!(!vulnerable);
+        assert!(!pattern_matched);
+        assert!(verdict.starts_with("PROTECTED"));
+    }
 
-        // Filtered subset retaining canonical order regardless of input order
-        let input = vec!["traversal".to_string(), "sqli".to_string()];
-        let resolved = resolve_fuzz_categories(Some(&input)).expect("subset must resolve");
-        let resolved_names: Vec<&str> = resolved.iter().map(|(c, _)| *c).collect();
-        assert_eq!(resolved_names, vec!["sqli", "traversal"]);
+    #[test]
+    fn idor_requires_successful_baseline_and_candidate() {
+        let baseline = response(500, "HTTP/1.1 500 Error\r\n\r\nsame");
+        let candidate = response(200, "HTTP/1.1 200 OK\r\n\r\nsame");
+        assert!(!classify_idor(&baseline, &candidate, None, 1.0).0);
+    }
 
-        // Deduplication
-        let input_dup = vec![
-            "xss".to_string(),
-            "overflow".to_string(),
-            "xss".to_string(),
-            "overflow".to_string(),
-        ];
-        let resolved_dup = resolve_fuzz_categories(Some(&input_dup)).expect("dedup must resolve");
-        let dup_names: Vec<&str> = resolved_dup.iter().map(|(c, _)| *c).collect();
-        assert_eq!(dup_names, vec!["xss", "overflow"]);
+    #[test]
+    fn cors_parser_ignores_header_like_response_body_text() {
+        let raw = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nAccess-Control-Allow-Origin: https://evil.example\r\nAccess-Control-Allow-Credentials: true";
+        assert_eq!((None, None), cors_headers(raw));
+    }
 
-        // Unknown category is rejected with clear error
-        let input_unknown = vec!["sqli".to_string(), "unknown_cat".to_string()];
-        let err = resolve_fuzz_categories(Some(&input_unknown)).unwrap_err();
-        assert!(err.contains("Unknown fuzz category 'unknown_cat'"));
-        assert!(err.contains("Supported categories are: sqli, xss, overflow, traversal"));
+    #[test]
+    fn cors_parser_matches_case_insensitive_names_and_preserves_values() {
+        let raw = "HTTP/1.1 200 OK\r\naCcEsS-CoNtRoL-aLlOw-OrIgIn: https://Case.Example\r\nACCESS-CONTROL-ALLOW-CREDENTIALS: TRUE\r\n\r\nbody";
+        assert_eq!(
+            (
+                Some("https://Case.Example".to_owned()),
+                Some("TRUE".to_owned())
+            ),
+            cors_headers(raw)
+        );
+    }
+
+    #[test]
+    fn ssrf_correlation_excludes_ambient_historical_interactions() {
+        let payloads = HashSet::from(["current.oast.test"]);
+        assert_eq!(
+            1,
+            correlated_interaction_count(
+                &payloads,
+                ["old.oast.test", "current.oast.test", "unrelated.oast.test"]
+            )
+        );
+    }
+
+    #[test]
+    fn query_parameter_append_preserves_existing_query_and_fragment() {
+        let output = append_query_parameter(
+            "https://example.test/path?existing=1#section",
+            "next",
+            "a b&c",
+        )
+        .unwrap();
+        let parsed = Url::parse(&output).unwrap();
+        assert_eq!(Some("section"), parsed.fragment());
+        assert_eq!(
+            vec![
+                ("existing".to_owned(), "1".to_owned()),
+                ("next".to_owned(), "a b&c".to_owned())
+            ],
+            parsed
+                .query_pairs()
+                .map(|(name, value)| (name.into_owned(), value.into_owned()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn body_parameter_mode_encodes_form_data_and_schema_is_typed() {
+        let request = parameterized_request(
+            "POST",
+            "https://example.test/search",
+            "id",
+            "1' AND 1=2",
+            ParameterLocation::Body,
+        )
+        .unwrap();
+        assert_eq!("https://example.test/search", request.url);
+        assert_eq!(b"id=1%27+AND+1%3D2", request.body.as_slice());
+        assert_eq!(
+            "application/x-www-form-urlencoded",
+            request.headers[0].value
+        );
+
+        let schema = serde_json::to_value(schemars::schema_for!(VerifySqliBlindInput)).unwrap();
+        let serialized = schema.to_string();
+        assert!(serialized.contains("query"));
+        assert!(serialized.contains("body"));
+    }
+
+    #[test]
+    fn graphql_evidence_requires_structural_json_shapes() {
+        let misleading = serde_json::json!({"message": "__schema types Did you mean __typename"});
+        assert!(!graphql_has_introspection(&misleading));
+        assert!(!graphql_has_suggestions(&misleading));
+        assert!(!graphql_batch_supported(&misleading));
+
+        assert!(graphql_has_introspection(
+            &serde_json::json!({"data": {"__schema": {"types": []}}})
+        ));
+        assert!(graphql_has_suggestions(
+            &serde_json::json!({"errors": [{"message": "Did you mean 'user'?"}]})
+        ));
+        assert!(graphql_batch_supported(&serde_json::json!([
+            {"data": {"__typename": "Query"}},
+            {"data": {"__typename": "Query"}},
+            {"data": {"__typename": "Query"}}
+        ])));
+    }
+
+    #[test]
+    fn csrf_cookie_parser_targets_named_cookie_and_requires_success() {
+        let raw = "HTTP/1.1 200 OK\r\nSet-Cookie: other=x; SameSite=Strict\r\nset-cookie: SESSION=abc; Path=/; samesite=None; Secure\r\n\r\n{}";
+        assert_eq!(Some("None".to_owned()), cookie_samesite(raw, "session"));
+        assert!(csrf_is_vulnerable(200, "None"));
+        assert!(!csrf_is_vulnerable(403, "None"));
+        assert!(!csrf_is_vulnerable(200, "Strict"));
+        assert!(!csrf_is_vulnerable(200, "Unknown"));
+    }
+
+    #[test]
+    fn csrf_poc_escapes_every_attribute_context() {
+        let poc = csrf_poc(
+            "https://example.test/?x=\" onmouseover=\"alert(1)",
+            "POST",
+            "\"/><script>alert(1)</script>",
+        );
+        assert!(!poc.contains("onmouseover=\"alert(1)"));
+        assert!(!poc.contains("\"/><script>"));
+        assert!(poc.contains("&quot;"));
+    }
+
+    #[test]
+    fn workflow_validation_rejects_injection_shaped_inputs() {
+        assert!(validate_http_url("file:///tmp/test", "url").is_err());
+        assert!(normalize_method(Some("GET\r\nInjected: x".to_owned()), "GET").is_err());
+        assert!(
+            validate_headers(&HashMap::from([(
+                "X-Test".to_owned(),
+                "ok\r\nInjected: yes".to_owned()
+            )]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn resolve_fuzz_categories_defaults_filtering_and_errors() {
+        let defaults = resolve_fuzz_categories(None).unwrap();
+        assert_eq!(
+            vec!["sqli", "xss", "overflow", "traversal"],
+            defaults.iter().map(|(name, _)| *name).collect::<Vec<_>>()
+        );
+
+        let requested = vec!["traversal".to_owned(), "sqli".to_owned(), "sqli".to_owned()];
+        assert_eq!(
+            vec!["sqli", "traversal"],
+            resolve_fuzz_categories(Some(&requested))
+                .unwrap()
+                .iter()
+                .map(|(name, _)| *name)
+                .collect::<Vec<_>>()
+        );
+
+        let unknown = vec!["unknown".to_owned()];
+        assert!(resolve_fuzz_categories(Some(&unknown)).is_err());
+        let empty = Vec::<String>::new();
+        assert!(resolve_fuzz_categories(Some(&empty)).unwrap().is_empty());
     }
 }

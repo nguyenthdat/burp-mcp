@@ -107,15 +107,15 @@ Burp MCP registers **42 tools by default** (41 Burp tools + 1 offline Decoder to
 
 | Tool | Description | Read-Only |
 |---|---|:---:|
-| `burp_verify_idor` | Automated IDOR verification across two user authorization contexts (User A vs User B). | No |
-| `burp_check_cors` | Automated CORS vulnerability auditing with origin reflection analysis. | No |
-| `burp_auth_matrix` | Automated role-based access control matrix across multiple endpoints. | No |
-| `burp_audit_jwt` | Automated JWT vulnerability audit (None algorithm, RS256 -> HS256 key confusion, and claim tampering). | No |
-| `burp_verify_ssrf` | Automated SSRF verification with Collaborator interaction polling and payload correlation. | No |
-| `burp_verify_sqli_blind` | Differential boolean-based and timing statistical blind SQL injection verification. | No |
-| `burp_audit_graphql` | Automated GraphQL security audit (Introspection, Field Suggestions, and Query Batching). | No |
-| `burp_verify_csrf_samesite` | Automated CSRF risk audit, SameSite cookie evaluation, and auto-generated HTML PoC form. | No |
-| `burp_api_fuzz_orchestrator` | Automated specification-driven API fuzzing from OpenAPI 2.0 / 3.0 or Swagger documents. | No |
+| `burp_verify_idor` | Verify IDOR between two authorization contexts; only successful 2xx responses can confirm, and denied/error bodies never do. | No |
+| `burp_check_cors` | Audit CORS from response headers only; bounded origins and failed probes are reported explicitly. | No |
+| `burp_auth_matrix` | Run a bounded role-by-endpoint access-control matrix; failed probes are errors, not silent denials. | No |
+| `burp_audit_jwt` | Audit exactly three-segment JWTs with bounded malicious probes and response status/length evidence. | No |
+| `burp_verify_ssrf` | Send bounded Collaborator probes and count only callbacks whose payload matches this run; use `header:NAME`, `param:NAME`, `body`, or a bare body parameter name. | No |
+| `burp_verify_sqli_blind` | Run bounded differential/timing probes; `param_type` is `query` (default) or `body`, preserving existing query parameters. | No |
+| `burp_audit_graphql` | Audit GraphQL using structural JSON evidence for introspection, suggestions, and three-request array batching. | No |
+| `burp_verify_csrf_samesite` | Probe a state-changing endpoint, inspect the named `Set-Cookie` SameSite attribute, and generate an escaped PoC; denied/no-response results are not confirmations. | No |
+| `burp_api_fuzz_orchestrator` | Run bounded OpenAPI/Swagger fuzzing; report completed requests and HTTP 5xx anomalies, failing explicitly on transport/no-response errors. | No |
 ### 4. Active UI & Desktop Editor Integration (3 tools)
 
 | Tool | Parameters | Description | Read-Only |

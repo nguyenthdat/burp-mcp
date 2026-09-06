@@ -181,15 +181,15 @@ Response Comparer & Diff engine.
 
 | Tool | Purpose | Preliminary live check |
 |---|---|---|
-| `burp_verify_idor` | Automated IDOR verification across two user authorization contexts (User A vs User B). | Send requests with original and victim auth headers, verify similarity and differential verdict. |
-| `burp_check_cors` | Automated CORS vulnerability auditing with origin reflections, wildcard checks, and credentials evaluation. | Pass target URL, review generated findings across test origins. |
-| `burp_auth_matrix` | Automated role-based access control matrix across multiple endpoints and user roles. | Submit matrix of endpoints and role headers, evaluate access violations. |
-| `burp_audit_jwt` | Automated JWT vulnerability audit (None algorithm, RS256 -> HS256 key confusion, and claim tampering). | Provide target JWT, verify rejection of forged tokens. |
-| `burp_verify_ssrf` | Automated SSRF verification with Collaborator interaction polling and payload correlation. | Provide target URL and injection points, verify callback detection. |
-| `burp_verify_sqli_blind` | Differential boolean-based and timing statistical blind SQL injection verification. | Provide target parameter, verify cosine diff score and timing delays. |
-| `burp_audit_graphql` | Automated GraphQL security audit (Introspection, Field Suggestions, and Query Batching). | Provide GraphQL endpoint, review enabled introspection/batching. |
-| `burp_verify_csrf_samesite` | Automated CSRF risk audit, SameSite cookie evaluation, and auto-generated HTML PoC form. | Provide target endpoint, inspect cookie flags and generated HTML PoC. |
-| `burp_api_fuzz_orchestrator` | Automated specification-driven API fuzzing from OpenAPI 2.0 / 3.0 or Swagger documents. | Provide OpenAPI spec string, verify bounded batch mutations and anomaly detection. |
+| `burp_verify_idor` | Verify IDOR between two authorization contexts; only successful 2xx responses can confirm and denied/error bodies never do. | Send vulnerable and protected fixture requests; verify decisive versus protected verdicts. |
+| `burp_check_cors` | Audit CORS from response headers only, with bounded origins and explicit probe failures. | Test reflected and restricted origins; ensure body text is not parsed as headers. |
+| `burp_auth_matrix` | Run a bounded role-by-endpoint access-control matrix; failed probes are explicit errors. | Submit admin/user/guest roles and verify every completed cell. |
+| `burp_audit_jwt` | Audit exactly three-segment JWTs with bounded malicious probes and status/length evidence. | Verify rejected vectors and inspect each result status. |
+| `burp_verify_ssrf` | Send bounded Collaborator probes and count only callbacks matching payloads generated in this run. | Use `header:NAME`, `param:NAME`, `body`, or a bare body parameter name; inspect correlation count. |
+| `burp_verify_sqli_blind` | Run bounded differential/timing probes; `param_type` is `query` (default) or `body`, preserving existing query parameters. | Verify query and form-body probes against controlled fixtures. |
+| `burp_audit_graphql` | Audit GraphQL using structural JSON evidence for introspection, suggestions, and three-request array batching. | Enable checks selectively and inspect evidence fields. |
+| `burp_verify_csrf_samesite` | Probe a state-changing endpoint, inspect the named `Set-Cookie` SameSite attribute, and generate an escaped PoC. | Compare accepted `None` with token-protected/denied responses; GET is rejected. |
+| `burp_api_fuzz_orchestrator` | Run bounded OpenAPI/Swagger fuzzing and report completed requests plus HTTP 5xx anomalies; transport/no-response failures stop explicitly. | Use a small spec and assert request/anomaly counts. |
 
 ---
 

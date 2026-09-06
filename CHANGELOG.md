@@ -25,6 +25,7 @@ This release represents a comprehensive overhaul of Burp MCP, transforming it fr
 - Session-rule upsert now creates missing caller-supplied IDs across both current and older extension behavior, replaces existing rules idempotently, and avoids registering disabled handlers.
 - Organizer listings tolerate null, malformed, or partially unavailable Montoya metadata instead of failing the entire page.
 - Payload-list `replace_all`, GraphQL audit flags/batch-body detection, and deterministic API-fuzz category selection now match their published contracts.
+- Compound security workflows now enforce bounded HTTP(S) inputs, preserve request failures as errors, and use structural response evidence: successful-response-only IDOR matching, response-header-only CORS parsing, current-run Collaborator correlation, typed query/body SQLi injection, real SameSite cookie inspection for CSRF, and completed-request accounting for API fuzzing.
 
 ---
 

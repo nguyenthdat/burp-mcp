@@ -88,10 +88,16 @@ Use `burp_fuzzer` action `fuzz` with `attack_mode`:
 - `sniper`: Tests each marker position sequentially with individual payload lists.
 ## Compound Security Workflows
 
-High-level automated workflows reduce round-trips:
-- `burp_verify_idor`: Automated IDOR verification sending requests with original and victim auth headers and analyzing similarity / pattern leaks.
-- `burp_check_cors`: Comprehensive CORS audit against test origins (`evil.com`, `null`, subdomain trusts) checking `Access-Control-Allow-Origin` and `Access-Control-Allow-Credentials`.
-- `burp_auth_matrix`: Matrix testing of endpoints against multiple roles (Admin, User, Unauthenticated/Guest) with automated access control violation detection.
+High-level workflows reduce round-trips while preserving explicit evidence boundaries:
+- `burp_verify_idor`: Send the same request under original and victim authorization. Confirmation requires successful 2xx responses in both contexts plus similarity/pattern evidence; a denied or error body containing the pattern is never confirmation.
+- `burp_check_cors`: Send bounded origin probes and parse `Access-Control-*` fields from the HTTP response header block only. A body string that looks like a header is ignored; transport and no-response failures are surfaced.
+- `burp_auth_matrix`: Evaluate a bounded endpoint × role matrix. Each cell requires a completed HTTP response; successful guest/anonymous access is reported as a potential violation.
+- `burp_audit_jwt`: Supply an exactly three-segment JWT. Malicious probe results include status and response length; malformed input is rejected before network calls.
+- `burp_verify_ssrf`: Generate one Collaborator payload per bounded injection point. Use `header:NAME`, `param:NAME`, `body`, or a bare body parameter name; only callbacks carrying a generated payload from this run count.
+- `burp_verify_sqli_blind`: Run bounded true/false/timing probes. `param_type` is `query` by default or `body`; existing query parameters are preserved and form values are encoded.
+- `burp_audit_graphql`: Parse JSON response shapes for introspection, field suggestions, and a three-item batch response. Substrings in unrelated fields do not count.
+- `burp_verify_csrf_samesite`: Use a state-changing method. The tool sends a real request, reads the named cookie's `Set-Cookie` SameSite attribute, and emits an escaped PoC. Accepted 2xx + `None`/unset is vulnerable evidence; denied or missing-response results are not.
+- `burp_api_fuzz_orchestrator`: Fuzz a bounded OpenAPI/Swagger operation set and report completed requests plus HTTP 5xx anomalies. Network/no-response failures stop the workflow instead of being silently treated as safe.
 ## Repeater
 
 [Repeater](https://portswigger.net/burp/documentation/desktop/tools/repeater) modifies and resends HTTP or WebSocket messages. Common uses:
