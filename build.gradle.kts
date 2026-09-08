@@ -12,8 +12,8 @@ val sitegraphRulePackSha256 = "62195a9a9f6ec090a8e9094057f3e7cc569e4611b8fe5c6fa
 group = "io.github.nguyenthdat.burpmcp"
 version = providers.gradleProperty("version").orElse("3.3.0").get()
 
-val grpcVersion = "1.83.1"
-val protobufVersion = "4.36.0"
+val grpcVersion = "1.84.0"
+val protobufVersion = "4.36.1"
 
 repositories {
     mavenCentral()
